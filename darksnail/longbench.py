@@ -214,8 +214,8 @@ def attach_layer16_beltrami_hook(model: nn.Module, layer_idx: int = 16) -> Beltr
     shell = BeltramiCallosalShell(
         d_model=d_model,
         target_tokens=32,
-        num_outliers=16,
-        num_clusters=16,
+        outlier_budget=16,
+        condensed_budget=16,
         d_shell=8,
         shield_radius=2,
     ).to(next(model.parameters()).device)
@@ -228,10 +228,13 @@ def attach_layer16_beltrami_hook(model: nn.Module, layer_idx: int = 16) -> Beltr
         h = output[0] if isinstance(output, tuple) else output
         if isinstance(h, torch.Tensor) and h.dim() == 3 and h.shape[1] > 1:
             with torch.no_grad():
-                _, telemetry = shell(h.detach(), return_telemetry=True)
+                h_win = h[:, -min(256, h.shape[1]) :, :].detach()
+                _, telemetry = shell(h_win, return_diagnostics=True)
+                z_val = telemetry.get("zeno_flux", 0.0)
+                l_val = telemetry.get("lca_variance", 0.0)
                 model._darksnail_layer16_telemetry = {
-                    "zeno_flux": float(telemetry["zeno_flux"].mean().item()),
-                    "lca_variance": float(telemetry["lca_variance"].mean().item()),
+                    "zeno_flux": float(z_val.mean().item() if isinstance(z_val, torch.Tensor) else z_val),
+                    "lca_variance": float(l_val.mean().item() if isinstance(l_val, torch.Tensor) else l_val),
                 }
 
     model._darksnail_layer16_hook_handle = layers[target_idx].register_forward_hook(_hook)

@@ -517,8 +517,20 @@ def test_darksnail_long_context_shield_and_block_bridge():
     budget_ds_eager = attn.last_mean_allowed_keys
     assert budget_ds_eager <= budget_v4_eager + 1e-4
 
-    # 3. Verify QASPER F1 scorer & V4 baseline reference loader
+    # 3. Verify QASPER F1 scorer, V4 baseline reference loader, and Layer-16 hook
     assert abs(score_qasper_f1("The spherical coordinates.", ["spherical coordinates"]) - 1.0) < 1e-6
     refs = load_v4_baseline_references()
     assert "qasper_v4_200" in refs and "banal_niah_v4_50" in refs
+
+    from darksnail.longbench import attach_layer16_beltrami_hook
+    mock_llama = SimpleNamespace(
+        config=SimpleNamespace(hidden_size=64),
+        layers=nn.ModuleList([nn.Linear(64, 64) for _ in range(17)]),
+        parameters=lambda: iter([torch.zeros(1)]),
+    )
+    hook_shell = attach_layer16_beltrami_hook(mock_llama, layer_idx=16)
+    _ = mock_llama.layers[16](torch.randn(1, 48, 64))
+    assert "zeno_flux" in mock_llama._darksnail_layer16_telemetry
+    _, tel = hook_shell(torch.randn(1, 48, 64), return_telemetry=True)
+    assert "zeno_flux" in tel
 

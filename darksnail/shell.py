@@ -57,13 +57,16 @@ class BeltramiCallosalShell(nn.Module):
         hook_layer: int = 16,
         num_outliers: Optional[int] = None,
         num_medoids: Optional[int] = None,
+        num_clusters: Optional[int] = None,
     ):
         super().__init__()
         if num_outliers is not None:
             outlier_budget = num_outliers
         if num_medoids is not None:
             condensed_budget = num_medoids
-        if num_outliers is not None or num_medoids is not None:
+        if num_clusters is not None:
+            condensed_budget = num_clusters
+        if num_outliers is not None or num_medoids is not None or num_clusters is not None:
             target_tokens = int(outlier_budget) + int(condensed_budget)
         if outlier_budget + condensed_budget != target_tokens:
             raise ValueError(
@@ -363,6 +366,7 @@ class BeltramiCallosalShell(nn.Module):
         raw_latents: torch.Tensor,
         return_diagnostics: bool = False,
         return_stats: bool = False,
+        return_telemetry: bool = False,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, Any]]]:
         """
         Extracts `(B, target_tokens, D)` float32 Adelic super-tokens from `raw_latents`.
@@ -461,7 +465,7 @@ class BeltramiCallosalShell(nn.Module):
         self.last_zeno_flux = zeno_flux
         self.last_lca_variance = lca_var
 
-        if return_diagnostics or return_stats:
+        if return_diagnostics or return_stats or return_telemetry:
             diag = {
                 "zeno_flux": zeno_flux,
                 "lca_variance": lca_var,
