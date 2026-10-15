@@ -341,6 +341,26 @@ def collect_measured_budget(model: nn.Module) -> Tuple[Optional[float], Optional
     return sum(allowed) / len(allowed), sum(causal) / len(causal)
 
 
+def solve_iso_budget_window_width(
+    seq_len: int,
+    allowed_keys: Optional[float],
+    causal_keys: Optional[float],
+    fallback_depth: int = 2,
+) -> int:
+    """Solve for causal sliding-window width `W_iso` whose mean causal keys equal `allowed_keys`.
+
+    Because a causal sliding window of width `W` is clipped by `idx_k <= idx_q` on the
+    first `W` queries, its average causal key fraction is `w - w^2 / 4` where `w = 2*W/S`.
+    Setting `w - w^2 / 4 = f = allowed_keys / causal_keys` yields the exact closed form:
+        W_iso = round(S * (1 - sqrt(max(0, 1 - f))))
+    """
+    if not allowed_keys or not causal_keys or causal_keys <= 0:
+        return max(1, int(round(seq_len * (2.0 ** (-fallback_depth)))))
+    f = max(0.0, min(1.0, float(allowed_keys) / float(causal_keys)))
+    w_iso = int(round(seq_len * (1.0 - math.sqrt(max(0.0, 1.0 - f)))))
+    return max(1, min(seq_len, w_iso))
+
+
 # ============================================================================
 # Banal NIAH & LongBench QASPER Head-to-Head Evaluators
 # ============================================================================
@@ -356,6 +376,7 @@ def evaluate_banal_niah_comparison(
     needle_type: str = "banal",
     max_new_tokens: int = 12,
     include_window: bool = True,
+    iso_budget_window: bool = True,
 ) -> Dict[str, Any]:
     """Compare `window@r`, `v4_triad@r`, and `darksnail@r` on Banal NIAH (`spherical coordinates`)."""
     device = next(model.parameters()).device
@@ -441,7 +462,10 @@ def evaluate_banal_niah_comparison(
 
             # 3. Matched-budget sliding window baseline (window@r)
             if include_window:
-                w_keys = max(1, int(round(allowed_v4 if allowed_v4 else context_len * (2.0 ** (-r)))))
+                if iso_budget_window:
+                    w_keys = solve_iso_budget_window_width(prompt_len, allowed_v4, causal_v4, fallback_depth=r)
+                else:
+                    w_keys = max(1, int(round(allowed_v4 if allowed_v4 else context_len * (2.0 ** (-r)))))
                 set_long_context_condition(
                     model,
                     req_depth=r,
@@ -501,9 +525,18 @@ def evaluate_qasper_comparison(
     depths: Sequence[int] = (2, 3, 4),
     include_window: bool = True,
     include_dense: bool = True,
+    iso_budget_window: bool = True,
+    stop_on_first_newline: bool = True,
+    predictions_path: Optional[str] = "results/darksnail_qasper_predictions.jsonl",
     attention_backend: str = "block_list",
 ) -> Dict[str, Any]:
-    """Compare `dense`, `window@r`, `v4_triad@r` (`routed@r`), and `darksnail@r` on LongBench QASPER."""
+    """Compare `dense`, `window@r`, `v4_triad@r` (`routed@r`), and `darksnail@r` on LongBench QASPER.
+
+    Computes both marginal bootstrap 95% CIs (`f1_ci95`) and paired within-question
+    bootstrap 95% CIs (`minus_v4_triad_ci95`, `minus_window_ci95`, `minus_dense_ci95`).
+    """
+    from tqdm import tqdm
+
     device = next(model.parameters()).device
     data = load_qasper_dataset()[:num_samples]
 
@@ -521,83 +554,167 @@ def evaluate_qasper_comparison(
     zeno_logs: List[float] = []
     n_trunc = 0
 
-    for sample in data:
-        ids, trunc = build_qasper_prompt_ids(tokenizer, sample, max_ctx=max_ctx)
-        n_trunc += int(trunc)
-        ids = ids.to(device)
-        prompt_len = ids.shape[1]
+    stop_criteria_cls = None
+    if stop_on_first_newline:
+        try:
+            from transformers import StoppingCriteria, StoppingCriteriaList
 
-        def _gen() -> str:
-            if hasattr(model, "_surgical_route_cache") and isinstance(model._surgical_route_cache, dict):
-                model._surgical_route_cache.clear()
-            out = model.generate(
-                input_ids=ids,
-                attention_mask=torch.ones_like(ids),
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                temperature=None,
-                top_p=None,
-                pad_token_id=tokenizer.eos_token_id,
-                use_cache=True,
-            )
-            return tokenizer.decode(out[0, prompt_len:], skip_special_tokens=True).strip()
+            class _FirstLineStop(StoppingCriteria):
+                def __init__(self, tok, p_len: int):
+                    self.tok = tok
+                    self.p_len = p_len
 
-        if include_dense:
-            set_long_context_condition(
-                model, req_depth=0, darksnail_mode=False, collect_stats=True, attention_backend=attention_backend
-            )
-            pred_d = _gen()
-            per_f1["dense"].append(score_qasper_f1(pred_d, sample["answers"]))
-            collect_measured_budget(model)
-            fracs["dense"].append(1.0)
+                def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+                    gen_ids = input_ids[0, self.p_len :]
+                    if gen_ids.numel() < 2:
+                        return False
+                    txt = self.tok.decode(gen_ids, skip_special_tokens=True).lstrip("\n")
+                    return "\n" in txt
 
-        for r in depths:
-            # 1. Standalone V4 Triad (routed@r)
-            set_long_context_condition(
-                model, req_depth=r, darksnail_mode=False, collect_stats=True, attention_backend=attention_backend
-            )
-            pred_v4 = _gen()
-            per_f1[f"v4_triad@{r}"].append(score_qasper_f1(pred_v4, sample["answers"]))
-            allowed_v4, causal_v4 = collect_measured_budget(model)
-            if allowed_v4 and causal_v4:
-                fracs[f"v4_triad@{r}"].append(allowed_v4 / causal_v4)
+            stop_criteria_cls = (_FirstLineStop, StoppingCriteriaList)
+        except Exception:
+            stop_criteria_cls = None
 
-            # 2. DarkSnail V2 (darksnail@r)
-            set_long_context_condition(
-                model,
-                req_depth=r,
-                darksnail_mode=True,
-                collect_stats=True,
-                attention_backend=attention_backend,
-                shield_k=96,
-                bridge_blocks=4,
-                decode_k=64,
-            )
-            pred_ds = _gen()
-            per_f1[f"darksnail@{r}"].append(score_qasper_f1(pred_ds, sample["answers"]))
-            allowed_ds, causal_ds = collect_measured_budget(model)
-            if allowed_ds and causal_ds:
-                fracs[f"darksnail@{r}"].append(allowed_ds / causal_ds)
-            if hasattr(model, "_darksnail_layer16_telemetry"):
-                zeno_logs.append(model._darksnail_layer16_telemetry.get("zeno_flux", 0.0))
+    fout = None
+    if predictions_path:
+        os.makedirs(os.path.dirname(predictions_path) or ".", exist_ok=True)
+        fout = open(predictions_path, "w", encoding="utf-8")
 
-            # 3. Matched-budget window@r (window override always runs in eager path)
-            if include_window:
-                w_keys = max(1, int(round(allowed_v4 if allowed_v4 else prompt_len * (2.0 ** (-r)))))
+    try:
+        for idx_s, sample in enumerate(tqdm(data, desc=f"QASPER (n={len(data)})")):
+            ids, trunc = build_qasper_prompt_ids(tokenizer, sample, max_ctx=max_ctx)
+            n_trunc += int(trunc)
+            ids = ids.to(device)
+            prompt_len = ids.shape[1]
+
+            def _gen() -> str:
+                if hasattr(model, "_surgical_route_cache") and isinstance(model._surgical_route_cache, dict):
+                    model._surgical_route_cache.clear()
+                gen_kwargs: Dict[str, Any] = dict(
+                    input_ids=ids,
+                    attention_mask=torch.ones_like(ids),
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    temperature=None,
+                    top_p=None,
+                    pad_token_id=tokenizer.eos_token_id,
+                    use_cache=True,
+                )
+                if stop_criteria_cls is not None:
+                    cls_stop, cls_list = stop_criteria_cls
+                    gen_kwargs["stopping_criteria"] = cls_list([cls_stop(tokenizer, prompt_len)])
+                out = model.generate(**gen_kwargs)
+                return tokenizer.decode(out[0, prompt_len:], skip_special_tokens=True).strip()
+
+            sample_preds: Dict[str, Any] = {}
+
+            if include_dense:
+                set_long_context_condition(
+                    model, req_depth=0, darksnail_mode=False, collect_stats=True, attention_backend=attention_backend
+                )
+                pred_d = _gen()
+                f1_d = score_qasper_f1(pred_d, sample["answers"])
+                per_f1["dense"].append(f1_d)
+                collect_measured_budget(model)
+                fracs["dense"].append(1.0)
+                sample_preds["dense"] = {"pred": pred_d, "f1": round(100.0 * f1_d, 2)}
+
+            for r in depths:
+                # 1. Standalone V4 Triad (routed@r)
+                set_long_context_condition(
+                    model, req_depth=r, darksnail_mode=False, collect_stats=True, attention_backend=attention_backend
+                )
+                pred_v4 = _gen()
+                f1_v4 = score_qasper_f1(pred_v4, sample["answers"])
+                per_f1[f"v4_triad@{r}"].append(f1_v4)
+                allowed_v4, causal_v4 = collect_measured_budget(model)
+                fr_v4 = (allowed_v4 / causal_v4) if (allowed_v4 and causal_v4) else None
+                if fr_v4 is not None:
+                    fracs[f"v4_triad@{r}"].append(fr_v4)
+                sample_preds[f"v4_triad@{r}"] = {
+                    "pred": pred_v4,
+                    "f1": round(100.0 * f1_v4, 2),
+                    "budget_pct": round(100.0 * fr_v4, 2) if fr_v4 is not None else None,
+                }
+
+                # 2. DarkSnail V2 (darksnail@r)
                 set_long_context_condition(
                     model,
                     req_depth=r,
-                    darksnail_mode=False,
-                    override="window",
-                    window=w_keys,
+                    darksnail_mode=True,
                     collect_stats=True,
-                    attention_backend="eager",
+                    attention_backend=attention_backend,
+                    shield_k=96,
+                    bridge_blocks=4,
+                    decode_k=64,
                 )
-                pred_w = _gen()
-                per_f1[f"window@{r}"].append(score_qasper_f1(pred_w, sample["answers"]))
-                allowed_w, causal_w = collect_measured_budget(model)
-                if allowed_w and causal_w:
-                    fracs[f"window@{r}"].append(allowed_w / causal_w)
+                pred_ds = _gen()
+                f1_ds = score_qasper_f1(pred_ds, sample["answers"])
+                per_f1[f"darksnail@{r}"].append(f1_ds)
+                allowed_ds, causal_ds = collect_measured_budget(model)
+                fr_ds = (allowed_ds / causal_ds) if (allowed_ds and causal_ds) else None
+                if fr_ds is not None:
+                    fracs[f"darksnail@{r}"].append(fr_ds)
+                if hasattr(model, "_darksnail_layer16_telemetry"):
+                    zeno_logs.append(model._darksnail_layer16_telemetry.get("zeno_flux", 0.0))
+                sample_preds[f"darksnail@{r}"] = {
+                    "pred": pred_ds,
+                    "f1": round(100.0 * f1_ds, 2),
+                    "budget_pct": round(100.0 * fr_ds, 2) if fr_ds is not None else None,
+                }
+
+                # 3. Matched-budget window@r (window override always runs in eager path)
+                if include_window:
+                    if iso_budget_window:
+                        w_keys = solve_iso_budget_window_width(prompt_len, allowed_v4, causal_v4, fallback_depth=r)
+                    else:
+                        w_keys = max(1, int(round(allowed_v4 if allowed_v4 else prompt_len * (2.0 ** (-r)))))
+                    set_long_context_condition(
+                        model,
+                        req_depth=r,
+                        darksnail_mode=False,
+                        override="window",
+                        window=w_keys,
+                        collect_stats=True,
+                        attention_backend="eager",
+                    )
+                    pred_w = _gen()
+                    f1_w = score_qasper_f1(pred_w, sample["answers"])
+                    per_f1[f"window@{r}"].append(f1_w)
+                    allowed_w, causal_w = collect_measured_budget(model)
+                    fr_w = (allowed_w / causal_w) if (allowed_w and causal_w) else None
+                    if fr_w is not None:
+                        fracs[f"window@{r}"].append(fr_w)
+                    sample_preds[f"window@{r}"] = {
+                        "pred": pred_w,
+                        "f1": round(100.0 * f1_w, 2),
+                        "budget_pct": round(100.0 * fr_w, 2) if fr_w is not None else None,
+                    }
+
+            if fout is not None:
+                fout.write(
+                    json.dumps(
+                        {
+                            "idx": idx_s,
+                            "_id": sample.get("_id"),
+                            "prompt_tokens": prompt_len,
+                            "truncated": trunc,
+                            "answers": sample["answers"],
+                            "conditions": sample_preds,
+                        }
+                    )
+                    + "\n"
+                )
+                fout.flush()
+
+            if (idx_s + 1) % 10 == 0:
+                live_str = " | ".join(
+                    f"{c}: {100.0 * sum(v) / len(v):.1f}" for c, v in per_f1.items() if v
+                )
+                tqdm.write(f"  [{idx_s + 1}/{len(data)}] Running F1 -> {live_str}")
+    finally:
+        if fout is not None:
+            fout.close()
 
     set_long_context_condition(model, req_depth=0, darksnail_mode=False, attention_backend=attention_backend)
 
@@ -610,6 +727,7 @@ def evaluate_qasper_comparison(
             "f1_ci95": [round(100.0 * x, 2) for x in bootstrap_ci(vals)],
             "n": len(vals),
             "measured_budget_pct": round(100.0 * sum(fr) / len(fr), 2) if fr else None,
+            "per_sample_f1": [round(100.0 * x, 2) for x in vals],
         }
 
     for r in depths:
@@ -619,9 +737,21 @@ def evaluate_qasper_comparison(
         if ds_c in per_f1 and v4_c in per_f1:
             diffs_v4 = [a - b for a, b in zip(per_f1[ds_c], per_f1[v4_c])]
             results[ds_c]["minus_v4_triad_f1"] = round(100.0 * sum(diffs_v4) / max(1, len(diffs_v4)), 2)
+            results[ds_c]["minus_v4_triad_ci95"] = [round(100.0 * x, 2) for x in bootstrap_ci(diffs_v4)]
+            results[ds_c]["wins_vs_v4_triad"] = sum(1 for d in diffs_v4 if d > 1e-6)
+            results[ds_c]["losses_vs_v4_triad"] = sum(1 for d in diffs_v4 if d < -1e-6)
         if ds_c in per_f1 and win_c in per_f1:
             diffs_w = [a - b for a, b in zip(per_f1[ds_c], per_f1[win_c])]
             results[ds_c]["minus_window_f1"] = round(100.0 * sum(diffs_w) / max(1, len(diffs_w)), 2)
+            results[ds_c]["minus_window_ci95"] = [round(100.0 * x, 2) for x in bootstrap_ci(diffs_w)]
+        if ds_c in per_f1 and "dense" in per_f1:
+            diffs_d = [a - b for a, b in zip(per_f1[ds_c], per_f1["dense"])]
+            results[ds_c]["minus_dense_f1"] = round(100.0 * sum(diffs_d) / max(1, len(diffs_d)), 2)
+            results[ds_c]["minus_dense_ci95"] = [round(100.0 * x, 2) for x in bootstrap_ci(diffs_d)]
+        if v4_c in per_f1 and win_c in per_f1:
+            diffs_v4_w = [a - b for a, b in zip(per_f1[v4_c], per_f1[win_c])]
+            results[v4_c]["minus_window_f1"] = round(100.0 * sum(diffs_v4_w) / max(1, len(diffs_v4_w)), 2)
+            results[v4_c]["minus_window_ci95"] = [round(100.0 * x, 2) for x in bootstrap_ci(diffs_v4_w)]
 
     return {
         "n_samples": len(data),
@@ -645,3 +775,4 @@ def load_v4_baseline_references(repo_root: Optional[str | Path] = None) -> Dict[
         with open(niah_path, "r", encoding="utf-8") as f:
             out["banal_niah_v4_50"] = json.load(f)
     return out
+
