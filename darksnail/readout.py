@@ -883,8 +883,11 @@ class SlowFastTriadCascade(nn.Module):
         cascade_gain: float = 1.0,
         preserve_exact_sphere_norm: bool = True,
         lm_weight: Optional[torch.Tensor] = None,
+        d_model: Optional[int] = None,
     ):
         super().__init__()
+        if d_model is not None:
+            d_reasoner = d_model
         self.d_reasoner = int(d_reasoner)
         self.d_shell = int(d_shell)
         self.slice_start = int(slice_start)
@@ -951,7 +954,8 @@ class SlowFastTriadCascade(nn.Module):
         z_H: torch.Tensor,
         z_L: torch.Tensor,
         delta_z: Optional[torch.Tensor],
-    ) -> torch.Tensor:
+        return_diagnostics: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, Any]]]:
         """
         Couples slow state `z_H` and fast state `z_L` of shape `(B, S, d_reasoner)`
         using the skew-symmetric triad generator sliced from `delta_z`.
@@ -960,6 +964,8 @@ class SlowFastTriadCascade(nn.Module):
             self.last_tangent_step = torch.zeros(
                 (*z_L.shape[:-1], self.d_shell), device=z_L.device, dtype=torch.float32
             )
+            if return_diagnostics:
+                return z_L, {"max_abs_inner_product": 0.0, "max_norm_drift": 0.0}
             return z_L
 
         orig_dtype = z_L.dtype
@@ -985,8 +991,13 @@ class SlowFastTriadCascade(nn.Module):
         else:
             shell_diff = delta_v
 
-        z_L_tilde = z_L.float() + torch.matmul(shell_diff, P.t())
-        return z_L_tilde.to(orig_dtype)
+        z_L_tilde = (z_L.float() + torch.matmul(shell_diff, P.t())).to(orig_dtype)
+        if return_diagnostics:
+            ip = (v_shell * delta_v).sum(dim=-1).abs().max().item()
+            v_after = torch.matmul(z_L_tilde.float(), P)
+            drift = (v_after.norm(dim=-1) - v_shell.norm(dim=-1)).abs().max().item()
+            return z_L_tilde, {"max_abs_inner_product": float(ip), "max_norm_drift": float(drift)}
+        return z_L_tilde
 
 
 class RoPE2DMedoidPooler(nn.Module):

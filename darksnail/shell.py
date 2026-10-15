@@ -55,8 +55,16 @@ class BeltramiCallosalShell(nn.Module):
         router_sidecar: Optional[nn.Module] = None,
         sidecar_path: Optional[str] = None,
         hook_layer: int = 16,
+        num_outliers: Optional[int] = None,
+        num_medoids: Optional[int] = None,
     ):
         super().__init__()
+        if num_outliers is not None:
+            outlier_budget = num_outliers
+        if num_medoids is not None:
+            condensed_budget = num_medoids
+        if num_outliers is not None or num_medoids is not None:
+            target_tokens = int(outlier_budget) + int(condensed_budget)
         if outlier_budget + condensed_budget != target_tokens:
             raise ValueError(
                 f"outlier_budget ({outlier_budget}) + condensed_budget ({condensed_budget}) "
@@ -354,6 +362,7 @@ class BeltramiCallosalShell(nn.Module):
         self,
         raw_latents: torch.Tensor,
         return_diagnostics: bool = False,
+        return_stats: bool = False,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, Any]]]:
         """
         Extracts `(B, target_tokens, D)` float32 Adelic super-tokens from `raw_latents`.
@@ -361,6 +370,7 @@ class BeltramiCallosalShell(nn.Module):
         Args:
             raw_latents: `(B, S, D)` or `(S, D)` residual stream tensor.
             return_diagnostics: If True, returns `(super_tokens, diagnostics_dict)`.
+            return_stats: Alias for `return_diagnostics`.
         """
         if raw_latents.dim() == 2:
             raw_latents = raw_latents.unsqueeze(0)
@@ -451,7 +461,7 @@ class BeltramiCallosalShell(nn.Module):
         self.last_zeno_flux = zeno_flux
         self.last_lca_variance = lca_var
 
-        if return_diagnostics:
+        if return_diagnostics or return_stats:
             diag = {
                 "zeno_flux": zeno_flux,
                 "lca_variance": lca_var,
@@ -700,7 +710,7 @@ def compute_grid_prompt_zeno_flux(
 
 
 def extract_beltrami_lh_latents(
-    prompt: str,
+    prompt: Union[str, torch.Tensor],
     model: Optional[nn.Module] = None,
     tokenizer: Any = None,
     shell_extractor: Optional[BeltramiCallosalShell] = None,
@@ -709,12 +719,30 @@ def extract_beltrami_lh_latents(
     d_model: int = 4096,
     device: str = "cpu",
     mock_mode: bool = False,
-) -> Tuple[torch.Tensor, Dict[str, Any]]:
+    return_stats: bool = True,
+) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, Any]]]:
     """
     Drop-in Beltrami-Adelic upgrade for `brain_ai.models.lh_cache.extract_lh_latents`.
     Extracts Layer-16 residual stream states `(1, S, d_model)` and condenses them into
     `(1, 32, d_model)` via `BeltramiCallosalShell` instead of uniform `adaptive_avg_pool1d`.
+    Also accepts a pre-extracted hidden-state `torch.Tensor` directly as `prompt`.
     """
+    if isinstance(prompt, torch.Tensor):
+        raw_latents = prompt.unsqueeze(0) if prompt.dim() == 2 else prompt
+        d_model = int(raw_latents.size(-1))
+        target_dev = str(raw_latents.device)
+        if shell_extractor is None:
+            shell_extractor = BeltramiCallosalShell(
+                d_model=d_model,
+                target_tokens=target_tokens,
+                outlier_budget=target_tokens // 2,
+                condensed_budget=target_tokens - (target_tokens // 2),
+                hook_layer=hook_layer,
+            ).to(raw_latents.device)
+        with torch.no_grad():
+            super_tokens, diag = shell_extractor(raw_latents.float(), return_diagnostics=True)
+        return (super_tokens.to(target_dev), diag) if return_stats else super_tokens.to(target_dev)
+
     if shell_extractor is None:
         shell_extractor = BeltramiCallosalShell(
             d_model=d_model,
@@ -771,4 +799,4 @@ def extract_beltrami_lh_latents(
     with torch.no_grad():
         super_tokens, diag = shell_extractor(raw_latents, return_diagnostics=True)
 
-    return super_tokens.to(device), diag
+    return (super_tokens.to(device), diag) if return_stats else super_tokens.to(device)
