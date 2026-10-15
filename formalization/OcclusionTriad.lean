@@ -310,4 +310,201 @@ theorem rope2d_arithmetic_norm_lt
     have hx := normSq2_avg2_rot2_lt θ_x1 θ_x2 k_x hcx hkx
     linarith
 
+/-! ### Theorem 6: Multi-Step Unrolled Slow-Fast Spherical Invariance & Step-0 Homotopy -/
+
+/-- Scaled tangent triad step $\delta v_k = \gamma \cdot B_{W_{\mathrm{rec}}}(u, v)_k$. -/
+def tangentTriadStep (M : ℕ) (γ : ℝ) (W_rec : Fin M → Fin M → Fin M → ℝ)
+    (u v : Fin M → ℝ) (k : Fin M) : ℝ :=
+  γ * triadOperator M W_rec u v k
+
+/-- Spherical norm retraction $\tilde{v}_k = \frac{\|v\|_2}{\|v_{\mathrm{upd}}\|_2} v_{\mathrm{upd}, k}$. -/
+noncomputable def sphericalRetract {M : ℕ} (v v_upd : Fin M → ℝ) (k : Fin M) : ℝ :=
+  (Real.sqrt (Formalization.Analysis.shellEnergy v) /
+   Real.sqrt (Formalization.Analysis.shellEnergy v_upd)) * v_upd k
+
+/-- Single-step tangent triad update followed by spherical norm retraction:
+$$\tilde{v}_L = \frac{\|v_L\|_2}{\|v_L + \delta v_L\|_2} (v_L + \delta v_L), \qquad
+  \delta v_L = \gamma B_{W_{\mathrm{rec}}}(u, v_L).$$ -/
+noncomputable def sphericalTriadStep (M : ℕ) (γ : ℝ) (W_rec : Fin M → Fin M → Fin M → ℝ)
+    (u v : Fin M → ℝ) : Fin M → ℝ :=
+  let δv := tangentTriadStep M γ W_rec u v
+  sphericalRetract v (fun k => v k + δv k)
+
+/-- $T$-step unrolled Slow-Fast spherical triad trajectory $\tilde{v}_L^{(t)}$. -/
+noncomputable def multistepSphericalTriad (M : ℕ) (γ : ℕ → ℝ)
+    (W_rec : ℕ → Fin M → Fin M → Fin M → ℝ)
+    (u : ℕ → Fin M → ℝ) (v₀ : Fin M → ℝ) : ℕ → (Fin M → ℝ)
+  | 0 => v₀
+  | t + 1 =>
+      let v_t := multistepSphericalTriad M γ W_rec u v₀ t
+      sphericalTriadStep M (γ t) (W_rec t) (u t) v_t
+
+/-- Non-negativity of `shellEnergy`. -/
+lemma shellEnergy_nonneg {M : ℕ} (x : Fin M → ℝ) :
+    0 ≤ Formalization.Analysis.shellEnergy x := by
+  unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+  exact Finset.sum_nonneg (fun k _ => mul_self_nonneg (x k))
+
+/-- `shellEnergy x = 0` if and only if $x$ vanishes pointwise. -/
+lemma shellEnergy_eq_zero_iff {M : ℕ} (x : Fin M → ℝ) :
+    Formalization.Analysis.shellEnergy x = 0 ↔ ∀ k : Fin M, x k = 0 := by
+  unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+  rw [Finset.sum_eq_zero_iff_of_nonneg (fun k _ => mul_self_nonneg (x k))]
+  simp
+
+/-- Pointwise orthogonality $\langle v, \delta v \rangle = 0$ for the scaled tangent triad step. -/
+lemma tangentTriadStep_orthogonal {M : ℕ} (γ : ℝ) (W_rec : Fin M → Fin M → Fin M → ℝ)
+    (u v : Fin M → ℝ) :
+    Formalization.Analysis.shellInner v (tangentTriadStep M γ W_rec u v) = 0 := by
+  have h_orth := Formalization.Analysis.triad_pointwise_orthogonal W_rec u v
+  have h_scale :
+      Formalization.Analysis.shellInner v (tangentTriadStep M γ W_rec u v) =
+        γ * Formalization.Analysis.shellInner v (Formalization.Analysis.triadOperator W_rec u v) := by
+    unfold Formalization.Analysis.shellInner tangentTriadStep triadOperator
+    rw [Finset.mul_sum]
+    apply Finset.sum_congr rfl
+    intro k _
+    ring
+  rw [h_scale, h_orth, mul_zero]
+
+/-- Discrete-time Pythagorean identity under orthogonal tangent updates $\langle v, \delta v \rangle = 0$. -/
+lemma shellEnergy_add_of_orthogonal {M : ℕ} (v δv : Fin M → ℝ)
+    (h_orth : Formalization.Analysis.shellInner v δv = 0) :
+    Formalization.Analysis.shellEnergy (fun k => v k + δv k) =
+      Formalization.Analysis.shellEnergy v + Formalization.Analysis.shellEnergy δv := by
+  have h_expand :
+      Formalization.Analysis.shellEnergy (fun k => v k + δv k) =
+        Formalization.Analysis.shellEnergy v +
+        2 * Formalization.Analysis.shellInner v δv +
+        Formalization.Analysis.shellEnergy δv := by
+    unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+    simp only [← Finset.sum_add_distrib, Finset.mul_sum]
+    apply Finset.sum_congr rfl
+    intro k _
+    ring
+  linarith
+
+/-- Quadratic homogeneity of `shellEnergy` under scalar multiplication. -/
+lemma shellEnergy_scale {M : ℕ} (c : ℝ) (x : Fin M → ℝ) :
+    Formalization.Analysis.shellEnergy (fun k => c * x k) =
+      c ^ 2 * Formalization.Analysis.shellEnergy x := by
+  unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+  rw [Finset.mul_sum]
+  apply Finset.sum_congr rfl
+  intro k _
+  ring
+
+/-- Single-step spherical triad update preserves exact shell energy $\|\tilde{v}\|_2^2 = \|v\|_2^2$. -/
+lemma sphericalTriadStep_preserves_energy {M : ℕ} (γ : ℝ)
+    (W_rec : Fin M → Fin M → Fin M → ℝ) (u v : Fin M → ℝ) :
+    Formalization.Analysis.shellEnergy (sphericalTriadStep M γ W_rec u v) =
+      Formalization.Analysis.shellEnergy v := by
+  unfold sphericalTriadStep sphericalRetract
+  dsimp only
+  rw [shellEnergy_scale]
+  by_cases hv0 : Formalization.Analysis.shellEnergy v = 0
+  · simp [hv0]
+  · have hv_nonneg : 0 ≤ Formalization.Analysis.shellEnergy v := shellEnergy_nonneg v
+    have hv_pos : 0 < Formalization.Analysis.shellEnergy v :=
+      lt_of_le_of_ne hv_nonneg (Ne.symm hv0)
+    have h_orth : Formalization.Analysis.shellInner v (tangentTriadStep M γ W_rec u v) = 0 :=
+      tangentTriadStep_orthogonal γ W_rec u v
+    have h_pyth := shellEnergy_add_of_orthogonal v (tangentTriadStep M γ W_rec u v) h_orth
+    have hδ_nonneg : 0 ≤ Formalization.Analysis.shellEnergy (tangentTriadStep M γ W_rec u v) :=
+      shellEnergy_nonneg _
+    have h_upd_pos :
+        0 < Formalization.Analysis.shellEnergy (fun k => v k + tangentTriadStep M γ W_rec u v k) := by
+      linarith
+    have h_upd_nonneg := le_of_lt h_upd_pos
+    have h_upd_ne := ne_of_gt h_upd_pos
+    rw [div_pow, Real.sq_sqrt hv_nonneg, Real.sq_sqrt h_upd_nonneg]
+    exact div_mul_cancel₀ (Formalization.Analysis.shellEnergy v) h_upd_ne
+
+/-- **Theorem 6a (`darksnail_multistep_spherical_invariance`)**:
+Across any $T$-step unrolled Slow-Fast spherical triad cascade $(v_L^{(t)})_{t=0}^T$,
+the terminal retracted state preserves the exact initial squared Euclidean norm
+$\|\tilde{v}_L^{(T)}\|_2^2 = \|v_L^{(0)}\|_2^2$, and at every intermediate step $t$,
+the tangent triad perturbation $\delta v_L^{(t)}$ is strictly orthogonal to $v_L^{(t)}$:
+$\langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$. -/
+theorem darksnail_multistep_spherical_invariance {M : ℕ}
+    (γ : ℕ → ℝ) (W_rec : ℕ → Fin M → Fin M → Fin M → ℝ)
+    (u : ℕ → Fin M → ℝ) (v₀ : Fin M → ℝ) (T : ℕ) :
+    Formalization.Analysis.shellEnergy (multistepSphericalTriad M γ W_rec u v₀ T) =
+      Formalization.Analysis.shellEnergy v₀ ∧
+    (∀ t : ℕ,
+      let v_t := multistepSphericalTriad M γ W_rec u v₀ t
+      let δv_t := tangentTriadStep M (γ t) (W_rec t) (u t) v_t
+      Formalization.Analysis.shellInner v_t δv_t = 0) := by
+  refine ⟨?_, fun t => tangentTriadStep_orthogonal (γ t) (W_rec t) (u t) _⟩
+  induction T with
+  | zero => rfl
+  | succ t ih =>
+    simp only [multistepSphericalTriad]
+    rw [sphericalTriadStep_preserves_energy, ih]
+
+/-- At $W_{\mathrm{rec}} = 0$, the single-step spherical triad update reduces to the identity. -/
+lemma sphericalTriadStep_zero {M : ℕ} (γ : ℝ) (u v : Fin M → ℝ) :
+    sphericalTriadStep M γ 0 u v = v := by
+  funext k
+  have h_tan : (fun i => v i + tangentTriadStep M γ 0 u v i) = v := by
+    funext i
+    unfold tangentTriadStep triadOperator Formalization.Analysis.triadOperator
+    simp
+  unfold sphericalTriadStep sphericalRetract
+  dsimp only
+  rw [h_tan, congr_fun h_tan k]
+  by_cases hv0 : Formalization.Analysis.shellEnergy v = 0
+  · have hvk : v k = 0 := (shellEnergy_eq_zero_iff v).mp hv0 k
+    simp [hv0, hvk]
+  · have hv_nonneg : 0 ≤ Formalization.Analysis.shellEnergy v := shellEnergy_nonneg v
+    have hv_pos : 0 < Formalization.Analysis.shellEnergy v :=
+      lt_of_le_of_ne hv_nonneg (Ne.symm hv0)
+    have h_sqrt_ne : Real.sqrt (Formalization.Analysis.shellEnergy v) ≠ 0 :=
+      ne_of_gt (Real.sqrt_pos.mpr hv_pos)
+    rw [div_self h_sqrt_ne, one_mul]
+
+/-- Unmodified System 1 recurrent carry trajectory $(z_H^{(t)}, z_L^{(t)})_{t=0}^T$. -/
+def system1CarryTrajectory {M : ℕ}
+    (step_S1 : ℕ → (Fin M → ℝ) × (Fin M → ℝ) → (Fin M → ℝ) × (Fin M → ℝ))
+    (z₀ : (Fin M → ℝ) × (Fin M → ℝ)) : ℕ → (Fin M → ℝ) × (Fin M → ℝ)
+  | 0 => z₀
+  | t + 1 => step_S1 t (system1CarryTrajectory step_S1 z₀ t)
+
+/-- DarkSnail $T$-step unrolled Slow-Fast recurrent carry trajectory coupling
+$z_H^{(t)} \to z_L^{(t)}$ via `sphericalTriadStep` and latent perturbation $(\delta z_H^{(t)}, \delta z_L^{(t)})$. -/
+noncomputable def darksnailCarryTrajectory {M : ℕ}
+    (step_S1 : ℕ → (Fin M → ℝ) × (Fin M → ℝ) → (Fin M → ℝ) × (Fin M → ℝ))
+    (γ : ℕ → ℝ) (W_rec : ℕ → Fin M → Fin M → Fin M → ℝ)
+    (δz_H δz_L : ℕ → Fin M → ℝ)
+    (z₀ : (Fin M → ℝ) × (Fin M → ℝ)) : ℕ → (Fin M → ℝ) × (Fin M → ℝ)
+  | 0 => z₀
+  | t + 1 =>
+      let z_t := darksnailCarryTrajectory step_S1 γ W_rec δz_H δz_L z₀ t
+      let v_tilde := sphericalTriadStep M (γ t) (W_rec t) z_t.1 z_t.2
+      step_S1 t (fun k => z_t.1 k + δz_H t k, fun k => v_tilde k + δz_L t k)
+
+/-- **Theorem 6b (`darksnail_multistep_step0_homotopy`)**:
+At the Step-0 initialization $W_{\mathrm{rec}} = 0$ and $\delta z = (0, 0)$, the $T$-step unrolled
+spherical shell trajectory remains stationary at $v_0$, and the full $T$-step unrolled DarkSnail
+recurrent carry trajectory reduces identically to the unmodified System 1 recurrent carry
+trajectory $(z_H^{(t)}, z_L^{(t)})_{t=0}^T$ for all $T \in \mathbb{N}$. -/
+theorem darksnail_multistep_step0_homotopy {M : ℕ}
+    (step_S1 : ℕ → (Fin M → ℝ) × (Fin M → ℝ) → (Fin M → ℝ) × (Fin M → ℝ))
+    (γ : ℕ → ℝ) (u : ℕ → Fin M → ℝ) (v₀ : Fin M → ℝ)
+    (z₀ : (Fin M → ℝ) × (Fin M → ℝ)) (T : ℕ) :
+    multistepSphericalTriad M γ 0 u v₀ T = v₀ ∧
+    darksnailCarryTrajectory step_S1 γ 0 0 0 z₀ T =
+      system1CarryTrajectory step_S1 z₀ T := by
+  constructor
+  · induction T with
+    | zero => rfl
+    | succ t ih =>
+      simp only [multistepSphericalTriad, Pi.zero_apply]
+      rw [ih, sphericalTriadStep_zero]
+  · induction T with
+    | zero => rfl
+    | succ t ih =>
+      simp only [darksnailCarryTrajectory, system1CarryTrajectory, Pi.zero_apply, add_zero]
+      rw [ih, sphericalTriadStep_zero]
+
 end Ultrametric.Analysis.OcclusionTriad

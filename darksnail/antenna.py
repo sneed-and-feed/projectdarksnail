@@ -46,6 +46,7 @@ class DarkSnailSchedule:
     bypass_tta: bool = False
     asym_gain: float = 1.5
     cascade_gain: float = 1.0
+    unroll_steps: int = 1
 
     @property
     def ray_quantile(self) -> float:
@@ -73,6 +74,7 @@ class ZenoAmygdalaController(nn.Module):
       - `lr` in `[0.02, 0.06]`
       - `anchor_weight` in `[0.05, 0.30]`
       - `triad_gain` in `[0.25, 1.5]`
+      - `unroll_steps` in `{1, 4, 8, 16}`
       - `ray_quantiles` including surgical 1-2 cell quantiles (`1/N_cells`, `2/N_cells`)
         when near-solved (`s1_demo_fit >= 0.90` or `step0_demo_loss < 2.5`) or when
         2-color occlusion ties are detected.
@@ -228,6 +230,7 @@ class ZenoAmygdalaController(nn.Module):
                 bypass_tta=True,
                 asym_gain=0.5,
                 cascade_gain=0.25,
+                unroll_steps=1,
             )
             self.last_schedule = sched
             return sched
@@ -246,7 +249,7 @@ class ZenoAmygdalaController(nn.Module):
 
         if is_near_solved:
             # Low-Turbulence / Near-Solved Regime (e.g., af22c60d, 0b17323b, ce039d91, ca8f78db, 929ab4e9)
-            # Conservative step count (12..18), conservative lr (0.02..0.035), high anchor (0.22..0.30),
+            # Conservative step count (12..18), conservative lr (0.022..0.036), high anchor (0.22..0.30),
             # surgical 1-2 cell ray quantiles so 98-99% correct canvas is never over-adapted.
             num_steps = int(round(12 + 6 * t_zeno))
             num_steps = max(self.min_steps, min(self.max_steps, num_steps))
@@ -274,11 +277,12 @@ class ZenoAmygdalaController(nn.Module):
                 bypass_tta=False,
                 asym_gain=1.65,
                 cascade_gain=0.75,
+                unroll_steps=1,
             )
         elif is_high_turbulence:
             # High-Turbulence / Compositional Rule Regime (e.g., split-panel Boolean or Kronecker rules)
-            # Full deliberation (34..40 steps), strong lr (0.05..0.06), relaxed anchor (0.05..0.11),
-            # high triad coupling gain (1.0..1.5), broad + surgical ray quantiles.
+            # Full deliberation (33..40 steps), strong lr (0.048..0.060), relaxed anchor (0.055..0.100),
+            # high triad coupling gain (1.0..1.5), broad + surgical ray quantiles, and multi-step unroll K in {4, 8, 16}.
             num_steps = int(round(33 + 7 * t_zeno))
             num_steps = max(self.min_steps, min(self.max_steps, num_steps))
             lr = float(np.clip(0.048 + 0.012 * t_zeno, self.min_lr, self.max_lr))
@@ -288,6 +292,12 @@ class ZenoAmygdalaController(nn.Module):
             triad_gain = float(
                 np.clip(1.0 + 0.50 * t_zeno, self.min_triad_gain, self.max_triad_gain)
             )
+            if t_zeno >= 0.75 or float(step0_demo_loss) > 5.5:
+                unroll_k = 16
+            elif t_zeno >= 0.62 or float(step0_demo_loss) > 4.85:
+                unroll_k = 8
+            else:
+                unroll_k = 4
             ray_quantiles = [0.15, 0.20, q_2cell, q_1cell]
             dedup_q = []
             for q in ray_quantiles:
@@ -304,9 +314,10 @@ class ZenoAmygdalaController(nn.Module):
                 bypass_tta=False,
                 asym_gain=1.75,
                 cascade_gain=1.25,
+                unroll_steps=unroll_k,
             )
         else:
-            # Balanced Deliberation Regime
+            # Balanced Deliberation Regime (intermediate 2.5 <= L_0 <= 4.5)
             num_steps = int(round(20 + 14 * t_zeno))
             num_steps = max(self.min_steps, min(self.max_steps, num_steps))
             lr = float(np.clip(0.035 + 0.020 * t_zeno, self.min_lr, self.max_lr))
@@ -316,6 +327,7 @@ class ZenoAmygdalaController(nn.Module):
             triad_gain = float(
                 np.clip(0.65 + 0.65 * t_zeno, self.min_triad_gain, self.max_triad_gain)
             )
+            unroll_k = 4 if (t_zeno >= 0.45 or has_occlusion_tie) else 1
             if has_occlusion_tie:
                 ray_quantiles = [q_1cell, q_2cell, 0.10, 0.18]
             else:
@@ -335,6 +347,7 @@ class ZenoAmygdalaController(nn.Module):
                 bypass_tta=False,
                 asym_gain=1.5,
                 cascade_gain=1.0,
+                unroll_steps=unroll_k,
             )
 
         self.last_schedule = sched
@@ -378,8 +391,8 @@ class DarkSnailSystem2Adaptor:
     """
     Integrated DarkSnail System 2 Latent Adaptor combining:
       1. `DarkSnailCanvasReadout` (Symmetric + Skew-Symmetric Triad + Directional Z-Order),
-      2. `SlowFastTriadCascade` (`z_H -> z_L` terminal recurrent triad coupling),
-      3. `ZenoAmygdalaController` (Tri-signal dynamic TTA and surgical ray quantile scheduling),
+      2. `SlowFastTriadCascade` (`z_H -> z_L` multi-step & terminal recurrent triad coupling),
+      3. `ZenoAmygdalaController` (Tri-signal dynamic TTA, unroll depth K, and surgical ray quantile scheduling),
       4. `compute_grid_prompt_zeno_flux` (Live multi-prime prompt turbulence telemetry).
     """
 
@@ -393,6 +406,8 @@ class DarkSnailSystem2Adaptor:
         use_zeno_schedule: bool = True,
         use_slow_fast_cascade: bool = True,
         device: Optional[Union[str, torch.device]] = None,
+        model: Optional[nn.Module] = None,
+        lm_weight: Optional[torch.Tensor] = None,
     ):
         from brain_ai.models.callosum import System2LatentAdaptor
 
@@ -404,16 +419,106 @@ class DarkSnailSystem2Adaptor:
             readout_scale=readout_scale,
             device=device,
         )
+        self.base_adaptor.respect_controller_schedule = True
         self.readout = DarkSnailCanvasReadout(readout_scale=readout_scale)
-        self.cascade = SlowFastTriadCascade()
+
+        if lm_weight is None and model is not None:
+            lm_weight = self._locate_model_lm_weight(model)
+        self.cascade = SlowFastTriadCascade(lm_weight=lm_weight)
+        self._cascade_lm_weight_initialized: bool = lm_weight is not None
+
         self.controller = ZenoAmygdalaController()
         self.use_zeno_schedule = bool(use_zeno_schedule)
         self.use_slow_fast_cascade = bool(use_slow_fast_cascade)
         self._active_schedule: Optional[DarkSnailSchedule] = None
+        self._cascade_applied_in_rollout: bool = False
 
-        # Monkey-patch `_apply_callosal_canvas_readout` on `self.base_adaptor` so all
-        # forward/loss/prediction paths automatically route through `DarkSnailCanvasReadout`!
+        # Wire DarkSnail hooks onto `self.base_adaptor` so all forward/loss/prediction
+        # paths automatically route through `DarkSnailCanvasReadout` and `SlowFastTriadCascade`!
         self.base_adaptor._apply_callosal_canvas_readout = self._darksnail_canvas_readout_hook
+        self.base_adaptor._apply_slow_fast_cascade = self._darksnail_cascade_hook
+
+    def _locate_model_lm_weight(
+        self,
+        model: Optional[nn.Module],
+        vocab_size: int = 12,
+        d_r: int = 512,
+    ) -> Optional[torch.Tensor]:
+        if model is None:
+            return None
+        try:
+            lm_w = self.readout._locate_lm_weight(model)
+        except TypeError:
+            lm_w = self.readout._locate_lm_weight(model, vocab_size, d_r)
+        if lm_w is not None:
+            return lm_w
+
+        from brain_ai.models.callosum import _unwrap_model
+
+        m_inner = _unwrap_model(model)
+        m_act = _unwrap_model(getattr(m_inner, "model", m_inner))
+        for cand in (getattr(m_act, "inner", None), m_act, m_inner):
+            if cand is None:
+                continue
+            for attr in ("lm_head", "head"):
+                head_mod = getattr(cand, attr, None)
+                if (
+                    head_mod is not None
+                    and hasattr(head_mod, "weight")
+                    and isinstance(head_mod.weight, torch.Tensor)
+                ):
+                    return head_mod.weight.detach().float()
+        return None
+
+    def _ensure_cascade_lm_weight(
+        self,
+        model: Optional[nn.Module],
+        vocab_size: int = 12,
+        d_r: int = 512,
+    ) -> Optional[torch.Tensor]:
+        if model is None:
+            return None
+        lm_w = self._locate_model_lm_weight(model, vocab_size=vocab_size, d_r=d_r)
+        if lm_w is not None and not self._cascade_lm_weight_initialized:
+            if hasattr(self.cascade, "update_lm_weight"):
+                self.cascade.update_lm_weight(lm_w)
+            elif lm_w.shape[-1] == self.cascade.d_reasoner and lm_w.shape[0] >= self.cascade.d_shell:
+                P = self.cascade._build_orthonormal_shell_basis(
+                    self.cascade.d_reasoner, self.cascade.d_shell, lm_w
+                )
+                self.cascade.register_buffer("P", P.to(self.cascade.P.device), persistent=False)
+            self._cascade_lm_weight_initialized = True
+        return lm_w
+
+    def _darksnail_cascade_hook(
+        self,
+        z_H: torch.Tensor,
+        z_L: torch.Tensor,
+        delta_z: Optional[torch.Tensor],
+        step_idx: Optional[int] = None,
+        unroll_steps: Optional[int] = None,
+    ) -> torch.Tensor:
+        if not self.use_slow_fast_cascade or delta_z is None:
+            return z_L
+        self.cascade.cascade_gain = (
+            float(self._active_schedule.cascade_gain)
+            if self._active_schedule is not None
+            else 1.0
+        )
+        eff_k = (
+            int(unroll_steps)
+            if unroll_steps is not None
+            else (int(self._active_schedule.unroll_steps) if self._active_schedule is not None else 1)
+        )
+        try:
+            out = self.cascade(z_H, z_L, delta_z, step_idx=step_idx, unroll_steps=eff_k)
+        except TypeError:
+            try:
+                out = self.cascade(z_H, z_L, delta_z, unroll_steps=eff_k)
+            except TypeError:
+                out = self.cascade(z_H, z_L, delta_z)
+        self._cascade_applied_in_rollout = True
+        return out[0] if isinstance(out, tuple) else out
 
     def _darksnail_canvas_readout_hook(
         self,
@@ -424,6 +529,30 @@ class DarkSnailSystem2Adaptor:
         carry: Any = None,
         callosal_emb: Any = None,
     ) -> torch.Tensor:
+        self._ensure_cascade_lm_weight(
+            model,
+            vocab_size=logits.size(-1) if logits.dim() >= 2 else 12,
+        )
+        if (
+            carry is not None
+            and self.use_slow_fast_cascade
+            and delta_z is not None
+            and not getattr(self, "_cascade_applied_in_rollout", False)
+        ):
+            ic = getattr(carry, "inner_carry", None)
+            target_obj = ic if (ic is not None and hasattr(ic, "z_H") and hasattr(ic, "z_L")) else carry
+            if hasattr(target_obj, "z_H") and hasattr(target_obj, "z_L"):
+                z_H = getattr(target_obj, "z_H")
+                z_L = getattr(target_obj, "z_L")
+                if isinstance(z_H, torch.Tensor) and isinstance(z_L, torch.Tensor):
+                    eff_k = int(self._active_schedule.unroll_steps) if self._active_schedule is not None else 1
+                    z_L_new = self._darksnail_cascade_hook(z_H, z_L, delta_z, unroll_steps=eff_k)
+                    try:
+                        setattr(target_obj, "z_L", z_L_new)
+                    except Exception:
+                        pass
+
+        self._cascade_applied_in_rollout = False
         triad_gain = self._active_schedule.triad_gain if self._active_schedule is not None else None
         asym_gain = self._active_schedule.asym_gain if self._active_schedule is not None else None
         return self.readout(
@@ -448,22 +577,26 @@ class DarkSnailSystem2Adaptor:
         lr: Optional[float] = None,
         lambda_anchor: Optional[float] = None,
     ) -> Tuple[torch.Tensor, dict]:
-        from brain_ai.models.callosum import encode_grid_to_trm_seq, infer_arc_output_shape
+        from brain_ai.models.callosum import infer_arc_output_shape
 
+        self._ensure_cascade_lm_weight(model)
         demos = task_data.get("train", [])
         test_pairs = task_data.get("test", [])
         flux_info = compute_grid_prompt_zeno_flux(demos, test_pairs)
 
-        if self.use_zeno_schedule and n_steps is None and lr is None and lambda_anchor is None:
-            # Estimate target canvas cells
-            if test_pairs and "input" in test_pairs[0]:
-                th, tw = infer_arc_output_shape(demos, test_pairs[0]["input"])
-            elif demos and "output" in demos[0]:
-                th, tw = len(demos[0]["output"]), len(demos[0]["output"][0])
-            else:
-                th, tw = 10, 10
-            canvas_cells = th * tw
+        if test_pairs and "input" in test_pairs[0]:
+            th, tw = infer_arc_output_shape(demos, test_pairs[0]["input"])
+        elif demos and "output" in demos[0]:
+            th, tw = len(demos[0]["output"]), len(demos[0]["output"][0])
+        else:
+            th, tw = 10, 10
+        canvas_cells = th * tw
 
+        use_auto_schedule = (
+            self.use_zeno_schedule and n_steps is None and lr is None and lambda_anchor is None
+        )
+
+        if use_auto_schedule:
             # Initial schedule estimate before Step-0 pass
             sched = self.controller(
                 zeno_flux=flux_info["zeno_flux"],
@@ -475,41 +608,63 @@ class DarkSnailSystem2Adaptor:
                 canvas_cells=canvas_cells,
             )
             self._active_schedule = sched
+            self.base_adaptor._active_unroll_steps = int(sched.unroll_steps)
+            self.base_adaptor._active_ray_quantiles = list(sched.ray_quantiles)
             n_steps = sched.num_steps
             lr = sched.lr
             lambda_anchor = sched.anchor_weight
 
-        delta_z, diag = self.base_adaptor.adapt_task(
-            model=model,
-            task_data=task_data,
-            puzzle_id=puzzle_id,
-            n_steps=n_steps,
-            lr=lr,
-            lambda_anchor=lambda_anchor,
-        )
+            def _step0_refine_cb(loss_s0: float, s1_fit: float) -> DarkSnailSchedule:
+                s0_sched = self.controller(
+                    zeno_flux=flux_info["zeno_flux"],
+                    lca_variance=flux_info["lca_variance"],
+                    step0_demo_loss=loss_s0,
+                    step0_grad_norm=1.0,
+                    s1_demo_fit=s1_fit,
+                    test_entropy=0.35,
+                    canvas_cells=canvas_cells,
+                )
+                self._active_schedule = s0_sched
+                self.base_adaptor._active_unroll_steps = int(s0_sched.unroll_steps)
+                self.base_adaptor._active_ray_quantiles = list(s0_sched.ray_quantiles)
+                return s0_sched
+
+            self.base_adaptor._step0_schedule_callback = _step0_refine_cb
+        else:
+            self.base_adaptor._step0_schedule_callback = None
+
+        try:
+            delta_z, diag = self.base_adaptor.adapt_task(
+                model=model,
+                task_data=task_data,
+                puzzle_id=puzzle_id,
+                n_steps=n_steps,
+                lr=lr,
+                lambda_anchor=lambda_anchor,
+            )
+        finally:
+            self.base_adaptor._step0_schedule_callback = None
 
         # Refine schedule using actual Step-0 loss and gradient norm for downstream ray extrapolation
-        if test_pairs and "input" in test_pairs[0]:
-            th, tw = infer_arc_output_shape(demos, test_pairs[0]["input"])
-            canvas_cells = th * tw
-        else:
-            canvas_cells = 100
-
+        step0_loss_val = float(diag.get("step0_loss", 3.0))
         refined_sched = self.controller(
             zeno_flux=flux_info["zeno_flux"],
             lca_variance=flux_info["lca_variance"],
-            step0_demo_loss=diag.get("step0_loss", 3.0),
-            step0_grad_norm=diag.get("grad_norm_step0", 1.0),
-            s1_demo_fit=max(0.0, min(1.0, 1.0 - diag.get("step0_loss", 3.0) / 8.0)),
+            step0_demo_loss=step0_loss_val,
+            step0_grad_norm=float(diag.get("grad_norm_step0", 1.0)),
+            s1_demo_fit=max(0.0, min(1.0, 1.0 - step0_loss_val / 8.0)),
             test_entropy=0.35,
             canvas_cells=canvas_cells,
         )
         self._active_schedule = refined_sched
+        self.base_adaptor._active_unroll_steps = int(refined_sched.unroll_steps)
+        self.base_adaptor._active_ray_quantiles = list(refined_sched.ray_quantiles)
         diag["zeno_flux"] = flux_info["zeno_flux"]
         diag["lca_variance"] = flux_info["lca_variance"]
         diag["turbulence_index"] = refined_sched.turbulence_index
         diag["regime"] = refined_sched.regime
         diag["ray_quantiles"] = refined_sched.ray_quantiles
+        diag["unroll_steps"] = int(refined_sched.unroll_steps)
         return delta_z, diag
 
     def predict_s1_and_s2_pair(
@@ -525,6 +680,10 @@ class DarkSnailSystem2Adaptor:
         Evaluates System 1 and System 2 with DarkSnail readout and adaptive surgical
         1-2 cell ray extrapolation quantiles from `ZenoAmygdalaController`.
         """
+        self._ensure_cascade_lm_weight(model)
+        if self._active_schedule is not None:
+            self.base_adaptor._active_unroll_steps = int(self._active_schedule.unroll_steps)
+            self.base_adaptor._active_ray_quantiles = list(self._active_schedule.ray_quantiles)
         res = self.base_adaptor.predict_s1_and_s2_pair(
             model=model,
             test_input_grid=test_input_grid,

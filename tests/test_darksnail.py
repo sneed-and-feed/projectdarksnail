@@ -31,12 +31,16 @@ import torch
 import torch.nn as nn
 
 _ROOT = Path(__file__).resolve().parents[1]
-for _p in (_ROOT, _ROOT.parent / "brain-ai", _ROOT.parent / "sparse-ai" / "src"):
-    if _p.exists() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+for _p in reversed((_ROOT, _ROOT.parent / "brain-ai", _ROOT.parent / "sparse-ai" / "src")):
+    if _p.exists():
+        _ps = str(_p)
+        if _ps in sys.path:
+            sys.path.remove(_ps)
+        sys.path.insert(0, _ps)
 
 from darksnail import (
     BeltramiCallosalShell,
+    ContinuousSpectralFieldReadout,
     DarkSnailCanvasReadout,
     DarkSnailSchedule,
     DarkSnailSystem2Adaptor,
@@ -46,6 +50,8 @@ from darksnail import (
     ZenoAmygdalaController,
     compute_grid_prompt_zeno_flux,
     extract_beltrami_lh_latents,
+    extract_grid_beltrami_shape_descriptors,
+    infer_arc_output_shape_beltrami,
     verify_pointwise_orthogonality,
 )
 
@@ -550,4 +556,91 @@ def test_darksnail_long_context_shield_and_block_bridge():
     w_frac = w_iso / S
     f_realized = w_frac * (2.0 - w_frac)
     assert abs(f_realized - f_target) < 1e-3
+
+
+def test_cds_extension_invariants_n3600():
+    torch.manual_seed(2026)
+    B, L, C_u, M = 4, 900, 16, 12  # N = 3,600 spatial cells
+
+    # 1. Pointwise orthogonality across N = 3,600 cells (<= 1.0e-8 in float32)
+    op = SkewSymmetricTriadOperator()
+    u = torch.randn(B, L, C_u, dtype=torch.float32)
+    v = torch.randn(B, L, M, dtype=torch.float32)
+    W = torch.randn(B, C_u, M, M, dtype=torch.float32)
+    max_ortho_res = op.verify_pointwise_orthogonality(u, v, W).abs().max().item()
+    assert max_ortho_res <= 1.0e-8, f"Expected <= 1e-8, got {max_ortho_res}"
+
+    # 2. Multi-step SlowFastTriadCascade across K in {1, 4, 8, 16} on N = 3,600 cells
+    cascade = SlowFastTriadCascade(d_reasoner=512, d_shell=8, preserve_exact_sphere_norm=True)
+    z_H = torch.randn(B, L, 512, dtype=torch.float32)
+    z_L = torch.randn(B, L, 512, dtype=torch.float32)
+    dz_zero = torch.zeros(B, 16, 512, dtype=torch.float32)
+    dz_rand = torch.randn(B, 16, 512, dtype=torch.float32) * 0.35
+
+    for K in (1, 4, 8, 16):
+        z_L_zero, diag_zero = cascade(z_H, z_L, dz_zero, unroll_steps=K, return_diagnostics=True)
+        assert (z_L_zero - z_L).abs().max().item() == 0.0
+        assert diag_zero["max_norm_drift"] == 0.0
+
+        z_L_k, diag_k = cascade(z_H, z_L, dz_rand, unroll_steps=K, return_diagnostics=True)
+        assert diag_k["unroll_steps"] == K
+        assert diag_k["max_orthogonality_error"] <= 1.0e-8
+        assert diag_k["max_norm_drift"] == 0.0
+
+    # 3. ContinuousSpectralFieldReadout: Step-0 homotopy, 8192-coord gradient flow, and gamma_2D
+    from brain_ai.models.callosum import encode_grid_to_trm_seq
+
+    grid_in = [[(r + c) % 5 for c in range(6)] for r in range(6)]
+    seq = encode_grid_to_trm_seq(grid_in)
+    inputs = torch.tensor(np.stack([seq for _ in range(B)]), dtype=torch.long)
+    base_logits = torch.randn(B, L, 12, dtype=torch.float32)
+
+    cont_readout = ContinuousSpectralFieldReadout(readout_scale=6.0)
+    out_zero, state_zero = cont_readout(
+        base_logits, inputs, dz_zero[0], target_hw=[(6, 6)] * B, return_continuous_field=True
+    )
+    assert (out_zero - base_logits).abs().max().item() == 0.0
+    assert state_zero["continuous_field_2d"].shape == (B, 30, 30, 12)
+    gamma_2d = state_zero["gamma_2d"]
+    assert bool(((gamma_2d >= 0.05 - 1e-6) & (gamma_2d <= 1.0 + 1e-6)).all().item())
+
+    dz_full = nn.Parameter(torch.randn(16, 512, dtype=torch.float32) * 0.05)
+    out_active, state_active = cont_readout(
+        base_logits,
+        inputs,
+        dz_full,
+        z_H=z_H,
+        z_L=z_L,
+        unroll_steps=4,
+        target_hw=[(6, 6), (5, 5), (4, 4), (6, 6)],
+        return_continuous_field=True,
+    )
+    assert state_active["orthogonality_residual"] <= 1.0e-8
+    assert state_active["cascade_diagnostics"]["max_norm_drift"] == 0.0
+
+    loss = out_active.pow(2).mean() + state_active["z_L_coupled"].pow(2).mean()
+    loss.backward()
+    flat_g = dz_full.grad.view(-1)
+    assert flat_g[DarkSnailCanvasReadout.EXT_REL_START : DarkSnailCanvasReadout.EXT_REL_END].norm().item() > 0.0
+    assert flat_g[DarkSnailCanvasReadout.SPECTRAL_GUARD_START : DarkSnailCanvasReadout.SPECTRAL_GUARD_END].norm().item() > 0.0
+    assert flat_g[SlowFastTriadCascade.CAS_ALPHA_START : SlowFastTriadCascade.CAS_STEP_GEN_END].norm().item() > 0.0
+
+    # 4. Beltrami Shape Descriptors & Predictor + Zeno Unroll Dispatch
+    desc = extract_grid_beltrami_shape_descriptors([[0, 2, 2, 0], [0, 2, 0, 0], [0, 0, 5, 0]])
+    assert desc["n_fg_colors"] == 2
+    assert desc["minority_color_bbox"] == (1, 1)
+
+    demos_dyn = [
+        {"input": [[1, 0, 2], [0, 0, 0], [0, 0, 3]], "output": [[1, 1, 1], [1, 1, 1], [1, 1, 1]]},
+        {"input": [[4, 0, 0], [0, 0, 0], [0, 0, 5]], "output": [[1, 1], [1, 1]]},
+    ]
+    pred_hw = infer_arc_output_shape_beltrami(demos_dyn, [[1, 2, 0], [0, 3, 0], [0, 0, 4]])
+    assert pred_hw == (4, 4)
+
+    controller = ZenoAmygdalaController(allow_zero_step_bypass=True)
+    sched_s1 = controller(0.20, 0.10, 1.5, 0.4, s1_demo_fit=0.95, test_entropy=0.1, canvas_cells=900)
+    sched_hi = controller(0.82, 0.85, 6.2, 3.0, s1_demo_fit=0.30, test_entropy=1.4, canvas_cells=900)
+    assert sched_s1.unroll_steps == 1
+    assert sched_hi.unroll_steps in (4, 8, 16)
+
 

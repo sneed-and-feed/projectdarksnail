@@ -13,6 +13,7 @@ Evaluation Suite, comparing against:
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import os
@@ -37,7 +38,11 @@ if (WORKSPACE_DIR / "sparse-ai" / "src").exists():
 
 from darksnail.antenna import ZenoAmygdalaController
 from darksnail.readout import DarkSnailCanvasReadout
-from darksnail.shell import compute_grid_prompt_zeno_flux
+from darksnail.shell import (
+    compute_grid_prompt_zeno_flux,
+    extract_grid_beltrami_shape_descriptors,
+    infer_arc_output_shape_beltrami,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -76,64 +81,8 @@ def infer_arc_output_shape(
     test_input_grid: Sequence[Sequence[int]],
     side: int = 30,
 ) -> Tuple[int, int]:
-    """Infers target output grid dimensions (H_out, W_out) strictly from demos and test input."""
-    if not test_input_grid or not test_input_grid[0]:
-        return 1, 1
-    in_h = min(side, len(test_input_grid))
-    in_w = min(side, len(test_input_grid[0]))
-    if not demos:
-        return in_h, in_w
-    in_shapes = [
-        (len(d["input"]), len(d["input"][0]))
-        for d in demos
-        if d.get("input") and d["input"][0]
-    ]
-    out_shapes = [
-        (len(d["output"]), len(d["output"][0]))
-        for d in demos
-        if d.get("output") and d["output"][0]
-    ]
-    if len(in_shapes) != len(out_shapes) or not in_shapes:
-        return in_h, in_w
-    if all(ish == osh for ish, osh in zip(in_shapes, out_shapes)):
-        return in_h, in_w
-    if len(set(out_shapes)) == 1:
-        return min(side, max(1, out_shapes[0][0])), min(side, max(1, out_shapes[0][1]))
-    if all(osh[0] == ish[1] and osh[1] == ish[0] for ish, osh in zip(in_shapes, out_shapes)):
-        return in_w, in_h
-    ratios_h = [osh[0] / max(1, ish[0]) for ish, osh in zip(in_shapes, out_shapes)]
-    ratios_w = [osh[1] / max(1, ish[1]) for ish, osh in zip(in_shapes, out_shapes)]
-    if max(ratios_h) - min(ratios_h) < 1e-4 and max(ratios_w) - min(ratios_w) < 1e-4:
-        return (
-            max(1, min(side, int(round(in_h * ratios_h[0])))),
-            max(1, min(side, int(round(in_w * ratios_w[0])))),
-        )
-    diffs_h = [osh[0] - ish[0] for ish, osh in zip(in_shapes, out_shapes)]
-    diffs_w = [osh[1] - ish[1] for ish, osh in zip(in_shapes, out_shapes)]
-    if len(set(diffs_h)) == 1 and len(set(diffs_w)) == 1:
-        return (
-            max(1, min(side, in_h + diffs_h[0])),
-            max(1, min(side, in_w + diffs_w[0])),
-        )
-    if all(ish[0] == 2 * osh[0] + 1 and ish[1] == osh[1] for ish, osh in zip(in_shapes, out_shapes)):
-        if (in_h - 1) % 2 == 0 and in_h > 1:
-            return max(1, min(side, (in_h - 1) // 2)), in_w
-    if all(ish[1] == 2 * osh[1] + 1 and ish[0] == osh[0] for ish, osh in zip(in_shapes, out_shapes)):
-        if (in_w - 1) % 2 == 0 and in_w > 1:
-            return in_h, max(1, min(side, (in_w - 1) // 2))
-
-    def _fg_bbox_shape(g: Sequence[Sequence[int]]) -> Tuple[int, int]:
-        arr = np.asarray(g)
-        mask = arr != 0
-        if not mask.any():
-            return int(arr.shape[0]), int(arr.shape[1])
-        rs, cs = np.where(mask.any(axis=1))[0], np.where(mask.any(axis=0))[0]
-        return int(rs[-1] - rs[0] + 1), int(cs[-1] - cs[0] + 1)
-
-    if all(_fg_bbox_shape(d["input"]) == osh for d, osh in zip(demos, out_shapes)):
-        bh, bw = _fg_bbox_shape(test_input_grid)
-        return max(1, min(side, bh)), max(1, min(side, bw))
-    return in_h, in_w
+    """Infers target output grid dimensions (H_out, W_out) strictly from demos and test input via Beltrami outlier & topological enclosure rules."""
+    return infer_arc_output_shape_beltrami(demos, test_input_grid, side=side)
 
 
 def is_demo_color_preserving(demos: Optional[Sequence[Mapping[str, Any]]]) -> bool:
@@ -227,11 +176,12 @@ def run_darksnail_tta_on_task(
     device: str = "cpu",
 ) -> Dict[str, Any]:
     demos = task["train"]
-    out_shapes = [
+    demo_target_hws = [
         (len(d["output"]), len(d["output"][0]))
         for d in demos
         if d.get("output") and d["output"][0]
     ]
+    out_shapes = demo_target_hws
     active_target_hw = out_shapes[0] if len(set(out_shapes)) == 1 else None
     color_pres = is_demo_color_preserving(demos)
 
@@ -277,6 +227,8 @@ def run_darksnail_tta_on_task(
     best_loss = 1e9
     best_dz = dz.data.clone()
     actual_steps = 0
+    supports_demo_hws = "demo_target_hws" in inspect.signature(readout.forward).parameters
+    extra_demo_kwargs = {"demo_target_hws": demo_target_hws} if supports_demo_hws else {}
 
     for step in range(30):
         actual_steps = step + 1
@@ -289,6 +241,7 @@ def run_darksnail_tta_on_task(
             color_preserving=color_pres,
             triad_gain_override=sched.triad_gain,
             asym_gain_override=sched.asym_gain,
+            **extra_demo_kwargs,
         )
         ce = weighted_ce(logits, demo_out)
         reg = 0.5 * 0.1 * (dz.pow(2).mean())
