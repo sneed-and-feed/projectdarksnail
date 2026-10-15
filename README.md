@@ -3,9 +3,9 @@
 [![Lean 4 Verified](https://img.shields.io/badge/Lean_4-Zero_Sorry_Verified-brightgreen)](#lean-4-formal-verification-occlusiontriadlean)
 [![Pytest](https://img.shields.io/badge/pytest-8%2F8_passed-brightgreen)](#unit-test-suite)
 [![ARC-AGI-1](https://img.shields.io/badge/ARC--AGI--1_Eval-27.00_%2F_400_(6.75%25)-blue)](#empirical-evaluation-on-arc-agi-1-n--400)
-[![LongBench QASPER](https://img.shields.io/badge/LongBench_QASPER_%40_r%3D3-50.26_F1_(%2B16.27_vs_V4_Triad)-orange)](#reverse-synthesis-longbench-qasper--banal-niah-darksnail-to-llama-surgery)
+[![LongBench QASPER](https://img.shields.io/badge/LongBench_QASPER_n%3D200_%40_r%3D4-41.51_F1_(%2B11.78_vs_V4_Triad)-orange)](#reverse-synthesis-full-n--200-longbench-qasper--banal-niah-darksnail-to-llama-surgery)
 
-**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](../sparse-ai/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](../brain-ai/docs/preprint/bihemispheric_ai_preprint.tex) onto a single frozen `Meta-Llama-3.1-8B-Instruct` ($L=32, d=4096$, `bfloat16`) backbone.
+**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](https://github.com/sneed-and-feed/sparse-ai/blob/main/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](https://github.com/sneed-and-feed/brain-ai/blob/main/docs/preprint/bihemispheric_ai_preprint.tex) onto a single frozen `Meta-Llama-3.1-8B-Instruct` ($L=32, d=4096$, `bfloat16`) backbone. See the full NeurIPS 2026 preprint in [`papers/darksnail_v2_preprint.md`](papers/darksnail_v2_preprint.md).
 
 ---
 
@@ -14,24 +14,24 @@
 | Bottleneck in `brain-ai` / `sparse-ai` | Mathematical / Systems Primitive | DarkSnail V2 Synthesis Module |
 | :--- | :--- | :--- |
 | **1. Uniform Sequence Dilution (`lh_cache.py`)**: `adaptive_avg_pool1d(raw_latents, 32)` dilutes high-salience rule tokens in background grid padding. | **Beltrami Triad-Flux Outlier Shielding & Adelic Medoids** (`adelic_cache.py`, `RoPECoherence.lean`). | [`darksnail.shell.BeltramiCallosalShell`](darksnail/shell.py): Two-tier `(B, 32, 4096)` extraction combining top-16 Beltrami outlier-shielded states + 16 ultrametric medoid super-tokens with `0.5*(mean+peak)` pooling. |
-| **2. Symmetric Readout Tie on 2-Color Occlusions (`callosum.py`)**: Only $2,498 / 8,192$ coordinates of $\delta z \in \mathbb{R}^{16 \times 512}$ are used; symmetric spatial bases tie on 1–2 pixel foreground occlusions. | **Skew-Symmetric Bilinear Triad Operator** (`TriadConservation.lean`, `topology.py`). | [`darksnail.readout.DarkSnailCanvasReadout`](darksnail/readout.py): Harvests $3,160$ previously zero-gradient coordinates of $\delta z$ for $S_9$-equivariant skew-symmetric triad occlusion breaking, directional asymmetry, $D_4$ reflection consensus repair, and split-panel XOR/AND completion. |
-| **3. Static Amygdala Cosine Conflict (`amygdala.py`)**: 512-D cosine conflict concentrates in $[0.441, 0.449]$, acting only as a static domain gate. | **Live Zeno Triad Flux & LCA Depth Variance** (`speculative.py`, `ZenoCascade.lean`). | [`darksnail.antenna.ZenoAmygdalaController`](darksnail/antenna.py): Combines multi-prime Zeno triad flux $\Phi_{\mathrm{LH}}$, LCA depth variance $\sigma_{\mathrm{LCA}}^2$, and Step-0 demo gradients to schedule TTA steps $N_{\mathrm{TTA}} \in [0, 40]$, step size $\eta$, and ray quantiles $q_{\mathrm{ray}}$. |
-| **4. Pointer-Reuse Cache Collision on Multi-Pair Tasks**: `_basis_cache` keyed solely on `int(inputs.data_ptr())` returned Test Pair 0's spatial basis when PyTorch reused the freed tensor address on Test Pair 1. | Content-addressed cryptographic digest (`hashlib.blake2b`) over grid tensor bytes. | Fixed in both [`darksnail/readout.py`](darksnail/readout.py) and [`brain-ai/brain_ai/models/callosum.py`](../brain-ai/brain_ai/models/callosum.py), upgrading all 3 half-solved multi-pair ARC tasks (`5d2a5c43`, `6ea4a07e`, `e345f17b`) from $0.50 \to 1.00$. |
-| **5. Deep-Sparsity ($r \ge 3$) QASPER & Banal NIAH Drop in `Llama Surgery`**: Multi-token decode steps (`seq_len == 1`) and isolated tail blocks lose line-of-sight to peripheral factual citations at $r = 3, 4, 5$. | **Beltrami + Query-Tail Span Shield & Measure-Preserving Block Bridge** (`surgery.py`, `longbench.py`). | [`darksnail.longbench`](darksnail/longbench.py): Shields top-96 Beltrami + Query-Tail spans (`kernel_size=13`) across decode and bridges the question tail block (`NB-1`) at **$\le$ `v4_triad@r` causal key budget**, boosting LongBench QASPER F1 by **$+16.27$ at $r=3$** and **$+15.64$ at $r=4$**. |
+| **2. Symmetric Readout Tie on 2-Color Occlusions (`callosum.py`)**: Only $2,498 / 8,192$ coordinates of $\delta z \in \mathbb{R}^{16 \times 512}$ are used; symmetric spatial bases tie on 1–2 pixel foreground occlusions. | **Skew-Symmetric Bilinear Triad Operator** (`TriadConservation.lean`, `topology.py`). | [`darksnail.readout.DarkSnailCanvasReadout`](darksnail/readout.py): Harvests $5,574$ previously zero-gradient coordinates of $\delta z$ ($8,072 / 8,192$ active) for 9-color-equivariant skew-symmetric triad occlusion breaking, directional asymmetry, $D_4$ reflection consensus repair, and split-panel XOR/AND completion. |
+| **3. Static Amygdala Cosine Conflict (`amygdala.py`)**: 512-D cosine conflict concentrates in $[0.441, 0.449]$, acting only as a static domain gate. | **Live Zeno Triad Flux & LCA Depth Variance** (`speculative.py`, `ZenoCascade.lean`). | [`darksnail.antenna.ZenoAmygdalaController`](darksnail/antenna.py): Combines multi-prime Zeno triad flux, LCA depth variance, and Step-0 demo gradients to schedule test-time adaptation parameters $(\Phi_{\mathrm{LH}}, \sigma_{\mathrm{LCA}}^2) \mapsto (N_{\mathrm{TTA}} \in [0, 40], \eta, q_{\mathrm{ray}})$. |
+| **4. Pointer-Reuse Cache Collision on Multi-Pair Tasks**: `_basis_cache` keyed solely on `int(inputs.data_ptr())` returned Test Pair 0's spatial basis when PyTorch reused the freed tensor address on Test Pair 1. | Content-addressed cryptographic digest (`hashlib.blake2b`) over grid tensor bytes. | Fixed in both [`darksnail/readout.py`](darksnail/readout.py) and [`brain-ai/brain_ai/models/callosum.py`](https://github.com/sneed-and-feed/brain-ai/blob/main/brain_ai/models/callosum.py), upgrading all 3 half-solved multi-pair ARC tasks (`5d2a5c43`, `6ea4a07e`, `e345f17b`) from $0.50 \to 1.00$. |
+| **5. Deep-Sparsity** ($r \ge 3$) **QASPER & Banal NIAH Drop in `Llama Surgery`**: Multi-token decode steps (`seq_len == 1`) and isolated tail blocks lose line-of-sight to peripheral factual citations at $r = 3, 4, 5$. | **Beltrami + Query-Tail Span Shield & Measure-Preserving Block Bridge** (`surgery.py`, `longbench.py`). | [`darksnail.longbench`](darksnail/longbench.py): Shields top-96 Beltrami + Query-Tail spans (`kernel_size=13`) across decode and bridges the question tail block (`NB-1`) at $\le$ **`v4_triad@r` causal key budget**, boosting $n = 200$ LongBench QASPER F1 by $\mathbf{+6.50}$ ($r=2$), $\mathbf{+7.41}$ ($r=3$), and $\mathbf{+11.78}$ ($r=4$). |
 
 ---
 
 ## Lean 4 Formal Verification (`OcclusionTriad.lean`)
 
-All mathematical invariants governing Project DarkSnail are machine-checked in Lean 4 with **zero `sorry` and zero compiler warnings** in [`formalization/OcclusionTriad.lean`](formalization/OcclusionTriad.lean) (and integrated into [`sparse-ai/formalization/Formalization/Analysis/OcclusionTriad.lean`](../sparse-ai/formalization/Formalization/Analysis/OcclusionTriad.lean)):
+All mathematical invariants governing Project DarkSnail are machine-checked in Lean 4 with **zero `sorry` and zero compiler warnings** in [`formalization/OcclusionTriad.lean`](formalization/OcclusionTriad.lean) (and integrated into [`sparse-ai/formalization/Formalization/Analysis/OcclusionTriad.lean`](https://github.com/sneed-and-feed/sparse-ai/blob/main/formalization/Formalization/Analysis/OcclusionTriad.lean)):
 
 | Theorem Name | Formal Statement Summary | Lines |
 | :--- | :--- | :--- |
-| `skew_triad_swap_neg` & `skew_triad_self_zero` | Antisymmetry $S(W, i, c_2, c_1) = -S(W, i, c_1, c_2)$ and vanishing self-interaction $S(W, i, c, c) = 0$. | L56–L69 |
-| `occlusion_triad_breaks_symmetric_tie` | On a 2-color collision $v(c_1) = v(c_2) = \alpha > 0$ where symmetric readout ties ($\ell_{\mathrm{sym}}(c_1) = \ell_{\mathrm{sym}}(c_2)$), the skew-symmetric triad shift satisfies $\ell_{\mathrm{post}}(c_1) - \ell_{\mathrm{post}}(c_2) = 2\beta\alpha(W(i_0, c_2, c_1) - W(i_0, c_1, c_2)) > 0$. | L124–L175 |
-| `darksnail_readout_energy_conservation` | Pointwise orthogonality $\sum_k v(k) \cdot B_W(u, v)_k = 0$ on the canvas logit manifold and $\langle z_L, \dot{z}_L\rangle = 0$ on the Slow-Fast recurrent cascade. | L184–L208 |
-| `darksnail_step0_system1_homotopy` | At $\delta z = \mathbf{0}$ ($\Delta_{\mathrm{sym}} = 0, W = 0$), $\ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, 0, 0, u, v, k) = \ell_{\mathrm{S1}}(k)$ identically (100% System 1 equivalence at Step 0). | L217–L235 |
-| `rope2d_medoid_relative_invariance` & `rope2d_arithmetic_norm_lt` | 2D axial RoPE medoid keys preserve exact relative displacement $(\theta_{y^*} - \theta_{y_q}, \theta_{x^*} - \theta_{x_q})$, whereas 2D arithmetic patch averaging strictly attenuates squared key norms. | L267–L313 |
+| `skew_triad_swap_neg` & `skew_triad_self_zero` | Antisymmetry and vanishing self-interaction: $S(W, i, c_2, c_1) = -S(W, i, c_1, c_2)$ with $S(W, i, c, c) = 0$. | L72–L80 |
+| `occlusion_triad_breaks_symmetric_tie` | On a 2-color collision with equal symmetric readout, the skew-symmetric triad shift satisfies $\ell_{\mathrm{post}}(c_1) - \ell_{\mathrm{post}}(c_2) = 2\beta\alpha(W(i_0, c_2, c_1) - W(i_0, c_1, c_2)) > 0$. | L137–L166 |
+| `darksnail_readout_energy_conservation` & `darksnail_recurrent_cascade_conservation` | Pointwise orthogonality on the canvas logit manifold and Slow-Fast recurrent cascade: $\sum_k v_k B_W(u, v, k) = \langle P z_L, \dot u_L\rangle = 0$. | L177–L185 |
+| `darksnail_step0_system1_homotopy` | At zero perturbation $\delta z = \mathbf{0}$, $\ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, 0, 0, u, v, k) = \ell_{\mathrm{S1}}(k)$ identically (100% System 1 equivalence at Step 0). | L198–L202 |
+| `rope2d_medoid_relative_invariance` & `rope2d_arithmetic_norm_lt` | 2D axial RoPE medoid keys preserve exact relative displacement $(\theta_{y^\ast} - \theta_{y_q}, \theta_{x^\ast} - \theta_{x_q})$, whereas 2D arithmetic patch averaging strictly attenuates squared key norms. | L253–L311 |
 
 ---
 
@@ -43,24 +43,24 @@ Full benchmark results from [`scripts/evaluate_darksnail_arc.py`](scripts/evalua
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **System 1 Zero-Shot** (`submission_s1_zero_shot.json`) | $0.50$ | $0.125\%$ | $[0.01\%, 1.19\%]$ | $0$ | Baseline |
 | **`brain-ai` Phase 3 System 2** (`submission_s2_adapted.json`) | $16.50$ | $4.125\%$ | $[2.57\%, 6.55\%]$ | $15$ | $p = 3.05 \times 10^{-5}$ (vs. S1) |
-| **Project DarkSnail V2 Synthesis** (`submission_darksnail_v2.json`) | **$27.00$** | **$6.750\%$** | **$[4.68\%, 9.64\%]$** | **$27$** | **$p = 1.49 \times 10^{-8}$ (vs. S1)**<br>**$p = 4.88 \times 10^{-4}$ (vs. `brain-ai` S2, $+12 / -0$)** |
+| **Project DarkSnail V2 Synthesis** (`submission_darksnail_v2.json`) | $\mathbf{27.00}$ | $\mathbf{6.750\%}$ | $\mathbf{[4.68\%, 9.64\%]}$ | $\mathbf{27}$ | $\mathbf{p = 1.49 \times 10^{-8}}\text{ (vs. S1)}$<br>$\mathbf{p = 4.88 \times 10^{-4}}\text{ (vs. }\mathtt{brain\text{-}ai}\text{ S2, }+12 / -0\text{)}$ |
 
 ### Newly Solved Near-Miss & Multi-Pair Tasks ($+10.50$ Fractional / $+12$ Strict Tasks)
 
 | Task ID | Category | `brain-ai` S2 Score (Pair Pixel Acc) | DarkSnail V2 Score (Pair Pixel Acc) | Mechanism Responsible |
 | :--- | :--- | :---: | :---: | :--- |
-| `af22c60d` | Near-Miss ($30\times 30$) | $0.00$ ($99.8\%$, $898/900$) | **$1.00$ ($100.0\%$, $900/900$)** | Auto-detected axis-aligned dihedral reflection consensus (`d4_repair_diff` at axis $(31, 31)$). |
-| `0b17323b` | Near-Miss ($15\times 15$) | $0.00$ ($99.1\%$, $223/225$) | **$1.00$ ($100.0\%$, $225/225$)** | Constant-step diagonal ray-march continuation (`diag_step_col`) beyond input color transitions. |
-| `ce039d91` | Near-Miss ($10\times 10$) | $0.00$ ($99.0\%$, $99/100$) | **$1.00$ ($100.0\%$, $100/100$)** | Horizontal mirror indicator (`u_occ[:, :, 3] = s_fv > 0`) + skew-symmetric triad tie-breaking. |
-| `68b67ca3` | Near-Miss ($3\times 3$) | $0.00$ ($88.9\%$, $8/9$) | **$1.00$ ($100.0\%$, $9/9$)** | Exact $S_9$ foreground-palette equivariance on `color_preserving` tasks (`Phi` foreground mask + $S_9$ triad projection). |
-| `e57337a4` | Near-Miss ($3\times 3$) | $0.00$ ($77.8\%$, $7/9$) | **$1.00$ ($100.0\%$, $9/9$)** | Stride-5 block-minima pooling (`block_min_oh`) + $S_9$ foreground-palette equivariance. |
-| `195ba7dc` | Near-Miss ($5\times 6$) | $0.00$ ($93.3\%$, $28/30$) | **$1.00$ ($100.0\%$, $30/30$)** | Divider-aware panel split (`wb = 2*tw + 1`) + binary panel OR/XOR/AND basis (`u_occ[:, :, 13:16]`). |
-| `31d5ba1a` | Near-Miss ($3\times 5$, 2 pairs) | $0.00$ ($93.3\%, 40.0\%$) | **$1.00$ ($100.0\%, 100.0\%$)** | 2-panel XOR feature scaling (`has_2panel_only`) + content-addressed basis cache key. |
-| `5d2a5c43` | Half-Solved (2 pairs) | $0.50$ ($100.0\%, 58.3\%$) | **$1.00$ ($100.0\%, 100.0\%$)** | Content-addressed `_basis_cache` digest + divider-aware split-panel boolean features. |
-| `6ea4a07e` | Half-Solved (2 pairs) | $0.50$ ($100.0\%, 33.3\%$) | **$1.00$ ($100.0\%, 100.0\%$)** | Content-addressed `_basis_cache` digest + global foreground-to-background complement (`phi_bg_fg`). |
-| `e345f17b` | Half-Solved (2 pairs) | $0.50$ ($100.0\%, 43.8\%$) | **$1.00$ ($100.0\%, 100.0\%$)** | Content-addressed `_basis_cache` digest + binary panel NOR/XOR features. |
-| `1c0d0a4b` | Unsolved ($N=400$ sweep) | $0.00$ | **$1.00$ ($100.0\%$)** | Unlocked by `DarkSnailCanvasReadout` split-panel / complement basis + Zeno-Amygdala Pareto gate. |
-| `34b99a2b` | Unsolved ($N=400$ sweep) | $0.00$ | **$1.00$ ($100.0\%$)** | Unlocked by `DarkSnailCanvasReadout` split-panel XOR basis + Zeno-Amygdala Pareto gate. |
+| `af22c60d` | Near-Miss ($30\times 30$) | $0.00\ (99.8\%, 898/900)$ | $\mathbf{1.00}\ (100.0\%, 900/900)$ | Auto-detected axis-aligned dihedral reflection consensus (`d4_repair_diff` at axis $(31, 31)$). |
+| `0b17323b` | Near-Miss ($15\times 15$) | $0.00\ (99.1\%, 223/225)$ | $\mathbf{1.00}\ (100.0\%, 225/225)$ | Constant-step diagonal ray-march continuation (`diag_step_col`) beyond input color transitions. |
+| `ce039d91` | Near-Miss ($10\times 10$) | $0.00\ (99.0\%, 99/100)$ | $\mathbf{1.00}\ (100.0\%, 100/100)$ | Horizontal mirror indicator (`u_occ[:, :, 3] = s_fv > 0`) + skew-symmetric triad tie-breaking. |
+| `68b67ca3` | Near-Miss ($3\times 3$) | $0.00\ (88.9\%, 8/9)$ | $\mathbf{1.00}\ (100.0\%, 9/9)$ | Exact $S_9$ foreground-palette equivariance on `color_preserving` tasks (`Phi` foreground mask + 9-color triad projection). |
+| `e57337a4` | Near-Miss ($3\times 3$) | $0.00\ (77.8\%, 7/9)$ | $\mathbf{1.00}\ (100.0\%, 9/9)$ | Stride-5 block-minima pooling (`block_min_oh`) + $S_9$ foreground-palette equivariance. |
+| `195ba7dc` | Near-Miss ($5\times 6$) | $0.00\ (93.3\%, 28/30)$ | $\mathbf{1.00}\ (100.0\%, 30/30)$ | Divider-aware panel split (`wb = 2*tw + 1`) + binary panel OR/XOR/AND basis (`u_occ[:, :, 13:16]`). |
+| `31d5ba1a` | Near-Miss ($3\times 5$, 2 pairs) | $0.00\ (93.3\%, 40.0\%)$ | $\mathbf{1.00}\ (100.0\%, 100.0\%)$ | 2-panel XOR feature scaling (`has_2panel_only`) + content-addressed basis cache key. |
+| `5d2a5c43` | Half-Solved (2 pairs) | $0.50\ (100.0\%, 58.3\%)$ | $\mathbf{1.00}\ (100.0\%, 100.0\%)$ | Content-addressed `_basis_cache` digest + divider-aware split-panel boolean features. |
+| `6ea4a07e` | Half-Solved (2 pairs) | $0.50\ (100.0\%, 33.3\%)$ | $\mathbf{1.00}\ (100.0\%, 100.0\%)$ | Content-addressed `_basis_cache` digest + global foreground-to-background complement (`phi_bg_fg`). |
+| `e345f17b` | Half-Solved (2 pairs) | $0.50\ (100.0\%, 43.8\%)$ | $\mathbf{1.00}\ (100.0\%, 100.0\%)$ | Content-addressed `_basis_cache` digest + binary panel NOR/XOR features. |
+| `1c0d0a4b` | Unsolved ($N=400$ sweep) | $0.00$ | $\mathbf{1.00}\ (100.0\%)$ | Unlocked by `DarkSnailCanvasReadout` split-panel / complement basis + Zeno-Amygdala Pareto gate. |
+| `34b99a2b` | Unsolved ($N=400$ sweep) | $0.00$ | $\mathbf{1.00}\ (100.0\%)$ | Unlocked by `DarkSnailCanvasReadout` split-panel XOR basis + Zeno-Amygdala Pareto gate. |
 
 ### Visual Gallery: `brain-ai` S2 Baseline vs. `DarkSnail V2` (100.0% Exact Solves)
 
@@ -72,16 +72,16 @@ Full benchmark results from [`scripts/evaluate_darksnail_arc.py`](scripts/evalua
 
 Evaluating `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) patched with `SurgicalLlamaAttention` (`V4 TriadTopologyRouter` sidecar) + Layer-16 `BeltramiCallosalShell` telemetry hook + DarkSnail Query-Tail Outlier Shield & Measure-Preserving Block Bridge ([`results/darksnail_longbench_summary.json`](results/darksnail_longbench_summary.json), [`results/darksnail_qasper_predictions.jsonl`](results/darksnail_qasper_predictions.jsonl), and [`EXPERIMENT_RESULTS.md`](EXPERIMENT_RESULTS.md)):
 
-### LongBench QASPER Scientific Paper QA ($n = 200$, $\max\_\mathrm{ctx} = 6,000$, Mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6039$)
+### LongBench QASPER Scientific Paper QA ($n = 200$, `max_ctx = 6000`, Mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6039$)
 
 | Tree Depth $r$ | Sliding Window (`window@r`) F1 [Budget] | Standalone `Llama Surgery` (`v4_triad@r`) F1 [Budget] | **Project DarkSnail V2 (`darksnail@r`) F1 [Budget]** | Paired $\Delta\text{F1}$ vs. `v4_triad@r` [95% CI] (W/L) | Paired $\Delta\text{F1}$ vs. `window@r` [95% CI] | Paired $\Delta\text{F1}$ vs. `dense` ($43.10$) [95% CI] |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **$r = 0$ (`dense`)** | — | $43.10$ $[100.00\%]$ | $43.10$ $[100.00\%]$ | — | — | $0.00$ |
-| **$r = 2$** | $34.41$ $[78.01\%]$ | $37.70$ $[77.99\%]$ | **$44.20$ $[77.94\%]$** | **$+6.50$ $[+2.86, +10.29]$** ($83 / 49$) | **$+9.79$ $[+4.87, +14.78]$** | **$+1.10$ $[-1.23, +3.63]$** |
-| **$r = 3$** | $29.99$ $[66.93\%]$ | $35.92$ $[66.91\%]$ | **$43.33$ $[66.84\%]$** | **$+7.41$ $[+3.39, +11.24]$** ($90 / 53$) | **$+13.34$ $[+8.15, +18.59]$** | **$+0.23$ $[-2.36, +2.81]$** |
-| **$r = 4$** | $27.45$ $[58.74\%]$ | $29.73$ $[58.71\%]$ | **$41.51$ $[58.65\%]$** | **$+11.78$ $[+7.51, +15.95]$** ($101 / 45$) | **$+14.07$ $[+8.47, +19.61]$** | **$-1.59$ $[-4.40, +1.08]$** |
+| $r = 0$ (`dense`) | — | $43.10\ [100.00\%]$ | $43.10\ [100.00\%]$ | — | — | $0.00$ |
+| $r = 2$ | $34.41\ [78.01\%]$ | $37.70\ [77.99\%]$ | $\mathbf{44.20\ [77.94\%]}$ | $\mathbf{+6.50\ [+2.86, +10.29]}\ (83 / 49)$ | $\mathbf{+9.79\ [+4.87, +14.78]}$ | $\mathbf{+1.10\ [-1.23, +3.63]}$ |
+| $r = 3$ | $29.99\ [66.93\%]$ | $35.92\ [66.91\%]$ | $\mathbf{43.33\ [66.84\%]}$ | $\mathbf{+7.41\ [+3.39, +11.24]}\ (90 / 53)$ | $\mathbf{+13.34\ [+8.15, +18.59]}$ | $\mathbf{+0.23\ [-2.36, +2.81]}$ |
+| $r = 4$ | $27.45\ [58.74\%]$ | $29.73\ [58.71\%]$ | $\mathbf{41.51\ [58.65\%]}$ | $\mathbf{+11.78\ [+7.51, +15.95]}\ (101 / 45)$ | $\mathbf{+14.07\ [+8.47, +19.61]}$ | $\mathbf{-1.59\ [-4.40, +1.08]}$ |
 
-> **Key Finding (Triple Iso-Budget Precision & Strictly Positive Paired 95% CIs across $n = 200$):** At every tree depth $r \in \{2, 3, 4\}$, `darksnail@r` uses a slightly **lower measured causal key budget** than both `v4_triad@r` and `window@r` (`77.94%` vs `77.99%` / `78.01%`; `66.84%` vs `66.91%` / `66.93%`; `58.65%` vs `58.71%` / `58.74%`), yet achieves strictly positive paired within-question bootstrap 95% CIs over `v4_triad@r` (**`+6.50`**, **`+7.41`**, and **`+11.78 F1`** with $101$ wins vs. $45$ losses at $r = 4$), **exceeds the full `dense` ceiling (`43.10 F1`) at $r = 2$ (`44.20 F1`) and $r = 3$ (`43.33 F1`)**, and at $r = 4$ (`58.65%` budget, `41.51 F1`) beats both `window@2` (`78.01%` budget, `34.41 F1`) and `v4_triad@2` (`77.99%` budget, `37.70 F1`) while using **$19.34\%$ fewer causal keys**.
+> **Key Finding (Triple Iso-Budget Precision & Strictly Positive Paired 95% CIs across** $n = 200$**):** At every tree depth $r \in \{2, 3, 4\}$, `darksnail@r` uses a slightly **lower measured causal key budget** than both `v4_triad@r` and `window@r` (`77.94%` vs `77.99%` / `78.01%`; `66.84%` vs `66.91%` / `66.93%`; `58.65%` vs `58.71%` / `58.74%`), yet achieves strictly positive paired within-question bootstrap 95% CIs over `v4_triad@r` (**`+6.50`**, **`+7.41`**, and **`+11.78 F1`** with $101$ wins vs. $45$ losses at $r = 4$), **exceeds the full `dense` ceiling (`43.10 F1`) at** $r = 2$ **(`44.20 F1`) and** $r = 3$ **(`43.33 F1`)**, and at $r = 4$ (`58.65%` budget, `41.51 F1`) beats both `window@2` (`78.01%` budget, `34.41 F1`) and `v4_triad@2` (`77.99%` budget, `37.70 F1`) while using $\mathbf{19.34\%}$ **fewer causal keys**.
 
 ![DarkSnail V2 LongBench QASPER & Banal NIAH Curves](results/darksnail_longbench_curves.png)
 
@@ -105,16 +105,21 @@ darksnail/
 ├── ultrametric/             # Block-list sparse attention kernels
 ├── notebooks/
 │   └── darksnail_v2_colab.ipynb # Self-contained Google Colab GPU research notebook (Cells 1-8)
+├── papers/
+│   └── darksnail_v2_preprint.md # Full NeurIPS 2026 research preprint
 ├── results/
 │   ├── darksnail_arc_evaluation_summary.json
 │   ├── darksnail_longbench_summary.json
+│   ├── darksnail_qasper_predictions.jsonl
 │   ├── darksnail_longbench_curves.png
 │   ├── darksnail_v2_showcase_gallery.png
 │   └── submission_darksnail_v2.json
 ├── scripts/
+│   ├── audit_gfm_math.py
 │   └── evaluate_darksnail_arc.py
 ├── tests/
 │   └── test_darksnail.py    # 8-suite pytest verification
+├── EXPERIMENT_RESULTS.md
 └── darksnail_synthesis_plan.md
 ```
 
