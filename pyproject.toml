@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "darksnail"
+version = "0.1.0"
+description = "Project DarkSnail: Bi-Hemispheric x Ultrametric Triad Synthesis for ARC-AGI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "torch",
+    "numpy",
+    "safetensors",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["darksnail*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
