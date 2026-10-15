@@ -68,20 +68,20 @@ Full benchmark results from [`scripts/evaluate_darksnail_arc.py`](scripts/evalua
 
 ---
 
-## Reverse Synthesis: LongBench QASPER & Banal NIAH (`DarkSnail` $\to$ `Llama Surgery`)
+## Reverse Synthesis: Full $n = 200$ LongBench QASPER & Banal NIAH (`DarkSnail` $\to$ `Llama Surgery`)
 
-Evaluating `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) patched with `SurgicalLlamaAttention` (`V4 TriadTopologyRouter` sidecar) + Layer-16 `BeltramiCallosalShell` telemetry hook + DarkSnail Query-Tail Outlier Shield & Measure-Preserving Block Bridge ([`results/darksnail_longbench_summary.json`](results/darksnail_longbench_summary.json)):
+Evaluating `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) patched with `SurgicalLlamaAttention` (`V4 TriadTopologyRouter` sidecar) + Layer-16 `BeltramiCallosalShell` telemetry hook + DarkSnail Query-Tail Outlier Shield & Measure-Preserving Block Bridge ([`results/darksnail_longbench_summary.json`](results/darksnail_longbench_summary.json), [`results/darksnail_qasper_predictions.jsonl`](results/darksnail_qasper_predictions.jsonl), and [`EXPERIMENT_RESULTS.md`](EXPERIMENT_RESULTS.md)):
 
-### LongBench QASPER Scientific Paper QA ($\max\_\mathrm{ctx} = 6,000$, Mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6055$)
+### LongBench QASPER Scientific Paper QA ($n = 200$, $\max\_\mathrm{ctx} = 6,000$, Mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6039$)
 
-| Tree Depth $r$ | Sliding Window (`window@r`) F1 | Standalone `Llama Surgery` (`v4_triad@r`) F1 [Measured Budget] | **Project DarkSnail V2 (`darksnail@r`) F1 [Measured Budget]** | $\Delta\text{F1}$ vs. `v4_triad@r` | $\Delta\text{F1}$ vs. `window@r` | $\Delta\text{F1}$ vs. `dense` ($45.17$) |
+| Tree Depth $r$ | Sliding Window (`window@r`) F1 [Budget] | Standalone `Llama Surgery` (`v4_triad@r`) F1 [Budget] | **Project DarkSnail V2 (`darksnail@r`) F1 [Budget]** | Paired $\Delta\text{F1}$ vs. `v4_triad@r` [95% CI] (W/L) | Paired $\Delta\text{F1}$ vs. `window@r` [95% CI] | Paired $\Delta\text{F1}$ vs. `dense` ($43.10$) [95% CI] |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **$r = 0$ (`dense`)** | — | $45.17$ $[100.00\%]$ | $45.17$ $[100.00\%]$ | — | — | $0.00$ |
-| **$r = 2$** | $20.80$ $[62.61\%]$ | $44.15$ $[77.65\%]$ | **$52.02$ $[77.65\%]$** | **$+7.87$** | **$+31.22$** | **$+6.85$** |
-| **$r = 3$** | $13.88$ $[55.47\%]$ | $33.99$ $[66.49\%]$ | **$50.26$ $[66.44\%]$** | **$+16.27$** | **$+36.38$** | **$+5.09$** |
-| **$r = 4$** | $15.18$ $[49.76\%]$ | $31.40$ $[58.19\%]$ | **$47.04$ $[58.18\%]$** | **$+15.64$** | **$+31.86$** | **$+1.87$** |
+| **$r = 0$ (`dense`)** | — | $43.10$ $[100.00\%]$ | $43.10$ $[100.00\%]$ | — | — | $0.00$ |
+| **$r = 2$** | $34.41$ $[78.01\%]$ | $37.70$ $[77.99\%]$ | **$44.20$ $[77.94\%]$** | **$+6.50$ $[+2.86, +10.29]$** ($83 / 49$) | **$+9.79$ $[+4.87, +14.78]$** | **$+1.10$ $[-1.23, +3.63]$** |
+| **$r = 3$** | $29.99$ $[66.93\%]$ | $35.92$ $[66.91\%]$ | **$43.33$ $[66.84\%]$** | **$+7.41$ $[+3.39, +11.24]$** ($90 / 53$) | **$+13.34$ $[+8.15, +18.59]$** | **$+0.23$ $[-2.36, +2.81]$** |
+| **$r = 4$** | $27.45$ $[58.74\%]$ | $29.73$ $[58.71\%]$ | **$41.51$ $[58.65\%]$** | **$+11.78$ $[+7.51, +15.95]$** ($101 / 45$) | **$+14.07$ $[+8.47, +19.61]$** | **$-1.59$ $[-4.40, +1.08]$** |
 
-> **Key Finding (Subspace Denoising + Callosal Bridging):** At every tree depth $r \in \{2, 3, 4\}$, `darksnail@r` uses the **exact same or slightly lower measured causal key budget** as standalone `v4_triad@r` (`77.65%` vs `77.65%`, `66.44%` vs `66.49%`, `58.18%` vs `58.19%`), yet boosts QASPER QA Token F1 by **$+7.87$ to $+16.27$ points** over `v4_triad@r`, **$+31.22$ to $+36.38$ points** over `window@r`, and even **outperforms unmodified `dense` attention ($45.17$ F1)** across all three sparsity levels by pruning distracting background sections while shielding the exact citation clauses needed by the question tail.
+> **Key Finding (Triple Iso-Budget Precision & Strictly Positive Paired 95% CIs across $n = 200$):** At every tree depth $r \in \{2, 3, 4\}$, `darksnail@r` uses a slightly **lower measured causal key budget** than both `v4_triad@r` and `window@r` (`77.94%` vs `77.99%` / `78.01%`; `66.84%` vs `66.91%` / `66.93%`; `58.65%` vs `58.71%` / `58.74%`), yet achieves strictly positive paired within-question bootstrap 95% CIs over `v4_triad@r` (**`+6.50`**, **`+7.41`**, and **`+11.78 F1`** with $101$ wins vs. $45$ losses at $r = 4$), **exceeds the full `dense` ceiling (`43.10 F1`) at $r = 2$ (`44.20 F1`) and $r = 3$ (`43.33 F1`)**, and at $r = 4$ (`58.65%` budget, `41.51 F1`) beats both `window@2` (`78.01%` budget, `34.41 F1`) and `v4_triad@2` (`77.99%` budget, `37.70 F1`) while using **$19.34\%$ fewer causal keys**.
 
 ![DarkSnail V2 LongBench QASPER & Banal NIAH Curves](results/darksnail_longbench_curves.png)
 

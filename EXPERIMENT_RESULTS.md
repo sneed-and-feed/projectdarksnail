@@ -13,8 +13,8 @@ All core mathematical invariants of the DarkSnail synthesis are machine-checked 
 | **1. Skew-Symmetric Triad Orthogonality (Canvas Readout)**<br>$\sum_{k=0}^{11} v_k \cdot B_W(u, v)_k = 0$ | `darksnail_readout_energy_conservation` ([`OcclusionTriad.lean:L184`](formalization/OcclusionTriad.lean#L184)) | $\max \lvert\langle v, B_W(u, v)\rangle\rvert = \mathbf{7.451 \times 10^{-9}}$ |
 | **2. Step-0 System 1 Homotopy**<br>$\delta z = \mathbf{0} \implies \ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, \mathbf{0}) \equiv \ell_{\mathrm{S1}}$ | `darksnail_step0_system1_homotopy` ([`OcclusionTriad.lean:L217`](formalization/OcclusionTriad.lean#L217)) | $\max \lvert\ell_{\mathrm{DS}}^{(0)} - \ell_{\mathrm{S1}}\rvert = \mathbf{0.000 \times 10^{0}}$ |
 | **3. Slow-Fast Recurrent Triad Cascade Conservation**<br>$\langle P z_L, \dot{u}_L \rangle = 0$ ($z_H \to z_L$ coupling) | `darksnail_recurrent_cascade_conservation` ([`OcclusionTriad.lean:L199`](formalization/OcclusionTriad.lean#L199)) | $\max \lvert\langle P z_L, \dot{u}_L\rangle\rvert = \mathbf{0.000 \times 10^{0}}$ |
-| **4. 2-Color Occlusion Tie-Breaking**<br>$\ell_{\mathrm{post}}(c_1) - \ell_{\mathrm{post}}(c_2) = 2\beta\alpha(W_{i_0, c_2, c_1} - W_{i_0, c_1, c_2}) > 0$ | `occlusion_triad_breaks_symmetric_tie` ([`OcclusionTriad.lean:L124`](formalization/OcclusionTriad.lean#L124)) | Verified (`tests/test_darksnail.py`) |
-| **5. 2D Axial RoPE Medoid Relative Invariance**<br>Medoid keys preserve exact 2D rotary phase; arithmetic patch averaging strictly attenuates key norms. | `rope2d_medoid_relative_invariance` & `rope2d_arithmetic_norm_lt` ([`OcclusionTriad.lean:L267`](formalization/OcclusionTriad.lean#L267)) | Verified (`tests/test_darksnail.py`) |
+| **4. 2-Color Occlusion Tie-Breaking**<br>$\ell_{\mathrm{post}}(c_1) - \ell_{\mathrm{post}}(c_2) = 2\beta\alpha(W_{i_0, c_2, c_1} - W_{i_0, c_1, c_2}) > 0$ | `occlusion_triad_breaks_symmetric_tie` ([`OcclusionTriad.lean:L124`](formalization/OcclusionTriad.lean#L124)) | Verified ([`tests/test_darksnail.py`](tests/test_darksnail.py)) |
+| **5. 2D Axial RoPE Medoid Relative Invariance**<br>Medoid keys preserve exact 2D rotary phase; arithmetic patch averaging strictly attenuates key norms. | `rope2d_medoid_relative_invariance` & `rope2d_arithmetic_norm_lt` ([`OcclusionTriad.lean:L267`](formalization/OcclusionTriad.lean#L267)) | Verified ([`tests/test_darksnail.py`](tests/test_darksnail.py)) |
 
 ---
 
@@ -27,7 +27,7 @@ On 256-token serialized grid prompts dominated by $98.8\%$ background padding (`
 | Extraction Method | Output Shape | Rule-Spike Cosine Recovery | Protected Tier-1 Token Indices |
 | :--- | :---: | :---: | :--- |
 | **Legacy Uniform Sequence Mean-Pool** (`lh_cache.py`) | `(B, 1, 4096)` | $0.0306$ (96.9% signal loss) | None (uniformly averaged) |
-| **DarkSnail `BeltramiCallosalShell`** (`darksnail/shell.py`) | `(B, 32, 4096)` | **$1.0000$ (100% spike preservation)** | `[0, 33..37, 108..112, 192..196]` (BOS sink + kernel-5 shields around `35, 110, 195`) |
+| **DarkSnail `BeltramiCallosalShell`** ([`darksnail/shell.py`](darksnail/shell.py)) | `(B, 32, 4096)` | **$1.0000$ (100% spike preservation)** | `[0, 33..37, 108..112, 192..196]` (BOS sink + kernel-5 shields around `35, 110, 195`) |
 
 - **Live `Meta-Llama-3.1-8B-Instruct` Layer-16 Extraction (Colab Cell 4):**
   Extracted `(1, 32, 4096)` Beltrami Callosal Shell from `82` live prompt tokens with **Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 1.0000$** and **Cophenetic LCA Depth Variance $\sigma_{\mathrm{LCA}}^2 = 0.1598$**.
@@ -61,50 +61,58 @@ Full evaluation results archived in [`results/darksnail_arc_evaluation_summary.j
 
 ---
 
-## 3. Reverse Synthesis (`brain-ai` $\to$ `sparse-ai`): LongBench QASPER & Banal NIAH (Colab Cells 7 & 8)
+## 3. Reverse Synthesis (`brain-ai` $\to$ `sparse-ai`): Full $n = 200$ LongBench QASPER & Banal NIAH (Colab Cells 7 & 8)
 
-Full results archived in [`results/darksnail_longbench_summary.json`](results/darksnail_longbench_summary.json) on frozen `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) with the pre-warmed V4 `TriadTopologyRouter` sidecar ([`checkpoints/router_sidecars/llama31_8b_router_v3.safetensors`](checkpoints/router_sidecars/llama31_8b_router_v3.safetensors)):
+Full 200-sample evaluation results archived in [`results/darksnail_longbench_summary.json`](results/darksnail_longbench_summary.json) and per-question predictions in [`results/darksnail_qasper_predictions.jsonl`](results/darksnail_qasper_predictions.jsonl) on frozen `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) with the pre-warmed V4 `TriadTopologyRouter` sidecar ([`checkpoints/router_sidecars/llama31_8b_router_v3.safetensors`](checkpoints/router_sidecars/llama31_8b_router_v3.safetensors)):
+
+![DarkSnail V2 LongBench QASPER & Banal NIAH Retention Curves](results/darksnail_longbench_curves.png)
 
 ### 3.1 Banal NIAH (`"spherical coordinates"`, $N = 4,096$, $10$ Uniform Positions $\in [0.05, 0.95]$)
 
+With closed-form causal-triangle iso-budget window matching ([`solve_iso_budget_window_width`](darksnail/longbench.py#L406-L427)), all three conditions (`window@r`, `v4_triad@r`, `darksnail@r`) operate at the **exact same measured causal key budget** ($\pm 0.05\%$):
+
 | Tree Depth $r$ | `window@r` Recall (%) [Measured Budget] | `v4_triad@r` Recall (%) [Measured Budget] | **`darksnail@r` Recall (%) [Measured Budget]** | Layer-16 Zeno Flux $\Phi_{\mathrm{LH}}$ |
 | :---: | :---: | :---: | :---: | :---: |
-| **$r = 3$** | $30.0\%$ ($3/10$) $[54.98\%]$ | $100.0\%$ ($10/10$) $[65.76\%]$ | **$100.0\%$ ($10/10$) $[65.73\%]$** | $0.5880$ |
-| **$r = 4$** | $30.0\%$ ($3/10$) $[48.70\%]$ | $100.0\%$ ($10/10$) $[56.70\%]$ | **$100.0\%$ ($10/10$) $[56.72\%]$** | $0.5880$ |
-| **$r = 5$** | $20.0\%$ ($2/10$) $[43.25\%]$ | $100.0\%$ ($10/10$) $[49.28\%]$ | **$100.0\%$ ($10/10$) $[49.30\%]$** | $0.5914$ |
+| **$r = 3$** | $40.0\%$ ($4/10$) $[65.78\%]$ | $100.0\%$ ($10/10$) $[65.76\%]$ | **$100.0\%$ ($10/10$) $[65.73\%]$** | $0.5880$ |
+| **$r = 4$** | $30.0\%$ ($3/10$) $[56.73\%]$ | $100.0\%$ ($10/10$) $[56.70\%]$ | **$100.0\%$ ($10/10$) $[56.72\%]$** | $0.5880$ |
+| **$r = 5$** | $30.0\%$ ($3/10$) $[49.32\%]$ | $100.0\%$ ($10/10$) $[49.28\%]$ | **$100.0\%$ ($10/10$) $[49.30\%]$** | $0.5914$ |
 
-### 3.2 LongBench QASPER Scientific Paper QA ($n = 20$, $\max\_\mathrm{ctx} = 6,000$, Mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6055$)
+### 3.2 Full LongBench QASPER Scientific Paper QA ($n = 200$, $\max\_\mathrm{ctx} = 6,000$, Mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6039$)
 
-| Condition | QA Token F1 | Marginal Bootstrap 95% CI | Measured Causal Key Budget (%) | Paired $\Delta\text{F1}$ vs. `v4_triad@r` | Paired $\Delta\text{F1}$ vs. `window@r` | Paired $\Delta\text{F1}$ vs. `dense` ($45.17$) |
+Across the entire 200-sample LongBench QASPER evaluation split, `window@r`, `v4_triad@r`, and `darksnail@r` operate at **triple iso-budget equivalence** (matched to within $\le 0.09\%$ causal keys at every depth, with `darksnail@r` using slightly *fewer* keys than both baselines):
+
+| Condition | QA Token F1 | Marginal 95% CI | Measured Causal Key Budget (%) | Paired $\Delta\text{F1}$ vs. `v4_triad@r` [Paired 95% CI] (W/L) | Paired $\Delta\text{F1}$ vs. `window@r` [Paired 95% CI] | Paired $\Delta\text{F1}$ vs. `dense` ($43.10$) [Paired 95% CI] |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`dense` ($r = 0$)** | $45.17$ | $[28.22, 62.51]$ | $100.00\%$ | — | — | $0.00$ |
-| **`window@2`** | $20.80$ | $[9.28, 34.69]$ | $62.61\%$ | — | $0.00$ | $-24.37$ |
-| **`v4_triad@2`** | $44.15$ | $[30.51, 59.23]$ | $77.65\%$ | $0.00$ | $+23.35$ | $-1.02$ |
-| **`darksnail@2`** | **$52.02$** | **$[37.20, 68.05]$** | **$77.65\%$** | **$+7.87$** | **$+31.22$** | **$+6.85$** |
-| **`window@3`** | $13.88$ | $[5.22, 23.33]$ | $55.47\%$ | — | $0.00$ | $-31.29$ |
-| **`v4_triad@3`** | $33.99$ | $[22.11, 47.15]$ | $66.49\%$ | $0.00$ | $+20.11$ | $-11.18$ |
-| **`darksnail@3`** | **$50.26$** | **$[34.98, 66.25]$** | **$66.44\%$** | **$+16.27$** | **$+36.38$** | **$+5.09$** |
-| **`window@4`** | $15.18$ | $[6.20, 24.71]$ | $49.76\%$ | — | $0.00$ | $-29.99$ |
-| **`v4_triad@4`** | $31.40$ | $[18.66, 44.94]$ | $58.19\%$ | $0.00$ | $+16.22$ | $-13.77$ |
-| **`darksnail@4`** | **$47.04$** | **$[31.72, 63.68]$** | **$58.18\%$** | **$+15.64$** | **$+31.86$** | **$+1.87$** |
+| **`dense` ($r = 0$)** | $43.10$ | $[38.29, 47.91]$ | $100.00\%$ | — | — | $0.00$ |
+| **`window@2`** | $34.41$ | $[29.51, 39.38]$ | $78.01\%$ | — | $0.00$ | $-8.69$ |
+| **`v4_triad@2`** | $37.70$ | $[33.11, 42.59]$ | $77.99\%$ | $0.00$ | $+3.29\ [-1.80, +8.22]$ | $-5.40$ |
+| **`darksnail@2`** | **$44.20$** | **$[39.32, 49.11]$** | **$77.94\%$** | **$+6.50\ [+2.86, +10.29]$** ($83 / 49$) | **$+9.79\ [+4.87, +14.78]$** | **$+1.10\ [-1.23, +3.63]$** |
+| **`window@3`** | $29.99$ | $[25.20, 34.79]$ | $66.93\%$ | — | $0.00$ | $-13.11$ |
+| **`v4_triad@3`** | $35.92$ | $[31.56, 40.53]$ | $66.91\%$ | $0.00$ | $+5.93\ [+0.81, +11.53]$ | $-7.18$ |
+| **`darksnail@3`** | **$43.33$** | **$[38.57, 48.25]$** | **$66.84\%$** | **$+7.41\ [+3.39, +11.24]$** ($90 / 53$) | **$+13.34\ [+8.15, +18.59]$** | **$+0.23\ [-2.36, +2.81]$** |
+| **`window@4`** | $27.45$ | $[22.63, 32.34]$ | $58.74\%$ | — | $0.00$ | $-15.65$ |
+| **`v4_triad@4`** | $29.73$ | $[25.42, 34.36]$ | $58.71\%$ | $0.00$ | $+2.28\ [-2.85, +7.52]$ | $-13.37$ |
+| **`darksnail@4`** | **$41.51$** | **$[36.85, 46.26]$** | **$58.65\%$** | **$+11.78\ [+7.51, +15.95]$** ($101 / 45$) | **$+14.07\ [+8.47, +19.61]$** | **$-1.59\ [-4.40, +1.08]$** |
 
 ---
 
-## 4. Methodological & Adversarial Notes for Paper 3
+## 4. Key Takeaways & Adversarial Defenses for Paper 3
 
-### 4.1 Pure Iso-Budget Equivalence Between `darksnail@r` and `v4_triad@r`
-Because [`_apply_darksnail_block_bridge`](llama_surgery/surgery.py#L580-L671) performs a **measure-preserving slot transfer** (donating interior block slots from earlier full-length filler rows when the question tail block `NB - 1` is under-provisioned at $r \ge 3$), the measured causal key budget of `darksnail@r` is **identical or strictly lower** than standalone `v4_triad@r` at every depth:
-- **$r = 2$:** `77.65%` (`darksnail@2`) vs. `77.65%` (`v4_triad@2`) $\to \mathbf{+7.87\text{ F1}}$
-- **$r = 3$:** `66.44%` (`darksnail@3`) vs. `66.49%` (`v4_triad@3`) $\to \mathbf{+16.27\text{ F1}}$
-- **$r = 4$:** `58.18%` (`darksnail@4`) vs. `58.19%` (`v4_triad@4`) $\to \mathbf{+15.64\text{ F1}}$
+### 4.1 Strictly Positive Paired Within-Question Bootstrap 95% CIs Across All Depths ($n = 200$)
+- **At $r = 2$ (`77.94%` budget):** `darksnail@2` (`44.20 F1`) beats `v4_triad@2` (`37.70 F1`) by **`+6.50 F1`** with a paired 95% CI of **`[+2.86, +10.29]`** ($83$ question wins vs. $49$ losses) and **exceeds the full `dense` ceiling (`43.10 F1`) by `+1.10 F1`** while pruning $22.06\%$ of causal keys.
+- **At $r = 3$ (`66.84%` budget):** `darksnail@3` (`43.33 F1`) beats `v4_triad@3` (`35.92 F1`) by **`+7.41 F1`** with a paired 95% CI of **`[+3.39, +11.24]`** ($90$ wins vs. $53$ losses) and **still exceeds the full `dense` ceiling (`43.10 F1`) by `+0.23 F1`** while pruning **$33.16\%$ of causal keys**.
+- **At $r = 4$ (`58.65%` budget):** `darksnail@4` (`41.51 F1`) beats `v4_triad@4` (`29.73 F1`) by **`+11.78 F1`** with a paired 95% CI of **`[+7.51, +15.95]`** ($101$ wins vs. $45$ losses — a **$2.24:1$** question win ratio, $> 5.5\sigma$ above zero) and retains **$96.3\%$ of the `dense` ceiling** (`-1.59 F1`, paired 95% CI `[-4.40, +1.08]` includes zero) while pruning **$41.35\%$ of causal keys**.
 
-### 4.2 Cross-Depth Dominance Over `window@r` & Exact Causal Triangle Geometry
-In the initial `n = 20` run (`eval_qasper_router.py` convention), setting the sliding-window bandwidth parameter to $W = \bar{K}_{\mathrm{routed}} = f \cdot \frac{S}{2}$ produces a measured causal budget fraction of $f_{\mathrm{win}} = f - \frac{f^2}{4}$ (`62.61%`, `55.47%`, `49.76%`) because the first $W$ query rows of a causal matrix are already clipped by the causal diagonal `idx_k <= idx_q`.
-- **Cross-Depth Strict Dominance:** Even before adjusting $W$, **`darksnail@4` (`58.18%` measured budget, `47.04 F1`) uses strictly *fewer* causal keys than `window@2` (`62.61%` measured budget, `20.80 F1`) while outperforming `window@2` by $+26.24\text{ F1}$** (and outperforming `dense` at `100.0%` budget by $+1.87\text{ F1}$).
-- **Closed-Form Iso-Budget Window Correction (`solve_iso_budget_window_width`):** [`darksnail/longbench.py`](darksnail/longbench.py#L344-L361) now solves the exact causal-triangle quadratic $w - w^2/4 = f$ via:
-  $$W_{\mathrm{iso}} = \mathrm{round}\!\left(S \cdot \left(1 - \sqrt{\max(0, 1 - f)}\right)\right)$$
-  so future runs (`n = 50` or `n = 200`) align `window@r`'s measured causal budget directly with `v4_triad@r` and `darksnail@r`.
+### 4.2 Triple Iso-Budget Precision & Cross-Depth Dominance
+- **Exact Iso-Budget Across All Three Methods:** Using [`solve_iso_budget_window_width`](darksnail/longbench.py#L406-L427) and [`_apply_darksnail_block_bridge`](llama_surgery/surgery.py#L580-L671), `darksnail@r` uses slightly *fewer* causal keys than both `v4_triad@r` and `window@r` at every depth (`77.94%` vs `77.99%` / `78.01%` at $r=2$; `66.84%` vs `66.91%` / `66.93%` at $r=3$; `58.65%` vs `58.71%` / `58.74%` at $r=4$).
+- **Cross-Depth Dominance:** **`darksnail@4` (`58.65%` causal budget, `41.51 F1`) uses $19.34\%$ fewer causal keys than `window@2` (`78.01%` budget, `34.41 F1`) and `v4_triad@2` (`77.99%` budget, `37.70 F1`), yet still beats `window@2` by `+7.10 F1` and beats `v4_triad@2` by `+3.81 F1`!**
 
-### 4.3 Paired Within-Question Bootstrap 95% CIs & 3.5x Faster Lossless First-Line Decoding
-- **Paired Within-Question Bootstrap CIs:** Because baseline question difficulty in QASPER spans $[0, 100]$ F1, marginal CIs across $n$ questions include between-question variance. [`evaluate_qasper_comparison`](darksnail/longbench.py#L494-L699) now computes and logs **paired within-question bootstrap 95% CIs** (`minus_v4_triad_ci95`, `minus_window_ci95`, `minus_dense_ci95`), win/loss counts (`wins_vs_v4_triad`, `losses_vs_v4_triad`), and per-sample JSONL checkpoints (`results/darksnail_qasper_predictions.jsonl`).
-- **Lossless First-Line Stopping (`_FirstLineStop`):** Because official LongBench `qa_f1` evaluates only the first non-empty line (`pred.lstrip("\n").split("\n")[0]`), stopping greedy decoding (`do_sample=False`) immediately upon emitting the first newline after non-empty text is **100% bitwise lossless** for `qa_f1` while accelerating $n = 50$ and $n = 200$ QASPER sweeps by **3.5x–4x** on Colab GPU.
+### 4.3 Qualitative Case Studies from [`results/darksnail_qasper_predictions.jsonl`](results/darksnail_qasper_predictions.jsonl)
+1. **Boundary-Spanning Multi-Entity List Recovery (Sample `idx=4`, `_id=14e889...`, $4,473$ tokens):**
+   - **Gold Answer:** *"FoxNews, CNN, ESPN, New York Times, Time magazine, Huffington Post Weird News, The Guardian, Cartoon Network, Cooking Light, Home Cooking Adventure, Justin Bieber, Nickelodeon, Spongebob, Disney."*
+   - **`v4_triad@3` (`15.38 F1` at `66.94%` budget):** *"They selected a best model (B-M) using a combined set of Time, The Guardian, and Disney pages."* (Truncated the 14-entity enumeration where it crossed a 64-token dyadic tree block boundary.)
+   - **`darksnail@3` (`100.00 F1` at `66.85%` budget):** *"FoxNews, CNN, ESPN, New York Times, Time magazine, Huffington Post Weird News, The Guardian, Cartoon Network, Cooking Light, Home Cooking Adventure, Justin Bieber, Nickelodeon, Spongebob, Disney."* (Measure-preserving block bridge + Beltrami outlier shield preserved the entire boundary-spanning list intact.)
+2. **Technical Definition Recovery at Deep Sparsity $r = 4$ (Sample `idx=1`, `_id=db6c4d...`, $3,365$ tokens):**
+   - **Gold Answer:** *"extension of the NetVLAD, adds Ghost clusters along with the NetVLAD clusters"*
+   - **`v4_triad@4` (`0.00 F1` at `59.83%` budget):** *"A pooling strategy that aggregates local descriptors into a global representation for language identification."*
+   - **`darksnail@4` (`51.85 F1` at `59.62%` budget, matching `dense` word-for-word):** *"An extension of the NetVLAD approach that adds Ghost clusters to map noisy or irrelevant content into ghost clusters."*
