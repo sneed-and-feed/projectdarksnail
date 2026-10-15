@@ -21,11 +21,19 @@ Covers:
 
 from __future__ import annotations
 
+import os
+import sys
 import time
+from pathlib import Path
 import numpy as np
 import pytest
 import torch
 import torch.nn as nn
+
+_ROOT = Path(__file__).resolve().parents[1]
+for _p in (_ROOT, _ROOT.parent / "brain-ai", _ROOT.parent / "sparse-ai" / "src"):
+    if _p.exists() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from darksnail import (
     BeltramiCallosalShell,
@@ -522,7 +530,7 @@ def test_darksnail_long_context_shield_and_block_bridge():
     refs = load_v4_baseline_references()
     assert "qasper_v4_200" in refs and "banal_niah_v4_50" in refs
 
-    from darksnail.longbench import attach_layer16_beltrami_hook
+    from darksnail.longbench import attach_layer16_beltrami_hook, solve_iso_budget_window_width
     mock_llama = SimpleNamespace(
         config=SimpleNamespace(hidden_size=64),
         layers=nn.ModuleList([nn.Linear(64, 64) for _ in range(17)]),
@@ -533,4 +541,13 @@ def test_darksnail_long_context_shield_and_block_bridge():
     assert "zeno_flux" in mock_llama._darksnail_layer16_telemetry
     _, tel = hook_shell(torch.randn(1, 48, 64), return_telemetry=True)
     assert "zeno_flux" in tel
+
+    # 4. Verify closed-form causal triangle iso-budget window width solver
+    S = 4000
+    f_target = 0.6644
+    c_keys = 0.5 * (S + 1.0)
+    w_iso = solve_iso_budget_window_width(S, allowed_keys=f_target * c_keys, causal_keys=c_keys)
+    w_frac = w_iso / S
+    f_realized = w_frac * (2.0 - w_frac)
+    assert abs(f_realized - f_target) < 1e-3
 
