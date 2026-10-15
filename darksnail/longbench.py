@@ -528,6 +528,7 @@ def evaluate_qasper_comparison(
     iso_budget_window: bool = True,
     stop_on_first_newline: bool = True,
     predictions_path: Optional[str] = "results/darksnail_qasper_predictions.jsonl",
+    save_jsonl_path: Optional[str] = None,
     attention_backend: str = "block_list",
 ) -> Dict[str, Any]:
     """Compare `dense`, `window@r`, `v4_triad@r` (`routed@r`), and `darksnail@r` on LongBench QASPER.
@@ -536,6 +537,9 @@ def evaluate_qasper_comparison(
     bootstrap 95% CIs (`minus_v4_triad_ci95`, `minus_window_ci95`, `minus_dense_ci95`).
     """
     from tqdm import tqdm
+
+    if save_jsonl_path is not None:
+        predictions_path = save_jsonl_path
 
     device = next(model.parameters()).device
     data = load_qasper_dataset()[:num_samples]
