@@ -17,7 +17,7 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["darksnail*"]
+include = ["darksnail*", "llama_surgery*", "ultrametric*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

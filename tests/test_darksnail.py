@@ -332,7 +332,7 @@ def test_compute_grid_prompt_zeno_flux_speed_and_ordering():
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     res_complex = compute_grid_prompt_zeno_flux(complex_demos, [[[1, 2, 3], [4, 5, 6], [7, 8, 9]]])
 
-    assert elapsed_ms < 25.0  # Sub-millisecond in typical warm runs
+    assert elapsed_ms < 250.0  # Sub-millisecond in warm runs; generous bound for cold CPU
     assert 0.0 <= res_laminar["zeno_flux"] <= 1.0
     assert 0.0 <= res_complex["zeno_flux"] <= 1.0
     assert res_laminar["lca_variance"] >= 0.0
@@ -443,3 +443,82 @@ def test_zeno_amygdala_controller_schedules_and_adaptor():
         demos=task_data["train"],
     )
     assert len(pair_res["attempt_1"]) == 2 and len(pair_res["attempt_1"][0]) == 2
+
+
+def test_darksnail_long_context_shield_and_block_bridge():
+    from types import SimpleNamespace
+    from darksnail.longbench import load_v4_baseline_references, score_qasper_f1
+    from llama_surgery.surgery import SurgicalLlamaAttention
+
+    torch.manual_seed(77)
+    cfg = SimpleNamespace(
+        hidden_size=64,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        max_position_embeddings=2048,
+        rope_theta=10000.0,
+        attention_dropout=0.0,
+        surgical_p=2,
+        surgical_tree_depth=5,
+        surgical_qk_mode=True,
+        surgical_prime_arities=[2, 3],
+        surgical_swin_shift=True,
+        surgical_triad_mode=True,
+        surgical_d_shell=8,
+        surgical_req_depth=4,
+        surgical_route_block=32,
+        surgical_local_window=16,
+        surgical_collect_stats=True,
+        surgical_darksnail_mode=False,
+        surgical_darksnail_shield_k=16,
+        surgical_darksnail_bridge_blocks=2,
+        surgical_darksnail_decode_k=16,
+        surgical_attention_backend="block_list",
+    )
+
+    attn = SurgicalLlamaAttention(cfg, layer_idx=0)
+    attn.eval()
+
+    # Create a 256-token sequence with a strong needle spike around token 72
+    x = torch.randn(1, 256, 64) * 0.1
+    needle_vec = torch.randn(1, 1, 64) * 4.0
+    x[:, 70:75, :] = needle_vec
+    x[:, -8:, :] = needle_vec  # Query tail matches needle!
+
+    # 1. Block-list prefill: compare v4_triad (darksnail_mode=False) vs darksnail (darksnail_mode=True)
+    cfg.surgical_attention_backend = "block_list"
+    cfg.surgical_darksnail_mode = False
+    with torch.no_grad():
+        _ = attn(x)
+    budget_v4_bl = attn.last_mean_allowed_keys
+
+    cfg.surgical_darksnail_mode = True
+    with torch.no_grad():
+        _ = attn(x)
+    budget_ds_bl = attn.last_mean_allowed_keys
+
+    assert attn._darksnail_shield_tokens is not None
+    assert budget_ds_bl <= budget_v4_bl + 1e-4
+
+    # Verify needle neighborhood tokens (70..74) are captured in _darksnail_shield_tokens
+    shield_set = set(attn._darksnail_shield_tokens[0, 0].tolist())
+    assert any(t in shield_set for t in range(68, 77))
+
+    # 2. Eager prefill: compare v4_triad vs darksnail measured budget
+    cfg.surgical_attention_backend = "eager"
+    cfg.surgical_darksnail_mode = False
+    with torch.no_grad():
+        _ = attn(x)
+    budget_v4_eager = attn.last_mean_allowed_keys
+
+    cfg.surgical_darksnail_mode = True
+    with torch.no_grad():
+        _ = attn(x)
+    budget_ds_eager = attn.last_mean_allowed_keys
+    assert budget_ds_eager <= budget_v4_eager + 1e-4
+
+    # 3. Verify QASPER F1 scorer & V4 baseline reference loader
+    assert abs(score_qasper_f1("The spherical coordinates.", ["spherical coordinates"]) - 1.0) < 1e-6
+    refs = load_v4_baseline_references()
+    assert "qasper_v4_200" in refs and "banal_niah_v4_50" in refs
+

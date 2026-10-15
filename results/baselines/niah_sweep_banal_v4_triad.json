@@ -1,0 +1,2888 @@
+{
+  "context_len": 4096,
+  "num_positions": 50,
+  "needle_type": "banal",
+  "depth_ratios": [
+    0.05,
+    0.06836734693877551,
+    0.08673469387755102,
+    0.10510204081632654,
+    0.12346938775510204,
+    0.14183673469387756,
+    0.16020408163265307,
+    0.17857142857142855,
+    0.19693877551020406,
+    0.21530612244897962,
+    0.23367346938775513,
+    0.25204081632653064,
+    0.27040816326530615,
+    0.28877551020408165,
+    0.3071428571428571,
+    0.32551020408163267,
+    0.3438775510204081,
+    0.3622448979591837,
+    0.3806122448979592,
+    0.3989795918367347,
+    0.4173469387755102,
+    0.43571428571428567,
+    0.45408163265306123,
+    0.47244897959183674,
+    0.49081632653061225,
+    0.5091836734693878,
+    0.5275510204081634,
+    0.5459183673469388,
+    0.5642857142857143,
+    0.5826530612244899,
+    0.6010204081632654,
+    0.6193877551020409,
+    0.6377551020408163,
+    0.6561224489795918,
+    0.6744897959183674,
+    0.692857142857143,
+    0.7112244897959185,
+    0.7295918367346939,
+    0.7479591836734695,
+    0.766326530612245,
+    0.7846938775510205,
+    0.803061224489796,
+    0.8214285714285714,
+    0.839795918367347,
+    0.8581632653061225,
+    0.876530612244898,
+    0.8948979591836735,
+    0.913265306122449,
+    0.9316326530612246,
+    0.9500000000000001
+  ],
+  "sweep": {
+    "r_0": {
+      "r": 0,
+      "sparsity_pct": 0.0,
+      "active_budget_pct": 100.0,
+      "effective_capacity_k": 4096,
+      "measured_budget_pct": 100.0,
+      "measured_budget_pct_min": 100.0,
+      "measured_budget_pct_max": 100.0,
+      "measured_mean_allowed_keys": 2048.5,
+      "successes": 50,
+      "total": 50,
+      "recall_pct": 100.0,
+      "trials": [
+        {
+          "pos_idx": 0,
+          "needle_ratio": 0.05,
+          "insert_token_idx": 202,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 1,
+          "needle_ratio": 0.0684,
+          "insert_token_idx": 277,
+          "passed": true,
+          "generated": "spherical coordinates.  linear sequence of events, but a complex",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 2,
+          "needle_ratio": 0.0867,
+          "insert_token_idx": 351,
+          "passed": true,
+          "generated": "spherical coordinates.  Dynamic tree routing decomposes this monolithic",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 3,
+          "needle_ratio": 0.1051,
+          "insert_token_idx": 426,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 4,
+          "needle_ratio": 0.1235,
+          "insert_token_idx": 501,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 5,
+          "needle_ratio": 0.1418,
+          "insert_token_idx": 575,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 6,
+          "needle_ratio": 0.1602,
+          "insert_token_idx": 650,
+          "passed": true,
+          "generated": "spherical coordinates.  Recent advancements in p-adic analysis confirm",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 7,
+          "needle_ratio": 0.1786,
+          "insert_token_idx": 724,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 8,
+          "needle_ratio": 0.1969,
+          "insert_token_idx": 799,
+          "passed": true,
+          "generated": "spherical coordinates.  exact combinatorial invariant for hardware block",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 9,
+          "needle_ratio": 0.2153,
+          "insert_token_idx": 873,
+          "passed": true,
+          "generated": "spherical coordinates.  is forced to compare itself against every prior",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 10,
+          "needle_ratio": 0.2337,
+          "insert_token_idx": 948,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 11,
+          "needle_ratio": 0.252,
+          "insert_token_idx": 1022,
+          "passed": true,
+          "generated": "spherical coordinates.  and computational scaling. Dynamic tree routing decom",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 12,
+          "needle_ratio": 0.2704,
+          "insert_token_idx": 1097,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThis response is a repetition of the prompt",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 13,
+          "needle_ratio": 0.2888,
+          "insert_token_idx": 1171,
+          "passed": true,
+          "generated": "spherical coordinates.  hierarchical branches of a Bruhat-Tits",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 14,
+          "needle_ratio": 0.3071,
+          "insert_token_idx": 1246,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 15,
+          "needle_ratio": 0.3255,
+          "insert_token_idx": 1320,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 16,
+          "needle_ratio": 0.3439,
+          "insert_token_idx": 1395,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 17,
+          "needle_ratio": 0.3622,
+          "insert_token_idx": 1469,
+          "passed": true,
+          "generated": "spherical coordinates.  discrete prefix sharing is an exact combinator",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 18,
+          "needle_ratio": 0.3806,
+          "insert_token_idx": 1544,
+          "passed": true,
+          "generated": "spherical coordinates.  attention, every token is forced to compare",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 19,
+          "needle_ratio": 0.399,
+          "insert_token_idx": 1619,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 20,
+          "needle_ratio": 0.4173,
+          "insert_token_idx": 1693,
+          "passed": true,
+          "generated": "spherical coordinates.  incurring quadratic memory and computational scaling.",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 21,
+          "needle_ratio": 0.4357,
+          "insert_token_idx": 1768,
+          "passed": true,
+          "generated": "spherical coordinates.  a complex, multifaceted web of",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 22,
+          "needle_ratio": 0.4541,
+          "insert_token_idx": 1842,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThis text is a repetition of the same",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 23,
+          "needle_ratio": 0.4724,
+          "insert_token_idx": 1917,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 24,
+          "needle_ratio": 0.4908,
+          "insert_token_idx": 1991,
+          "passed": true,
+          "generated": "spherical coordinates.  enabling tokens to communicate with logarithmic efficiency",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 25,
+          "needle_ratio": 0.5092,
+          "insert_token_idx": 2066,
+          "passed": true,
+          "generated": "spherical coordinates.  by their adjacency in time, but by",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 26,
+          "needle_ratio": 0.5276,
+          "insert_token_idx": 2140,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 27,
+          "needle_ratio": 0.5459,
+          "insert_token_idx": 2215,
+          "passed": true,
+          "generated": "spherical coordinates.  In standard dense attention, every token is",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 28,
+          "needle_ratio": 0.5643,
+          "insert_token_idx": 2289,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 29,
+          "needle_ratio": 0.5827,
+          "insert_token_idx": 2364,
+          "passed": true,
+          "generated": "spherical coordinates.  every prior token, incurring quadratic memory",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 30,
+          "needle_ratio": 0.601,
+          "insert_token_idx": 2438,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 31,
+          "needle_ratio": 0.6194,
+          "insert_token_idx": 2513,
+          "passed": true,
+          "generated": "spherical coordinates.  routing decomposes this monolithic field into",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 32,
+          "needle_ratio": 0.6378,
+          "insert_token_idx": 2588,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 33,
+          "needle_ratio": 0.6561,
+          "insert_token_idx": 2662,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 34,
+          "needle_ratio": 0.6745,
+          "insert_token_idx": 2737,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 35,
+          "needle_ratio": 0.6929,
+          "insert_token_idx": 2811,
+          "passed": true,
+          "generated": "spherical coordinates.  advancements in p-adic analysis confirm that",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 36,
+          "needle_ratio": 0.7112,
+          "insert_token_idx": 2886,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 37,
+          "needle_ratio": 0.7296,
+          "insert_token_idx": 2960,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 38,
+          "needle_ratio": 0.748,
+          "insert_token_idx": 3035,
+          "passed": true,
+          "generated": "spherical coordinates.  to compare itself against every prior token,",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 39,
+          "needle_ratio": 0.7663,
+          "insert_token_idx": 3109,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 40,
+          "needle_ratio": 0.7847,
+          "insert_token_idx": 3184,
+          "passed": true,
+          "generated": "spherical coordinates.  scaling. Dynamic tree routing decomposes this",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 41,
+          "needle_ratio": 0.8031,
+          "insert_token_idx": 3258,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 42,
+          "needle_ratio": 0.8214,
+          "insert_token_idx": 3333,
+          "passed": true,
+          "generated": "spherical coordinates.  of a Bruhat-Tits tree,",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 43,
+          "needle_ratio": 0.8398,
+          "insert_token_idx": 3407,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 44,
+          "needle_ratio": 0.8582,
+          "insert_token_idx": 3482,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 45,
+          "needle_ratio": 0.8765,
+          "insert_token_idx": 3556,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 46,
+          "needle_ratio": 0.8949,
+          "insert_token_idx": 3631,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 47,
+          "needle_ratio": 0.9133,
+          "insert_token_idx": 3706,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 48,
+          "needle_ratio": 0.9316,
+          "insert_token_idx": 3780,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{s",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        },
+        {
+          "pos_idx": 49,
+          "needle_ratio": 0.95,
+          "insert_token_idx": 3855,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 1.0,
+          "mean_allowed_keys": 2048.5
+        }
+      ]
+    },
+    "r_1": {
+      "r": 1,
+      "sparsity_pct": 50.0,
+      "active_budget_pct": 50.0,
+      "effective_capacity_k": 2048,
+      "measured_budget_pct": 87.86,
+      "measured_budget_pct_min": 87.58,
+      "measured_budget_pct_max": 88.1,
+      "measured_mean_allowed_keys": 1799.9,
+      "successes": 50,
+      "total": 50,
+      "recall_pct": 100.0,
+      "trials": [
+        {
+          "pos_idx": 0,
+          "needle_ratio": 0.05,
+          "insert_token_idx": 202,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87968,
+          "mean_allowed_keys": 1802.0
+        },
+        {
+          "pos_idx": 1,
+          "needle_ratio": 0.0684,
+          "insert_token_idx": 277,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87959,
+          "mean_allowed_keys": 1801.8
+        },
+        {
+          "pos_idx": 2,
+          "needle_ratio": 0.0867,
+          "insert_token_idx": 351,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.87719,
+          "mean_allowed_keys": 1796.9
+        },
+        {
+          "pos_idx": 3,
+          "needle_ratio": 0.1051,
+          "insert_token_idx": 426,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87632,
+          "mean_allowed_keys": 1795.1
+        },
+        {
+          "pos_idx": 4,
+          "needle_ratio": 0.1235,
+          "insert_token_idx": 501,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87838,
+          "mean_allowed_keys": 1799.4
+        },
+        {
+          "pos_idx": 5,
+          "needle_ratio": 0.1418,
+          "insert_token_idx": 575,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87854,
+          "mean_allowed_keys": 1799.7
+        },
+        {
+          "pos_idx": 6,
+          "needle_ratio": 0.1602,
+          "insert_token_idx": 650,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87585,
+          "mean_allowed_keys": 1794.2
+        },
+        {
+          "pos_idx": 7,
+          "needle_ratio": 0.1786,
+          "insert_token_idx": 724,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: spherical coordinates.",
+          "measured_allowed_fraction": 0.878,
+          "mean_allowed_keys": 1798.6
+        },
+        {
+          "pos_idx": 8,
+          "needle_ratio": 0.1969,
+          "insert_token_idx": 799,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87794,
+          "mean_allowed_keys": 1798.5
+        },
+        {
+          "pos_idx": 9,
+          "needle_ratio": 0.2153,
+          "insert_token_idx": 873,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87908,
+          "mean_allowed_keys": 1800.8
+        },
+        {
+          "pos_idx": 10,
+          "needle_ratio": 0.2337,
+          "insert_token_idx": 948,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87643,
+          "mean_allowed_keys": 1795.4
+        },
+        {
+          "pos_idx": 11,
+          "needle_ratio": 0.252,
+          "insert_token_idx": 1022,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87825,
+          "mean_allowed_keys": 1799.1
+        },
+        {
+          "pos_idx": 12,
+          "needle_ratio": 0.2704,
+          "insert_token_idx": 1097,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87693,
+          "mean_allowed_keys": 1796.4
+        },
+        {
+          "pos_idx": 13,
+          "needle_ratio": 0.2888,
+          "insert_token_idx": 1171,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.87757,
+          "mean_allowed_keys": 1797.7
+        },
+        {
+          "pos_idx": 14,
+          "needle_ratio": 0.3071,
+          "insert_token_idx": 1246,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87794,
+          "mean_allowed_keys": 1798.5
+        },
+        {
+          "pos_idx": 15,
+          "needle_ratio": 0.3255,
+          "insert_token_idx": 1320,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87811,
+          "mean_allowed_keys": 1798.8
+        },
+        {
+          "pos_idx": 16,
+          "needle_ratio": 0.3439,
+          "insert_token_idx": 1395,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.8776,
+          "mean_allowed_keys": 1797.8
+        },
+        {
+          "pos_idx": 17,
+          "needle_ratio": 0.3622,
+          "insert_token_idx": 1469,
+          "passed": true,
+          "generated": "spherical coordinates.  discrete prefix sharing is an exact combinator",
+          "measured_allowed_fraction": 0.87681,
+          "mean_allowed_keys": 1796.1
+        },
+        {
+          "pos_idx": 18,
+          "needle_ratio": 0.3806,
+          "insert_token_idx": 1544,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.8785,
+          "mean_allowed_keys": 1799.6
+        },
+        {
+          "pos_idx": 19,
+          "needle_ratio": 0.399,
+          "insert_token_idx": 1619,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87622,
+          "mean_allowed_keys": 1794.9
+        },
+        {
+          "pos_idx": 20,
+          "needle_ratio": 0.4173,
+          "insert_token_idx": 1693,
+          "passed": true,
+          "generated": "spherical coordinates.  incurring quadratic memory and computational scaling.",
+          "measured_allowed_fraction": 0.88031,
+          "mean_allowed_keys": 1803.3
+        },
+        {
+          "pos_idx": 21,
+          "needle_ratio": 0.4357,
+          "insert_token_idx": 1768,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.8781,
+          "mean_allowed_keys": 1798.8
+        },
+        {
+          "pos_idx": 22,
+          "needle_ratio": 0.4541,
+          "insert_token_idx": 1842,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87948,
+          "mean_allowed_keys": 1801.6
+        },
+        {
+          "pos_idx": 23,
+          "needle_ratio": 0.4724,
+          "insert_token_idx": 1917,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87783,
+          "mean_allowed_keys": 1798.2
+        },
+        {
+          "pos_idx": 24,
+          "needle_ratio": 0.4908,
+          "insert_token_idx": 1991,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.88072,
+          "mean_allowed_keys": 1804.2
+        },
+        {
+          "pos_idx": 25,
+          "needle_ratio": 0.5092,
+          "insert_token_idx": 2066,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87941,
+          "mean_allowed_keys": 1801.5
+        },
+        {
+          "pos_idx": 26,
+          "needle_ratio": 0.5276,
+          "insert_token_idx": 2140,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.8799,
+          "mean_allowed_keys": 1802.5
+        },
+        {
+          "pos_idx": 27,
+          "needle_ratio": 0.5459,
+          "insert_token_idx": 2215,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.88027,
+          "mean_allowed_keys": 1803.2
+        },
+        {
+          "pos_idx": 28,
+          "needle_ratio": 0.5643,
+          "insert_token_idx": 2289,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.879,
+          "mean_allowed_keys": 1800.6
+        },
+        {
+          "pos_idx": 29,
+          "needle_ratio": 0.5827,
+          "insert_token_idx": 2364,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87809,
+          "mean_allowed_keys": 1798.8
+        },
+        {
+          "pos_idx": 30,
+          "needle_ratio": 0.601,
+          "insert_token_idx": 2438,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87748,
+          "mean_allowed_keys": 1797.5
+        },
+        {
+          "pos_idx": 31,
+          "needle_ratio": 0.6194,
+          "insert_token_idx": 2513,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87868,
+          "mean_allowed_keys": 1800.0
+        },
+        {
+          "pos_idx": 32,
+          "needle_ratio": 0.6378,
+          "insert_token_idx": 2588,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.8779,
+          "mean_allowed_keys": 1798.4
+        },
+        {
+          "pos_idx": 33,
+          "needle_ratio": 0.6561,
+          "insert_token_idx": 2662,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87936,
+          "mean_allowed_keys": 1801.4
+        },
+        {
+          "pos_idx": 34,
+          "needle_ratio": 0.6745,
+          "insert_token_idx": 2737,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.88005,
+          "mean_allowed_keys": 1802.8
+        },
+        {
+          "pos_idx": 35,
+          "needle_ratio": 0.6929,
+          "insert_token_idx": 2811,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: spherical coordinates.",
+          "measured_allowed_fraction": 0.87885,
+          "mean_allowed_keys": 1800.3
+        },
+        {
+          "pos_idx": 36,
+          "needle_ratio": 0.7112,
+          "insert_token_idx": 2886,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.88016,
+          "mean_allowed_keys": 1803.0
+        },
+        {
+          "pos_idx": 37,
+          "needle_ratio": 0.7296,
+          "insert_token_idx": 2960,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87694,
+          "mean_allowed_keys": 1796.4
+        },
+        {
+          "pos_idx": 38,
+          "needle_ratio": 0.748,
+          "insert_token_idx": 3035,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87995,
+          "mean_allowed_keys": 1802.6
+        },
+        {
+          "pos_idx": 39,
+          "needle_ratio": 0.7663,
+          "insert_token_idx": 3109,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.87792,
+          "mean_allowed_keys": 1798.4
+        },
+        {
+          "pos_idx": 40,
+          "needle_ratio": 0.7847,
+          "insert_token_idx": 3184,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.87843,
+          "mean_allowed_keys": 1799.5
+        },
+        {
+          "pos_idx": 41,
+          "needle_ratio": 0.8031,
+          "insert_token_idx": 3258,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87792,
+          "mean_allowed_keys": 1798.4
+        },
+        {
+          "pos_idx": 42,
+          "needle_ratio": 0.8214,
+          "insert_token_idx": 3333,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.88032,
+          "mean_allowed_keys": 1803.3
+        },
+        {
+          "pos_idx": 43,
+          "needle_ratio": 0.8398,
+          "insert_token_idx": 3407,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.87981,
+          "mean_allowed_keys": 1802.3
+        },
+        {
+          "pos_idx": 44,
+          "needle_ratio": 0.8582,
+          "insert_token_idx": 3482,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87948,
+          "mean_allowed_keys": 1801.6
+        },
+        {
+          "pos_idx": 45,
+          "needle_ratio": 0.8765,
+          "insert_token_idx": 3556,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.88101,
+          "mean_allowed_keys": 1804.8
+        },
+        {
+          "pos_idx": 46,
+          "needle_ratio": 0.8949,
+          "insert_token_idx": 3631,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.8799,
+          "mean_allowed_keys": 1802.5
+        },
+        {
+          "pos_idx": 47,
+          "needle_ratio": 0.9133,
+          "insert_token_idx": 3706,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.88037,
+          "mean_allowed_keys": 1803.4
+        },
+        {
+          "pos_idx": 48,
+          "needle_ratio": 0.9316,
+          "insert_token_idx": 3780,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.87987,
+          "mean_allowed_keys": 1802.4
+        },
+        {
+          "pos_idx": 49,
+          "needle_ratio": 0.95,
+          "insert_token_idx": 3855,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.87924,
+          "mean_allowed_keys": 1801.1
+        }
+      ]
+    },
+    "r_2": {
+      "r": 2,
+      "sparsity_pct": 75.0,
+      "active_budget_pct": 25.0,
+      "effective_capacity_k": 1024,
+      "measured_budget_pct": 77.17,
+      "measured_budget_pct_min": 76.62,
+      "measured_budget_pct_max": 77.5,
+      "measured_mean_allowed_keys": 1580.8,
+      "successes": 49,
+      "total": 50,
+      "recall_pct": 98.0,
+      "trials": [
+        {
+          "pos_idx": 0,
+          "needle_ratio": 0.05,
+          "insert_token_idx": 202,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.7731,
+          "mean_allowed_keys": 1583.7
+        },
+        {
+          "pos_idx": 1,
+          "needle_ratio": 0.0684,
+          "insert_token_idx": 277,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77211,
+          "mean_allowed_keys": 1581.7
+        },
+        {
+          "pos_idx": 2,
+          "needle_ratio": 0.0867,
+          "insert_token_idx": 351,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.76971,
+          "mean_allowed_keys": 1576.8
+        },
+        {
+          "pos_idx": 3,
+          "needle_ratio": 0.1051,
+          "insert_token_idx": 426,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77119,
+          "mean_allowed_keys": 1579.8
+        },
+        {
+          "pos_idx": 4,
+          "needle_ratio": 0.1235,
+          "insert_token_idx": 501,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77084,
+          "mean_allowed_keys": 1579.1
+        },
+        {
+          "pos_idx": 5,
+          "needle_ratio": 0.1418,
+          "insert_token_idx": 575,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77253,
+          "mean_allowed_keys": 1582.5
+        },
+        {
+          "pos_idx": 6,
+          "needle_ratio": 0.1602,
+          "insert_token_idx": 650,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.76759,
+          "mean_allowed_keys": 1572.4
+        },
+        {
+          "pos_idx": 7,
+          "needle_ratio": 0.1786,
+          "insert_token_idx": 724,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.7699,
+          "mean_allowed_keys": 1577.1
+        },
+        {
+          "pos_idx": 8,
+          "needle_ratio": 0.1969,
+          "insert_token_idx": 799,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77009,
+          "mean_allowed_keys": 1577.5
+        },
+        {
+          "pos_idx": 9,
+          "needle_ratio": 0.2153,
+          "insert_token_idx": 873,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77327,
+          "mean_allowed_keys": 1584.0
+        },
+        {
+          "pos_idx": 10,
+          "needle_ratio": 0.2337,
+          "insert_token_idx": 948,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.76928,
+          "mean_allowed_keys": 1575.9
+        },
+        {
+          "pos_idx": 11,
+          "needle_ratio": 0.252,
+          "insert_token_idx": 1022,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77127,
+          "mean_allowed_keys": 1579.9
+        },
+        {
+          "pos_idx": 12,
+          "needle_ratio": 0.2704,
+          "insert_token_idx": 1097,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.76624,
+          "mean_allowed_keys": 1569.6
+        },
+        {
+          "pos_idx": 13,
+          "needle_ratio": 0.2888,
+          "insert_token_idx": 1171,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77046,
+          "mean_allowed_keys": 1578.3
+        },
+        {
+          "pos_idx": 14,
+          "needle_ratio": 0.3071,
+          "insert_token_idx": 1246,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77016,
+          "mean_allowed_keys": 1577.7
+        },
+        {
+          "pos_idx": 15,
+          "needle_ratio": 0.3255,
+          "insert_token_idx": 1320,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77072,
+          "mean_allowed_keys": 1578.8
+        },
+        {
+          "pos_idx": 16,
+          "needle_ratio": 0.3439,
+          "insert_token_idx": 1395,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.76904,
+          "mean_allowed_keys": 1575.4
+        },
+        {
+          "pos_idx": 17,
+          "needle_ratio": 0.3622,
+          "insert_token_idx": 1469,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77084,
+          "mean_allowed_keys": 1579.1
+        },
+        {
+          "pos_idx": 18,
+          "needle_ratio": 0.3806,
+          "insert_token_idx": 1544,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77082,
+          "mean_allowed_keys": 1579.0
+        },
+        {
+          "pos_idx": 19,
+          "needle_ratio": 0.399,
+          "insert_token_idx": 1619,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.76962,
+          "mean_allowed_keys": 1576.6
+        },
+        {
+          "pos_idx": 20,
+          "needle_ratio": 0.4173,
+          "insert_token_idx": 1693,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77239,
+          "mean_allowed_keys": 1582.2
+        },
+        {
+          "pos_idx": 21,
+          "needle_ratio": 0.4357,
+          "insert_token_idx": 1768,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the paper",
+          "measured_allowed_fraction": 0.77,
+          "mean_allowed_keys": 1577.3
+        },
+        {
+          "pos_idx": 22,
+          "needle_ratio": 0.4541,
+          "insert_token_idx": 1842,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77029,
+          "mean_allowed_keys": 1577.9
+        },
+        {
+          "pos_idx": 23,
+          "needle_ratio": 0.4724,
+          "insert_token_idx": 1917,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.76974,
+          "mean_allowed_keys": 1576.8
+        },
+        {
+          "pos_idx": 24,
+          "needle_ratio": 0.4908,
+          "insert_token_idx": 1991,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77239,
+          "mean_allowed_keys": 1582.2
+        },
+        {
+          "pos_idx": 25,
+          "needle_ratio": 0.5092,
+          "insert_token_idx": 2066,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77236,
+          "mean_allowed_keys": 1582.2
+        },
+        {
+          "pos_idx": 26,
+          "needle_ratio": 0.5276,
+          "insert_token_idx": 2140,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77367,
+          "mean_allowed_keys": 1584.9
+        },
+        {
+          "pos_idx": 27,
+          "needle_ratio": 0.5459,
+          "insert_token_idx": 2215,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.7732,
+          "mean_allowed_keys": 1583.9
+        },
+        {
+          "pos_idx": 28,
+          "needle_ratio": 0.5643,
+          "insert_token_idx": 2289,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.77161,
+          "mean_allowed_keys": 1580.6
+        },
+        {
+          "pos_idx": 29,
+          "needle_ratio": 0.5827,
+          "insert_token_idx": 2364,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77183,
+          "mean_allowed_keys": 1581.1
+        },
+        {
+          "pos_idx": 30,
+          "needle_ratio": 0.601,
+          "insert_token_idx": 2438,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.76971,
+          "mean_allowed_keys": 1576.8
+        },
+        {
+          "pos_idx": 31,
+          "needle_ratio": 0.6194,
+          "insert_token_idx": 2513,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77119,
+          "mean_allowed_keys": 1579.8
+        },
+        {
+          "pos_idx": 32,
+          "needle_ratio": 0.6378,
+          "insert_token_idx": 2588,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77142,
+          "mean_allowed_keys": 1580.2
+        },
+        {
+          "pos_idx": 33,
+          "needle_ratio": 0.6561,
+          "insert_token_idx": 2662,
+          "passed": false,
+          "generated": "Bruhat-Tits tree.\n\nThe final answer is: Bru",
+          "measured_allowed_fraction": 0.77164,
+          "mean_allowed_keys": 1580.7
+        },
+        {
+          "pos_idx": 34,
+          "needle_ratio": 0.6745,
+          "insert_token_idx": 2737,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77448,
+          "mean_allowed_keys": 1586.5
+        },
+        {
+          "pos_idx": 35,
+          "needle_ratio": 0.6929,
+          "insert_token_idx": 2811,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77273,
+          "mean_allowed_keys": 1582.9
+        },
+        {
+          "pos_idx": 36,
+          "needle_ratio": 0.7112,
+          "insert_token_idx": 2886,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.7744,
+          "mean_allowed_keys": 1586.4
+        },
+        {
+          "pos_idx": 37,
+          "needle_ratio": 0.7296,
+          "insert_token_idx": 2960,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77318,
+          "mean_allowed_keys": 1583.9
+        },
+        {
+          "pos_idx": 38,
+          "needle_ratio": 0.748,
+          "insert_token_idx": 3035,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77496,
+          "mean_allowed_keys": 1587.5
+        },
+        {
+          "pos_idx": 39,
+          "needle_ratio": 0.7663,
+          "insert_token_idx": 3109,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77299,
+          "mean_allowed_keys": 1583.5
+        },
+        {
+          "pos_idx": 40,
+          "needle_ratio": 0.7847,
+          "insert_token_idx": 3184,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77366,
+          "mean_allowed_keys": 1584.8
+        },
+        {
+          "pos_idx": 41,
+          "needle_ratio": 0.8031,
+          "insert_token_idx": 3258,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.772,
+          "mean_allowed_keys": 1581.4
+        },
+        {
+          "pos_idx": 42,
+          "needle_ratio": 0.8214,
+          "insert_token_idx": 3333,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.77428,
+          "mean_allowed_keys": 1586.1
+        },
+        {
+          "pos_idx": 43,
+          "needle_ratio": 0.8398,
+          "insert_token_idx": 3407,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77397,
+          "mean_allowed_keys": 1585.5
+        },
+        {
+          "pos_idx": 44,
+          "needle_ratio": 0.8582,
+          "insert_token_idx": 3482,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.7733,
+          "mean_allowed_keys": 1584.1
+        },
+        {
+          "pos_idx": 45,
+          "needle_ratio": 0.8765,
+          "insert_token_idx": 3556,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.77224,
+          "mean_allowed_keys": 1581.9
+        },
+        {
+          "pos_idx": 46,
+          "needle_ratio": 0.8949,
+          "insert_token_idx": 3631,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.77336,
+          "mean_allowed_keys": 1584.2
+        },
+        {
+          "pos_idx": 47,
+          "needle_ratio": 0.9133,
+          "insert_token_idx": 3706,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.77346,
+          "mean_allowed_keys": 1584.4
+        },
+        {
+          "pos_idx": 48,
+          "needle_ratio": 0.9316,
+          "insert_token_idx": 3780,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.77313,
+          "mean_allowed_keys": 1583.8
+        },
+        {
+          "pos_idx": 49,
+          "needle_ratio": 0.95,
+          "insert_token_idx": 3855,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.77077,
+          "mean_allowed_keys": 1578.9
+        }
+      ]
+    },
+    "r_3": {
+      "r": 3,
+      "sparsity_pct": 87.5,
+      "active_budget_pct": 12.5,
+      "effective_capacity_k": 512,
+      "measured_budget_pct": 62.52,
+      "measured_budget_pct_min": 62.1,
+      "measured_budget_pct_max": 62.8,
+      "measured_mean_allowed_keys": 1280.7,
+      "successes": 46,
+      "total": 50,
+      "recall_pct": 92.0,
+      "trials": [
+        {
+          "pos_idx": 0,
+          "needle_ratio": 0.05,
+          "insert_token_idx": 202,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.62227,
+          "mean_allowed_keys": 1274.7
+        },
+        {
+          "pos_idx": 1,
+          "needle_ratio": 0.0684,
+          "insert_token_idx": 277,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62481,
+          "mean_allowed_keys": 1279.9
+        },
+        {
+          "pos_idx": 2,
+          "needle_ratio": 0.0867,
+          "insert_token_idx": 351,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.62318,
+          "mean_allowed_keys": 1276.6
+        },
+        {
+          "pos_idx": 3,
+          "needle_ratio": 0.1051,
+          "insert_token_idx": 426,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.6216,
+          "mean_allowed_keys": 1273.3
+        },
+        {
+          "pos_idx": 4,
+          "needle_ratio": 0.1235,
+          "insert_token_idx": 501,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.6212,
+          "mean_allowed_keys": 1272.5
+        },
+        {
+          "pos_idx": 5,
+          "needle_ratio": 0.1418,
+          "insert_token_idx": 575,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.62536,
+          "mean_allowed_keys": 1281.0
+        },
+        {
+          "pos_idx": 6,
+          "needle_ratio": 0.1602,
+          "insert_token_idx": 650,
+          "passed": false,
+          "generated": "The primary coordinate system used for the manifold calculation is \n\nThe",
+          "measured_allowed_fraction": 0.62643,
+          "mean_allowed_keys": 1283.2
+        },
+        {
+          "pos_idx": 7,
+          "needle_ratio": 0.1786,
+          "insert_token_idx": 724,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62375,
+          "mean_allowed_keys": 1277.8
+        },
+        {
+          "pos_idx": 8,
+          "needle_ratio": 0.1969,
+          "insert_token_idx": 799,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.62228,
+          "mean_allowed_keys": 1274.8
+        },
+        {
+          "pos_idx": 9,
+          "needle_ratio": 0.2153,
+          "insert_token_idx": 873,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62187,
+          "mean_allowed_keys": 1273.9
+        },
+        {
+          "pos_idx": 10,
+          "needle_ratio": 0.2337,
+          "insert_token_idx": 948,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.6248,
+          "mean_allowed_keys": 1279.9
+        },
+        {
+          "pos_idx": 11,
+          "needle_ratio": 0.252,
+          "insert_token_idx": 1022,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.62385,
+          "mean_allowed_keys": 1278.0
+        },
+        {
+          "pos_idx": 12,
+          "needle_ratio": 0.2704,
+          "insert_token_idx": 1097,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.62505,
+          "mean_allowed_keys": 1280.4
+        },
+        {
+          "pos_idx": 13,
+          "needle_ratio": 0.2888,
+          "insert_token_idx": 1171,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62593,
+          "mean_allowed_keys": 1282.2
+        },
+        {
+          "pos_idx": 14,
+          "needle_ratio": 0.3071,
+          "insert_token_idx": 1246,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.62416,
+          "mean_allowed_keys": 1278.6
+        },
+        {
+          "pos_idx": 15,
+          "needle_ratio": 0.3255,
+          "insert_token_idx": 1320,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62379,
+          "mean_allowed_keys": 1277.8
+        },
+        {
+          "pos_idx": 16,
+          "needle_ratio": 0.3439,
+          "insert_token_idx": 1395,
+          "passed": true,
+          "generated": "spherical.\n\nThe final answer is: $\\boxed{1}$",
+          "measured_allowed_fraction": 0.62098,
+          "mean_allowed_keys": 1272.1
+        },
+        {
+          "pos_idx": 17,
+          "needle_ratio": 0.3622,
+          "insert_token_idx": 1469,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62484,
+          "mean_allowed_keys": 1280.0
+        },
+        {
+          "pos_idx": 18,
+          "needle_ratio": 0.3806,
+          "insert_token_idx": 1544,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.624,
+          "mean_allowed_keys": 1278.3
+        },
+        {
+          "pos_idx": 19,
+          "needle_ratio": 0.399,
+          "insert_token_idx": 1619,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nThe final answer is: $\\boxed{",
+          "measured_allowed_fraction": 0.62611,
+          "mean_allowed_keys": 1282.6
+        },
+        {
+          "pos_idx": 20,
+          "needle_ratio": 0.4173,
+          "insert_token_idx": 1693,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62686,
+          "mean_allowed_keys": 1284.1
+        },
+        {
+          "pos_idx": 21,
+          "needle_ratio": 0.4357,
+          "insert_token_idx": 1768,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62464,
+          "mean_allowed_keys": 1279.6
+        },
+        {
+          "pos_idx": 22,
+          "needle_ratio": 0.4541,
+          "insert_token_idx": 1842,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62577,
+          "mean_allowed_keys": 1281.9
+        },
+        {
+          "pos_idx": 23,
+          "needle_ratio": 0.4724,
+          "insert_token_idx": 1917,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62691,
+          "mean_allowed_keys": 1284.2
+        },
+        {
+          "pos_idx": 24,
+          "needle_ratio": 0.4908,
+          "insert_token_idx": 1991,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.62739,
+          "mean_allowed_keys": 1285.2
+        },
+        {
+          "pos_idx": 25,
+          "needle_ratio": 0.5092,
+          "insert_token_idx": 2066,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.62529,
+          "mean_allowed_keys": 1280.9
+        },
+        {
+          "pos_idx": 26,
+          "needle_ratio": 0.5276,
+          "insert_token_idx": 2140,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.62706,
+          "mean_allowed_keys": 1284.5
+        },
+        {
+          "pos_idx": 27,
+          "needle_ratio": 0.5459,
+          "insert_token_idx": 2215,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.62498,
+          "mean_allowed_keys": 1280.3
+        },
+        {
+          "pos_idx": 28,
+          "needle_ratio": 0.5643,
+          "insert_token_idx": 2289,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.62623,
+          "mean_allowed_keys": 1282.8
+        },
+        {
+          "pos_idx": 29,
+          "needle_ratio": 0.5827,
+          "insert_token_idx": 2364,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62683,
+          "mean_allowed_keys": 1284.1
+        },
+        {
+          "pos_idx": 30,
+          "needle_ratio": 0.601,
+          "insert_token_idx": 2438,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.62785,
+          "mean_allowed_keys": 1286.2
+        },
+        {
+          "pos_idx": 31,
+          "needle_ratio": 0.6194,
+          "insert_token_idx": 2513,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.62799,
+          "mean_allowed_keys": 1286.4
+        },
+        {
+          "pos_idx": 32,
+          "needle_ratio": 0.6378,
+          "insert_token_idx": 2588,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.6257,
+          "mean_allowed_keys": 1281.7
+        },
+        {
+          "pos_idx": 33,
+          "needle_ratio": 0.6561,
+          "insert_token_idx": 2662,
+          "passed": true,
+          "generated": "spherical.\n\nThe final answer is: $\\boxed{1}$",
+          "measured_allowed_fraction": 0.6265,
+          "mean_allowed_keys": 1283.4
+        },
+        {
+          "pos_idx": 34,
+          "needle_ratio": 0.6745,
+          "insert_token_idx": 2737,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.62596,
+          "mean_allowed_keys": 1282.3
+        },
+        {
+          "pos_idx": 35,
+          "needle_ratio": 0.6929,
+          "insert_token_idx": 2811,
+          "passed": true,
+          "generated": "spherical. \nThe final answer is: $\\boxed{spherical",
+          "measured_allowed_fraction": 0.62413,
+          "mean_allowed_keys": 1278.5
+        },
+        {
+          "pos_idx": 36,
+          "needle_ratio": 0.7112,
+          "insert_token_idx": 2886,
+          "passed": true,
+          "generated": "spherical coordinates. The primary coordinate system used for the manifold calculation",
+          "measured_allowed_fraction": 0.62654,
+          "mean_allowed_keys": 1283.5
+        },
+        {
+          "pos_idx": 37,
+          "needle_ratio": 0.7296,
+          "insert_token_idx": 2960,
+          "passed": true,
+          "generated": "spherical coordinates.  The primary coordinate system used for the manifold",
+          "measured_allowed_fraction": 0.62297,
+          "mean_allowed_keys": 1276.2
+        },
+        {
+          "pos_idx": 38,
+          "needle_ratio": 0.748,
+          "insert_token_idx": 3035,
+          "passed": true,
+          "generated": "spherical.\n\nThe final answer is: $\\boxed{1}$",
+          "measured_allowed_fraction": 0.62591,
+          "mean_allowed_keys": 1282.2
+        },
+        {
+          "pos_idx": 39,
+          "needle_ratio": 0.7663,
+          "insert_token_idx": 3109,
+          "passed": true,
+          "generated": "spherical.\n\nThe final answer is: $\\boxed{1}$",
+          "measured_allowed_fraction": 0.6267,
+          "mean_allowed_keys": 1283.8
+        },
+        {
+          "pos_idx": 40,
+          "needle_ratio": 0.7847,
+          "insert_token_idx": 3184,
+          "passed": true,
+          "generated": "spherical.  The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.62482,
+          "mean_allowed_keys": 1280.0
+        },
+        {
+          "pos_idx": 41,
+          "needle_ratio": 0.8031,
+          "insert_token_idx": 3258,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.62559,
+          "mean_allowed_keys": 1281.5
+        },
+        {
+          "pos_idx": 42,
+          "needle_ratio": 0.8214,
+          "insert_token_idx": 3333,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62657,
+          "mean_allowed_keys": 1283.5
+        },
+        {
+          "pos_idx": 43,
+          "needle_ratio": 0.8398,
+          "insert_token_idx": 3407,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62738,
+          "mean_allowed_keys": 1285.2
+        },
+        {
+          "pos_idx": 44,
+          "needle_ratio": 0.8582,
+          "insert_token_idx": 3482,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62585,
+          "mean_allowed_keys": 1282.1
+        },
+        {
+          "pos_idx": 45,
+          "needle_ratio": 0.8765,
+          "insert_token_idx": 3556,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62706,
+          "mean_allowed_keys": 1284.5
+        },
+        {
+          "pos_idx": 46,
+          "needle_ratio": 0.8949,
+          "insert_token_idx": 3631,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.62687,
+          "mean_allowed_keys": 1284.1
+        },
+        {
+          "pos_idx": 47,
+          "needle_ratio": 0.9133,
+          "insert_token_idx": 3706,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62541,
+          "mean_allowed_keys": 1281.2
+        },
+        {
+          "pos_idx": 48,
+          "needle_ratio": 0.9316,
+          "insert_token_idx": 3780,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.62677,
+          "mean_allowed_keys": 1283.9
+        },
+        {
+          "pos_idx": 49,
+          "needle_ratio": 0.95,
+          "insert_token_idx": 3855,
+          "passed": true,
+          "generated": "spherical coordinates.  The geometry of language is not a linear",
+          "measured_allowed_fraction": 0.62466,
+          "mean_allowed_keys": 1279.6
+        }
+      ]
+    },
+    "r_4": {
+      "r": 4,
+      "sparsity_pct": 93.75,
+      "active_budget_pct": 6.25,
+      "effective_capacity_k": 256,
+      "measured_budget_pct": 51.37,
+      "measured_budget_pct_min": 51.1,
+      "measured_budget_pct_max": 51.64,
+      "measured_mean_allowed_keys": 1052.4,
+      "successes": 29,
+      "total": 50,
+      "recall_pct": 58.0,
+      "trials": [
+        {
+          "pos_idx": 0,
+          "needle_ratio": 0.05,
+          "insert_token_idx": 202,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51282,
+          "mean_allowed_keys": 1050.5
+        },
+        {
+          "pos_idx": 1,
+          "needle_ratio": 0.0684,
+          "insert_token_idx": 277,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.51575,
+          "mean_allowed_keys": 1056.5
+        },
+        {
+          "pos_idx": 2,
+          "needle_ratio": 0.0867,
+          "insert_token_idx": 351,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51298,
+          "mean_allowed_keys": 1050.8
+        },
+        {
+          "pos_idx": 3,
+          "needle_ratio": 0.1051,
+          "insert_token_idx": 426,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are used to describe the position",
+          "measured_allowed_fraction": 0.51155,
+          "mean_allowed_keys": 1047.9
+        },
+        {
+          "pos_idx": 4,
+          "needle_ratio": 0.1235,
+          "insert_token_idx": 501,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51379,
+          "mean_allowed_keys": 1052.5
+        },
+        {
+          "pos_idx": 5,
+          "needle_ratio": 0.1418,
+          "insert_token_idx": 575,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.51124,
+          "mean_allowed_keys": 1047.3
+        },
+        {
+          "pos_idx": 6,
+          "needle_ratio": 0.1602,
+          "insert_token_idx": 650,
+          "passed": false,
+          "generated": "$\\boxed{Cartesian}$.\nThe final answer is:",
+          "measured_allowed_fraction": 0.51637,
+          "mean_allowed_keys": 1057.8
+        },
+        {
+          "pos_idx": 7,
+          "needle_ratio": 0.1786,
+          "insert_token_idx": 724,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51438,
+          "mean_allowed_keys": 1053.7
+        },
+        {
+          "pos_idx": 8,
+          "needle_ratio": 0.1969,
+          "insert_token_idx": 799,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the research",
+          "measured_allowed_fraction": 0.51625,
+          "mean_allowed_keys": 1057.5
+        },
+        {
+          "pos_idx": 9,
+          "needle_ratio": 0.2153,
+          "insert_token_idx": 873,
+          "passed": true,
+          "generated": "spherical.\n\nThe final answer is: $\\boxed{1}$",
+          "measured_allowed_fraction": 0.51402,
+          "mean_allowed_keys": 1053.0
+        },
+        {
+          "pos_idx": 10,
+          "needle_ratio": 0.2337,
+          "insert_token_idx": 948,
+          "passed": false,
+          "generated": "3D Euclidean space. The 3D Euclidean",
+          "measured_allowed_fraction": 0.51507,
+          "mean_allowed_keys": 1055.1
+        },
+        {
+          "pos_idx": 11,
+          "needle_ratio": 0.252,
+          "insert_token_idx": 1022,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the text",
+          "measured_allowed_fraction": 0.5153,
+          "mean_allowed_keys": 1055.6
+        },
+        {
+          "pos_idx": 12,
+          "needle_ratio": 0.2704,
+          "insert_token_idx": 1097,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51331,
+          "mean_allowed_keys": 1051.5
+        },
+        {
+          "pos_idx": 13,
+          "needle_ratio": 0.2888,
+          "insert_token_idx": 1171,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the paper",
+          "measured_allowed_fraction": 0.51389,
+          "mean_allowed_keys": 1052.7
+        },
+        {
+          "pos_idx": 14,
+          "needle_ratio": 0.3071,
+          "insert_token_idx": 1246,
+          "passed": true,
+          "generated": "spherical coordinates. The primary coordinate system used for the manifold calculation",
+          "measured_allowed_fraction": 0.51568,
+          "mean_allowed_keys": 1056.4
+        },
+        {
+          "pos_idx": 15,
+          "needle_ratio": 0.3255,
+          "insert_token_idx": 1320,
+          "passed": false,
+          "generated": "Bruhat-Tits tree.\n\nThe final answer is: Bru",
+          "measured_allowed_fraction": 0.51265,
+          "mean_allowed_keys": 1050.2
+        },
+        {
+          "pos_idx": 16,
+          "needle_ratio": 0.3439,
+          "insert_token_idx": 1395,
+          "passed": true,
+          "generated": "spherical.\n\nThe final answer is: $\\boxed{1}$",
+          "measured_allowed_fraction": 0.51185,
+          "mean_allowed_keys": 1048.5
+        },
+        {
+          "pos_idx": 17,
+          "needle_ratio": 0.3622,
+          "insert_token_idx": 1469,
+          "passed": false,
+          "generated": "Bruhat-Tits tree. \n\nThe final answer is:",
+          "measured_allowed_fraction": 0.51454,
+          "mean_allowed_keys": 1054.0
+        },
+        {
+          "pos_idx": 18,
+          "needle_ratio": 0.3806,
+          "insert_token_idx": 1544,
+          "passed": false,
+          "generated": "Bruhat-Tits tree.\n\nThe final answer is: Bru",
+          "measured_allowed_fraction": 0.51374,
+          "mean_allowed_keys": 1052.4
+        },
+        {
+          "pos_idx": 19,
+          "needle_ratio": 0.399,
+          "insert_token_idx": 1619,
+          "passed": false,
+          "generated": "$\\boxed{Cartesian}$.\nThe final answer is:",
+          "measured_allowed_fraction": 0.51491,
+          "mean_allowed_keys": 1054.8
+        },
+        {
+          "pos_idx": 20,
+          "needle_ratio": 0.4173,
+          "insert_token_idx": 1693,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the research",
+          "measured_allowed_fraction": 0.51136,
+          "mean_allowed_keys": 1047.5
+        },
+        {
+          "pos_idx": 21,
+          "needle_ratio": 0.4357,
+          "insert_token_idx": 1768,
+          "passed": false,
+          "generated": "Bruhat-Tits tree.\n\nThe final answer is: Bru",
+          "measured_allowed_fraction": 0.51162,
+          "mean_allowed_keys": 1048.1
+        },
+        {
+          "pos_idx": 22,
+          "needle_ratio": 0.4541,
+          "insert_token_idx": 1842,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.51177,
+          "mean_allowed_keys": 1048.4
+        },
+        {
+          "pos_idx": 23,
+          "needle_ratio": 0.4724,
+          "insert_token_idx": 1917,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the paper",
+          "measured_allowed_fraction": 0.5124,
+          "mean_allowed_keys": 1049.6
+        },
+        {
+          "pos_idx": 24,
+          "needle_ratio": 0.4908,
+          "insert_token_idx": 1991,
+          "passed": true,
+          "generated": "spherical coordinates. \n\nWhat is the main idea of the paper",
+          "measured_allowed_fraction": 0.51522,
+          "mean_allowed_keys": 1055.4
+        },
+        {
+          "pos_idx": 25,
+          "needle_ratio": 0.5092,
+          "insert_token_idx": 2066,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51474,
+          "mean_allowed_keys": 1054.4
+        },
+        {
+          "pos_idx": 26,
+          "needle_ratio": 0.5276,
+          "insert_token_idx": 2140,
+          "passed": false,
+          "generated": "3D Euclidean space. The 3D Euclidean",
+          "measured_allowed_fraction": 0.5155,
+          "mean_allowed_keys": 1056.0
+        },
+        {
+          "pos_idx": 27,
+          "needle_ratio": 0.5459,
+          "insert_token_idx": 2215,
+          "passed": false,
+          "generated": "Bruhat-Tits tree.\n\nThe final answer is: Bru",
+          "measured_allowed_fraction": 0.516,
+          "mean_allowed_keys": 1057.0
+        },
+        {
+          "pos_idx": 28,
+          "needle_ratio": 0.5643,
+          "insert_token_idx": 2289,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51506,
+          "mean_allowed_keys": 1055.1
+        },
+        {
+          "pos_idx": 29,
+          "needle_ratio": 0.5827,
+          "insert_token_idx": 2364,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51569,
+          "mean_allowed_keys": 1056.4
+        },
+        {
+          "pos_idx": 30,
+          "needle_ratio": 0.601,
+          "insert_token_idx": 2438,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.51161,
+          "mean_allowed_keys": 1048.0
+        },
+        {
+          "pos_idx": 31,
+          "needle_ratio": 0.6194,
+          "insert_token_idx": 2513,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51263,
+          "mean_allowed_keys": 1050.1
+        },
+        {
+          "pos_idx": 32,
+          "needle_ratio": 0.6378,
+          "insert_token_idx": 2588,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.51307,
+          "mean_allowed_keys": 1051.0
+        },
+        {
+          "pos_idx": 33,
+          "needle_ratio": 0.6561,
+          "insert_token_idx": 2662,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.51363,
+          "mean_allowed_keys": 1052.2
+        },
+        {
+          "pos_idx": 34,
+          "needle_ratio": 0.6745,
+          "insert_token_idx": 2737,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51321,
+          "mean_allowed_keys": 1051.3
+        },
+        {
+          "pos_idx": 35,
+          "needle_ratio": 0.6929,
+          "insert_token_idx": 2811,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.51442,
+          "mean_allowed_keys": 1053.8
+        },
+        {
+          "pos_idx": 36,
+          "needle_ratio": 0.7112,
+          "insert_token_idx": 2886,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51335,
+          "mean_allowed_keys": 1051.6
+        },
+        {
+          "pos_idx": 37,
+          "needle_ratio": 0.7296,
+          "insert_token_idx": 2960,
+          "passed": true,
+          "generated": "2D spherical coordinates. The 2D spherical coordinates are",
+          "measured_allowed_fraction": 0.51103,
+          "mean_allowed_keys": 1046.8
+        },
+        {
+          "pos_idx": 38,
+          "needle_ratio": 0.748,
+          "insert_token_idx": 3035,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.51199,
+          "mean_allowed_keys": 1048.8
+        },
+        {
+          "pos_idx": 39,
+          "needle_ratio": 0.7663,
+          "insert_token_idx": 3109,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51366,
+          "mean_allowed_keys": 1052.2
+        },
+        {
+          "pos_idx": 40,
+          "needle_ratio": 0.7847,
+          "insert_token_idx": 3184,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51159,
+          "mean_allowed_keys": 1048.0
+        },
+        {
+          "pos_idx": 41,
+          "needle_ratio": 0.8031,
+          "insert_token_idx": 3258,
+          "passed": false,
+          "generated": "3D Euclidean space. The 3D Euclidean",
+          "measured_allowed_fraction": 0.51296,
+          "mean_allowed_keys": 1050.8
+        },
+        {
+          "pos_idx": 42,
+          "needle_ratio": 0.8214,
+          "insert_token_idx": 3333,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51324,
+          "mean_allowed_keys": 1051.4
+        },
+        {
+          "pos_idx": 43,
+          "needle_ratio": 0.8398,
+          "insert_token_idx": 3407,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51469,
+          "mean_allowed_keys": 1054.3
+        },
+        {
+          "pos_idx": 44,
+          "needle_ratio": 0.8582,
+          "insert_token_idx": 3482,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.51424,
+          "mean_allowed_keys": 1053.4
+        },
+        {
+          "pos_idx": 45,
+          "needle_ratio": 0.8765,
+          "insert_token_idx": 3556,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.51343,
+          "mean_allowed_keys": 1051.8
+        },
+        {
+          "pos_idx": 46,
+          "needle_ratio": 0.8949,
+          "insert_token_idx": 3631,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.51495,
+          "mean_allowed_keys": 1054.9
+        },
+        {
+          "pos_idx": 47,
+          "needle_ratio": 0.9133,
+          "insert_token_idx": 3706,
+          "passed": true,
+          "generated": "spherical coordinates. The geometry of language is not a linear sequence",
+          "measured_allowed_fraction": 0.5139,
+          "mean_allowed_keys": 1052.7
+        },
+        {
+          "pos_idx": 48,
+          "needle_ratio": 0.9316,
+          "insert_token_idx": 3780,
+          "passed": true,
+          "generated": "spherical.\n\nThe final answer is: $\\boxed{1}$",
+          "measured_allowed_fraction": 0.51502,
+          "mean_allowed_keys": 1055.0
+        },
+        {
+          "pos_idx": 49,
+          "needle_ratio": 0.95,
+          "insert_token_idx": 3855,
+          "passed": true,
+          "generated": "spherical.\n\nWhat is the main idea of the text? The",
+          "measured_allowed_fraction": 0.51408,
+          "mean_allowed_keys": 1053.1
+        }
+      ]
+    },
+    "r_5": {
+      "r": 5,
+      "sparsity_pct": 96.88,
+      "active_budget_pct": 3.12,
+      "effective_capacity_k": 128,
+      "measured_budget_pct": 42.54,
+      "measured_budget_pct_min": 42.14,
+      "measured_budget_pct_max": 42.82,
+      "measured_mean_allowed_keys": 871.5,
+      "successes": 15,
+      "total": 50,
+      "recall_pct": 30.0,
+      "trials": [
+        {
+          "pos_idx": 0,
+          "needle_ratio": 0.05,
+          "insert_token_idx": 202,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42397,
+          "mean_allowed_keys": 868.5
+        },
+        {
+          "pos_idx": 1,
+          "needle_ratio": 0.0684,
+          "insert_token_idx": 277,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42484,
+          "mean_allowed_keys": 870.3
+        },
+        {
+          "pos_idx": 2,
+          "needle_ratio": 0.0867,
+          "insert_token_idx": 351,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42504,
+          "mean_allowed_keys": 870.7
+        },
+        {
+          "pos_idx": 3,
+          "needle_ratio": 0.1051,
+          "insert_token_idx": 426,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42433,
+          "mean_allowed_keys": 869.2
+        },
+        {
+          "pos_idx": 4,
+          "needle_ratio": 0.1235,
+          "insert_token_idx": 501,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42509,
+          "mean_allowed_keys": 870.8
+        },
+        {
+          "pos_idx": 5,
+          "needle_ratio": 0.1418,
+          "insert_token_idx": 575,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42585,
+          "mean_allowed_keys": 872.4
+        },
+        {
+          "pos_idx": 6,
+          "needle_ratio": 0.1602,
+          "insert_token_idx": 650,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42746,
+          "mean_allowed_keys": 875.6
+        },
+        {
+          "pos_idx": 7,
+          "needle_ratio": 0.1786,
+          "insert_token_idx": 724,
+          "passed": false,
+          "generated": "Bruhat-Tits tree. \n\nThe final answer is:",
+          "measured_allowed_fraction": 0.42638,
+          "mean_allowed_keys": 873.4
+        },
+        {
+          "pos_idx": 8,
+          "needle_ratio": 0.1969,
+          "insert_token_idx": 799,
+          "passed": false,
+          "generated": "Bruhat-Tits tree. The Bruhat-Tits tree",
+          "measured_allowed_fraction": 0.42522,
+          "mean_allowed_keys": 871.1
+        },
+        {
+          "pos_idx": 9,
+          "needle_ratio": 0.2153,
+          "insert_token_idx": 873,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42651,
+          "mean_allowed_keys": 873.7
+        },
+        {
+          "pos_idx": 10,
+          "needle_ratio": 0.2337,
+          "insert_token_idx": 948,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42691,
+          "mean_allowed_keys": 874.5
+        },
+        {
+          "pos_idx": 11,
+          "needle_ratio": 0.252,
+          "insert_token_idx": 1022,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42553,
+          "mean_allowed_keys": 871.7
+        },
+        {
+          "pos_idx": 12,
+          "needle_ratio": 0.2704,
+          "insert_token_idx": 1097,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42361,
+          "mean_allowed_keys": 867.8
+        },
+        {
+          "pos_idx": 13,
+          "needle_ratio": 0.2888,
+          "insert_token_idx": 1171,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined by three numbers:",
+          "measured_allowed_fraction": 0.42403,
+          "mean_allowed_keys": 868.6
+        },
+        {
+          "pos_idx": 14,
+          "needle_ratio": 0.3071,
+          "insert_token_idx": 1246,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42423,
+          "mean_allowed_keys": 869.0
+        },
+        {
+          "pos_idx": 15,
+          "needle_ratio": 0.3255,
+          "insert_token_idx": 1320,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42729,
+          "mean_allowed_keys": 875.3
+        },
+        {
+          "pos_idx": 16,
+          "needle_ratio": 0.3439,
+          "insert_token_idx": 1395,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42496,
+          "mean_allowed_keys": 870.5
+        },
+        {
+          "pos_idx": 17,
+          "needle_ratio": 0.3622,
+          "insert_token_idx": 1469,
+          "passed": false,
+          "generated": "Bruhat-Tits tree. \n\nThe final answer is:",
+          "measured_allowed_fraction": 0.42417,
+          "mean_allowed_keys": 868.9
+        },
+        {
+          "pos_idx": 18,
+          "needle_ratio": 0.3806,
+          "insert_token_idx": 1544,
+          "passed": false,
+          "generated": "Bruhat-Tits tree. \n\nThe final answer is:",
+          "measured_allowed_fraction": 0.42394,
+          "mean_allowed_keys": 868.4
+        },
+        {
+          "pos_idx": 19,
+          "needle_ratio": 0.399,
+          "insert_token_idx": 1619,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42523,
+          "mean_allowed_keys": 871.1
+        },
+        {
+          "pos_idx": 20,
+          "needle_ratio": 0.4173,
+          "insert_token_idx": 1693,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42374,
+          "mean_allowed_keys": 868.0
+        },
+        {
+          "pos_idx": 21,
+          "needle_ratio": 0.4357,
+          "insert_token_idx": 1768,
+          "passed": true,
+          "generated": "3D spherical coordinates. The 3D spherical coordinates are",
+          "measured_allowed_fraction": 0.42215,
+          "mean_allowed_keys": 864.8
+        },
+        {
+          "pos_idx": 22,
+          "needle_ratio": 0.4541,
+          "insert_token_idx": 1842,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined as follows:",
+          "measured_allowed_fraction": 0.42328,
+          "mean_allowed_keys": 867.1
+        },
+        {
+          "pos_idx": 23,
+          "needle_ratio": 0.4724,
+          "insert_token_idx": 1917,
+          "passed": false,
+          "generated": "3D Euclidean space. The 3D Euclidean",
+          "measured_allowed_fraction": 0.42142,
+          "mean_allowed_keys": 863.3
+        },
+        {
+          "pos_idx": 24,
+          "needle_ratio": 0.4908,
+          "insert_token_idx": 1991,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42231,
+          "mean_allowed_keys": 865.1
+        },
+        {
+          "pos_idx": 25,
+          "needle_ratio": 0.5092,
+          "insert_token_idx": 2066,
+          "passed": true,
+          "generated": "2D spherical coordinates. The 2D spherical coordinates are",
+          "measured_allowed_fraction": 0.4234,
+          "mean_allowed_keys": 867.3
+        },
+        {
+          "pos_idx": 26,
+          "needle_ratio": 0.5276,
+          "insert_token_idx": 2140,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42537,
+          "mean_allowed_keys": 871.4
+        },
+        {
+          "pos_idx": 27,
+          "needle_ratio": 0.5459,
+          "insert_token_idx": 2215,
+          "passed": false,
+          "generated": "Bruhat-Tits tree. The Bruhat-Tits tree",
+          "measured_allowed_fraction": 0.42278,
+          "mean_allowed_keys": 866.1
+        },
+        {
+          "pos_idx": 28,
+          "needle_ratio": 0.5643,
+          "insert_token_idx": 2289,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42438,
+          "mean_allowed_keys": 869.4
+        },
+        {
+          "pos_idx": 29,
+          "needle_ratio": 0.5827,
+          "insert_token_idx": 2364,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42302,
+          "mean_allowed_keys": 866.6
+        },
+        {
+          "pos_idx": 30,
+          "needle_ratio": 0.601,
+          "insert_token_idx": 2438,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42395,
+          "mean_allowed_keys": 868.5
+        },
+        {
+          "pos_idx": 31,
+          "needle_ratio": 0.6194,
+          "insert_token_idx": 2513,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined by three numbers:",
+          "measured_allowed_fraction": 0.42514,
+          "mean_allowed_keys": 870.9
+        },
+        {
+          "pos_idx": 32,
+          "needle_ratio": 0.6378,
+          "insert_token_idx": 2588,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42551,
+          "mean_allowed_keys": 871.7
+        },
+        {
+          "pos_idx": 33,
+          "needle_ratio": 0.6561,
+          "insert_token_idx": 2662,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42805,
+          "mean_allowed_keys": 876.9
+        },
+        {
+          "pos_idx": 34,
+          "needle_ratio": 0.6745,
+          "insert_token_idx": 2737,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42613,
+          "mean_allowed_keys": 872.9
+        },
+        {
+          "pos_idx": 35,
+          "needle_ratio": 0.6929,
+          "insert_token_idx": 2811,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates of a point in 3",
+          "measured_allowed_fraction": 0.42709,
+          "mean_allowed_keys": 874.9
+        },
+        {
+          "pos_idx": 36,
+          "needle_ratio": 0.7112,
+          "insert_token_idx": 2886,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42719,
+          "mean_allowed_keys": 875.1
+        },
+        {
+          "pos_idx": 37,
+          "needle_ratio": 0.7296,
+          "insert_token_idx": 2960,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42588,
+          "mean_allowed_keys": 872.4
+        },
+        {
+          "pos_idx": 38,
+          "needle_ratio": 0.748,
+          "insert_token_idx": 3035,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42751,
+          "mean_allowed_keys": 875.8
+        },
+        {
+          "pos_idx": 39,
+          "needle_ratio": 0.7663,
+          "insert_token_idx": 3109,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined by the radius r",
+          "measured_allowed_fraction": 0.4263,
+          "mean_allowed_keys": 873.3
+        },
+        {
+          "pos_idx": 40,
+          "needle_ratio": 0.7847,
+          "insert_token_idx": 3184,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined as follows:",
+          "measured_allowed_fraction": 0.42693,
+          "mean_allowed_keys": 874.6
+        },
+        {
+          "pos_idx": 41,
+          "needle_ratio": 0.8031,
+          "insert_token_idx": 3258,
+          "passed": false,
+          "generated": "2D. The 2D coordinate system is used to",
+          "measured_allowed_fraction": 0.42658,
+          "mean_allowed_keys": 873.8
+        },
+        {
+          "pos_idx": 42,
+          "needle_ratio": 0.8214,
+          "insert_token_idx": 3333,
+          "passed": false,
+          "generated": "3D Cartesian coordinates. The 3D Cartesian coordinates are",
+          "measured_allowed_fraction": 0.42779,
+          "mean_allowed_keys": 876.3
+        },
+        {
+          "pos_idx": 43,
+          "needle_ratio": 0.8398,
+          "insert_token_idx": 3407,
+          "passed": true,
+          "generated": "3D spherical coordinates. The 3D spherical coordinates are",
+          "measured_allowed_fraction": 0.42821,
+          "mean_allowed_keys": 877.2
+        },
+        {
+          "pos_idx": 44,
+          "needle_ratio": 0.8582,
+          "insert_token_idx": 3482,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined as follows:",
+          "measured_allowed_fraction": 0.42721,
+          "mean_allowed_keys": 875.1
+        },
+        {
+          "pos_idx": 45,
+          "needle_ratio": 0.8765,
+          "insert_token_idx": 3556,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined by three numbers:",
+          "measured_allowed_fraction": 0.42748,
+          "mean_allowed_keys": 875.7
+        },
+        {
+          "pos_idx": 46,
+          "needle_ratio": 0.8949,
+          "insert_token_idx": 3631,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates of a point in 3",
+          "measured_allowed_fraction": 0.42676,
+          "mean_allowed_keys": 874.2
+        },
+        {
+          "pos_idx": 47,
+          "needle_ratio": 0.9133,
+          "insert_token_idx": 3706,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates of a point in 3",
+          "measured_allowed_fraction": 0.4272,
+          "mean_allowed_keys": 875.1
+        },
+        {
+          "pos_idx": 48,
+          "needle_ratio": 0.9316,
+          "insert_token_idx": 3780,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates are defined by three numbers:",
+          "measured_allowed_fraction": 0.42767,
+          "mean_allowed_keys": 876.1
+        },
+        {
+          "pos_idx": 49,
+          "needle_ratio": 0.95,
+          "insert_token_idx": 3855,
+          "passed": true,
+          "generated": "spherical coordinates. The spherical coordinates of a point in 3",
+          "measured_allowed_fraction": 0.42646,
+          "mean_allowed_keys": 873.6
+        }
+      ]
+    }
+  },
+  "meta": {
+    "git_sha": "0a8da5845009b7518a42350fa12457bc04b82622",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "torch": "2.11.0+cu130",
+    "args": {
+      "model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+      "context_len": 4096,
+      "num_positions": 50,
+      "train_steps": 80,
+      "skip_warmup": false,
+      "init_mode": "collapse",
+      "warmup_dataset": "niah",
+      "needle_type": "banal",
+      "output_file": "niah_sweep_banal_v4_triad.json",
+      "load_in_8bit": false,
+      "load_in_4bit": false,
+      "output_dir": "experiments/results",
+      "device": "cuda",
+      "depths": "0,1,2,3,4,5",
+      "no_measure_budget": false,
+      "attention_backend": "block_list",
+      "tree_mode": false,
+      "qk_mode": true,
+      "prime_arities": "2,3",
+      "swin_shift": true,
+      "route_stride": 2,
+      "distill_kl": false,
+      "target_density": 0.25,
+      "triad_mode": true,
+      "d_shell": 8,
+      "train_max_length": 384,
+      "only_global_layers": false,
+      "save_router": "",
+      "load_router": "checkpoints/router_sidecars/meta_llama_31_8b_instruct_router_v4.safetensors",
+      "kolibri_rope": false
+    },
+    "router_levels": 5,
+    "budget_note": "active_budget_pct / effective_capacity_k are nominal (2^-r); measured_budget_pct is the mean fraction of causal keys allowed per query (sink, local window, causal mask and routing imbalance included), averaged over layers."
+  }
+}

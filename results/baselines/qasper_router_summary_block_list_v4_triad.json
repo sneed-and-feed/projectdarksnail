@@ -1,0 +1,242 @@
+{
+  "meta": {
+    "date": "2026-10-14T17:38:00.000000+00:00",
+    "git_sha": "0a8da58",
+    "router_git_sha": "ddaa2ac",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "torch": "2.11.0+cu130",
+    "model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "args": {
+      "model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+      "depths": "2,3,4",
+      "max_samples": 200,
+      "max_ctx": 6000,
+      "max_new_tokens": 128,
+      "train_steps": 80,
+      "train_max_length": 2048,
+      "skip_warmup": false,
+      "init_mode": "collapse",
+      "tree_mode": false,
+      "qk_mode": true,
+      "prime_arities": "2,3",
+      "swin_shift": true,
+      "route_stride": 2,
+      "distill_kl": true,
+      "target_density": 0.25,
+      "triad_mode": true,
+      "d_shell": 8,
+      "only_global_layers": false,
+      "no_window_baseline": false,
+      "seed": 0,
+      "output_dir": "experiments/results",
+      "attention_backend": "block_list",
+      "oracle_mode": false,
+      "kolibri_rope": false,
+      "min_sparse_seq_len": 0,
+      "save_router": "",
+      "load_router": "checkpoints/router_sidecars/meta_llama_31_8b_instruct_router_v4.safetensors"
+    },
+    "n_samples": 200,
+    "n_truncated": 41,
+    "router": {
+      "tree_depth": 5,
+      "arity": 2,
+      "preserve_sinks": true,
+      "warmup": "wikitext-2 x 80 steps (V4 TriadTopologyRouter, depth-covariant dyadic STE w_l = 0.05 * 2^(l-(L-1)), leaf-path load balance, sqrt(d_in/d_shell) logit scaling)"
+    },
+    "metric": "LongBench qa_f1 (first line of prediction, max over references)"
+  },
+  "results": {
+    "dense": {
+      "f1": 43.22939160472817,
+      "f1_ci95": [
+        38.42354298414659,
+        48.034565180931
+      ],
+      "n": 200,
+      "degenerate_outputs": 0
+    },
+    "routed@2": {
+      "f1": 35.7802360133141,
+      "f1_ci95": [
+        31.763024426856795,
+        39.72878586748129
+      ],
+      "n": 200,
+      "degenerate_outputs": 0,
+      "measured_allowed_fraction": 0.7519011299624768,
+      "theoretical_fraction": 0.25,
+      "minus_window_f1": 7.889739519380583,
+      "minus_window_ci95": [
+        2.3938193819484814,
+        13.656027415206303
+      ]
+    },
+    "routed@3": {
+      "f1": 29.101555110524004,
+      "f1_ci95": [
+        25.14655525636066,
+        33.34109065172257
+      ],
+      "n": 200,
+      "degenerate_outputs": 0,
+      "measured_allowed_fraction": 0.6045055487923053,
+      "theoretical_fraction": 0.125,
+      "minus_window_f1": 6.062658144163992,
+      "minus_window_ci95": [
+        1.366204744861378,
+        10.784814233968078
+      ]
+    },
+    "routed@4": {
+      "f1": 22.8860266426608,
+      "f1_ci95": [
+        19.029970874013078,
+        27.02862255843219
+      ],
+      "n": 200,
+      "degenerate_outputs": 0,
+      "measured_allowed_fraction": 0.4924883719147186,
+      "theoretical_fraction": 0.0625,
+      "minus_window_f1": 0.7831300873273634,
+      "minus_window_ci95": [
+        -4.282667244420967,
+        5.405192733076027
+      ]
+    },
+    "window@2": {
+      "f1": 27.89049649393352,
+      "f1_ci95": [
+        23.102144414102273,
+        32.859127185030545
+      ],
+      "n": 200,
+      "degenerate_outputs": 0
+    },
+    "window@3": {
+      "f1": 23.038896966360014,
+      "f1_ci95": [
+        18.525616958095075,
+        27.51366414730229
+      ],
+      "n": 200,
+      "degenerate_outputs": 0
+    },
+    "window@4": {
+      "f1": 22.10289655533343,
+      "f1_ci95": [
+        17.777326296866026,
+        26.46410737062285
+      ],
+      "n": 200,
+      "degenerate_outputs": 0
+    }
+  },
+  "ablation_unweighted_cumprod_ste_7e85004": {
+    "git_sha": "7e850045de2b21eb5400c1f8fa2c44f496964583",
+    "note": "Baseline V4 Triad run using unweighted prefix product cumprod(0.95*M+0.05) STE and multi-shell load balance (prior to ddaa2ac depth-covariant dyadic STE).",
+    "results": {
+      "dense": {
+        "f1": 43.22939160472817,
+        "f1_ci95": [
+          38.42354298414659,
+          48.034565180931
+        ],
+        "n": 200,
+        "degenerate_outputs": 0
+      },
+      "routed@2": {
+        "f1": 27.52969328107148,
+        "f1_ci95": [
+          23.340847233352992,
+          31.97704481995171
+        ],
+        "n": 200,
+        "degenerate_outputs": 1,
+        "measured_allowed_fraction": 0.7520386328767021,
+        "theoretical_fraction": 0.25,
+        "minus_window_f1": -0.6590888855548807,
+        "minus_window_ci95": [
+          -5.699604611901026,
+          4.4218718390780225
+        ]
+      },
+      "routed@3": {
+        "f1": 24.486841606299993,
+        "f1_ci95": [
+          20.517861795629035,
+          28.748291268609123
+        ],
+        "n": 200,
+        "degenerate_outputs": 2,
+        "measured_allowed_fraction": 0.6672959763445526,
+        "theoretical_fraction": 0.125,
+        "minus_window_f1": -0.8486077967053941,
+        "minus_window_ci95": [
+          -5.478873414557192,
+          4.161294168626058
+        ]
+      },
+      "routed@4": {
+        "f1": 22.127553422880155,
+        "f1_ci95": [
+          18.23531251317217,
+          26.219916931486427
+        ],
+        "n": 200,
+        "degenerate_outputs": 3,
+        "measured_allowed_fraction": 0.5812721508677275,
+        "theoretical_fraction": 0.0625,
+        "minus_window_f1": -1.3639045220437966,
+        "minus_window_ci95": [
+          -6.665275825812525,
+          4.289370394449522
+        ]
+      },
+      "window@2": {
+        "f1": 28.18878216662636,
+        "f1_ci95": [
+          23.50194574139177,
+          33.00238758833638
+        ],
+        "n": 200,
+        "degenerate_outputs": 0
+      },
+      "window@3": {
+        "f1": 25.33544940300539,
+        "f1_ci95": [
+          20.637099368825464,
+          30.178689257654582
+        ],
+        "n": 200,
+        "degenerate_outputs": 0
+      },
+      "window@4": {
+        "f1": 23.49145794492395,
+        "f1_ci95": [
+          18.913940583453048,
+          28.15078356379522
+        ],
+        "n": 200,
+        "degenerate_outputs": 0
+      }
+    }
+  },
+  "track3_v4_benchmarks": {
+    "beltrami_adelic_cache": {
+      "prompt_tokens": 1354,
+      "physical_kv_capacity": 512,
+      "compression_ratio": 2.64453125,
+      "passkey_target": "9481-OMEGA",
+      "passkey_retrieved": "9481-OMEGA",
+      "exact_match": true
+    },
+    "zeno_speculative_generator": {
+      "acceptance_rate_pct": 83.87,
+      "tokens_per_verify_step": 4.57,
+      "mean_draft_depth": 1.1,
+      "passkey_retrieved": "9481-OMEGA",
+      "exact_match": true
+    }
+  }
+}
