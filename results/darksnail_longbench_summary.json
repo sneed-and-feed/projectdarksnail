@@ -1,0 +1,212 @@
+{
+  "banal_niah": {
+    "context_len": 4096,
+    "num_positions": 10,
+    "needle_type": "banal",
+    "depths": [
+      3,
+      4,
+      5
+    ],
+    "conditions": {
+      "window@3": {
+        "r": 3,
+        "condition": "window",
+        "recall_pct": 30.0,
+        "successes": 3,
+        "total": 10,
+        "measured_budget_pct": 54.98,
+        "measured_allowed_keys": 1126.3,
+        "mean_zeno_flux": null
+      },
+      "v4_triad@3": {
+        "r": 3,
+        "condition": "v4_triad",
+        "recall_pct": 100.0,
+        "successes": 10,
+        "total": 10,
+        "measured_budget_pct": 65.76,
+        "measured_allowed_keys": 1347.0,
+        "mean_zeno_flux": null
+      },
+      "darksnail@3": {
+        "r": 3,
+        "condition": "darksnail",
+        "recall_pct": 100.0,
+        "successes": 10,
+        "total": 10,
+        "measured_budget_pct": 65.73,
+        "measured_allowed_keys": 1346.5,
+        "mean_zeno_flux": 0.588
+      },
+      "window@4": {
+        "r": 4,
+        "condition": "window",
+        "recall_pct": 30.0,
+        "successes": 3,
+        "total": 10,
+        "measured_budget_pct": 48.7,
+        "measured_allowed_keys": 997.6,
+        "mean_zeno_flux": null
+      },
+      "v4_triad@4": {
+        "r": 4,
+        "condition": "v4_triad",
+        "recall_pct": 100.0,
+        "successes": 10,
+        "total": 10,
+        "measured_budget_pct": 56.7,
+        "measured_allowed_keys": 1161.5,
+        "mean_zeno_flux": null
+      },
+      "darksnail@4": {
+        "r": 4,
+        "condition": "darksnail",
+        "recall_pct": 100.0,
+        "successes": 10,
+        "total": 10,
+        "measured_budget_pct": 56.72,
+        "measured_allowed_keys": 1162.0,
+        "mean_zeno_flux": 0.588
+      },
+      "window@5": {
+        "r": 5,
+        "condition": "window",
+        "recall_pct": 20.0,
+        "successes": 2,
+        "total": 10,
+        "measured_budget_pct": 43.25,
+        "measured_allowed_keys": 886.0,
+        "mean_zeno_flux": null
+      },
+      "v4_triad@5": {
+        "r": 5,
+        "condition": "v4_triad",
+        "recall_pct": 100.0,
+        "successes": 10,
+        "total": 10,
+        "measured_budget_pct": 49.28,
+        "measured_allowed_keys": 1009.6,
+        "mean_zeno_flux": null
+      },
+      "darksnail@5": {
+        "r": 5,
+        "condition": "darksnail",
+        "recall_pct": 100.0,
+        "successes": 10,
+        "total": 10,
+        "measured_budget_pct": 49.3,
+        "measured_allowed_keys": 1009.9,
+        "mean_zeno_flux": 0.5914
+      }
+    }
+  },
+  "qasper": {
+    "n_samples": 20,
+    "n_truncated": 4,
+    "depths": [
+      2,
+      3,
+      4
+    ],
+    "mean_layer16_zeno_flux": 0.6055,
+    "results": {
+      "dense": {
+        "f1": 45.17,
+        "f1_ci95": [
+          28.22,
+          62.51
+        ],
+        "n": 20,
+        "measured_budget_pct": 100.0
+      },
+      "window@2": {
+        "f1": 20.8,
+        "f1_ci95": [
+          9.28,
+          34.69
+        ],
+        "n": 20,
+        "measured_budget_pct": 62.61
+      },
+      "v4_triad@2": {
+        "f1": 44.15,
+        "f1_ci95": [
+          30.51,
+          59.23
+        ],
+        "n": 20,
+        "measured_budget_pct": 77.65
+      },
+      "darksnail@2": {
+        "f1": 52.02,
+        "f1_ci95": [
+          37.2,
+          68.05
+        ],
+        "n": 20,
+        "measured_budget_pct": 77.65,
+        "minus_v4_triad_f1": 7.87,
+        "minus_window_f1": 31.22
+      },
+      "window@3": {
+        "f1": 13.88,
+        "f1_ci95": [
+          5.22,
+          23.33
+        ],
+        "n": 20,
+        "measured_budget_pct": 55.47
+      },
+      "v4_triad@3": {
+        "f1": 33.99,
+        "f1_ci95": [
+          22.11,
+          47.15
+        ],
+        "n": 20,
+        "measured_budget_pct": 66.49
+      },
+      "darksnail@3": {
+        "f1": 50.26,
+        "f1_ci95": [
+          34.98,
+          66.25
+        ],
+        "n": 20,
+        "measured_budget_pct": 66.44,
+        "minus_v4_triad_f1": 16.27,
+        "minus_window_f1": 36.38
+      },
+      "window@4": {
+        "f1": 15.18,
+        "f1_ci95": [
+          6.2,
+          24.71
+        ],
+        "n": 20,
+        "measured_budget_pct": 49.76
+      },
+      "v4_triad@4": {
+        "f1": 31.4,
+        "f1_ci95": [
+          18.66,
+          44.94
+        ],
+        "n": 20,
+        "measured_budget_pct": 58.19
+      },
+      "darksnail@4": {
+        "f1": 47.04,
+        "f1_ci95": [
+          31.72,
+          63.68
+        ],
+        "n": 20,
+        "measured_budget_pct": 58.18,
+        "minus_v4_triad_f1": 15.64,
+        "minus_window_f1": 31.86
+      }
+    }
+  }
+}
