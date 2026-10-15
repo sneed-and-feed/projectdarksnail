@@ -60,6 +60,10 @@ Full benchmark results from [`scripts/evaluate_darksnail_arc.py`](scripts/evalua
 | `1c0d0a4b` | Unsolved ($N=400$ sweep) | $0.00$ | **$1.00$ ($100.0\%$)** | Unlocked by `DarkSnailCanvasReadout` split-panel / complement basis + Zeno-Amygdala Pareto gate. |
 | `34b99a2b` | Unsolved ($N=400$ sweep) | $0.00$ | **$1.00$ ($100.0\%$)** | Unlocked by `DarkSnailCanvasReadout` split-panel XOR basis + Zeno-Amygdala Pareto gate. |
 
+### Visual Gallery: `brain-ai` S2 Baseline vs. `DarkSnail V2` (100.0% Exact Solves)
+
+![DarkSnail V2 Showcase Gallery](results/darksnail_v2_showcase_gallery.png)
+
 ---
 
 ## Repository Structure & Quickstart
