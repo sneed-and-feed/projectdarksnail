@@ -228,5 +228,8 @@
     "e133d23d",
     "e345f17b",
     "e57337a4"
-  ]
+  ],
+  "exact_output_shapes_beltrami": 419,
+  "total_test_pairs": 419,
+  "beltrami_shape_accuracy_pct": 100.0
 }
