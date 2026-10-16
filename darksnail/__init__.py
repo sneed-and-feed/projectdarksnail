@@ -79,3 +79,24 @@ __all__ = [
     "score_qasper_f1",
     "set_long_context_condition",
 ]
+
+from .gemma4 import (
+    GEMMA4_31B_SPEC,
+    GLOBAL_LAYER_INDICES,
+    SLIDING_LAYER_INDICES,
+    DarkSnailGemma4GlobalHook,
+    Gemma4BeltramiCallosalShell,
+    Gemma4RMSNorm,
+    Gemma4RMSNormNoScale,
+    Gemma4_31B_Spec,
+    ProportionalRoPESubspaceSplitter,
+    SurgicalGemma4Attention,
+    apply_gemma4_prope,
+    attach_gemma4_beltrami_hook,
+    build_gemma4_prope_cache,
+    discover_gemma4_decoder_layers,
+    is_gemma4_global_layer,
+    patch_gemma4_model,
+    prepare_darksnail_gemma4_model,
+    warmup_gemma4_routers_kl,
+)

@@ -90,19 +90,85 @@ def qa_f1(pred: str, ref: str) -> float:
     return 2.0 * prec * rec / (prec + rec)
 
 
+def strip_thinking_trace(text: str) -> str:
+    """Strips Gemma 4 (`<|channel>thought...<channel|>`) or `<think>...</think>` traces before scoring."""
+    s = text
+    for open_tag, close_tag in (("<|channel>thought", "<channel|>"), ("<think>", "</think>")):
+        while open_tag in s and close_tag in s:
+            start = s.find(open_tag)
+            end = s.find(close_tag, start + len(open_tag))
+            if end != -1:
+                s = (s[:start] + " " + s[end + len(close_tag) :]).strip()
+            else:
+                break
+    for tok in ("<turn|>", "<|turn>", "<eos>", "<|eot_id|>"):
+        s = s.replace(tok, "")
+    return s.strip()
+
+
+def _resolve_pad_token_id(tokenizer: Any) -> int:
+    """Resolves an integer pad_token_id even when `tokenizer.eos_token_id` is a list (e.g. `[1, 106]` on Gemma 4 IT)."""
+    pad_id = getattr(tokenizer, "pad_token_id", None)
+    if isinstance(pad_id, int):
+        return pad_id
+    eos_id = getattr(tokenizer, "eos_token_id", 1)
+    if isinstance(eos_id, (list, tuple)) and len(eos_id) > 0:
+        return int(eos_id[0])
+    return int(eos_id) if eos_id is not None else 1
+
+
 def score_qasper_f1(pred: str, answers: Sequence[str]) -> float:
-    pred_first_line = pred.lstrip("\n").split("\n")[0]
+    cleaned = strip_thinking_trace(pred)
+    pred_first_line = cleaned.lstrip("\n").split("\n")[0]
     if not answers:
         return 0.0
     return max(qa_f1(pred_first_line, a) for a in answers)
 
 
-def bootstrap_ci(xs: Sequence[float], n: int = 2000, seed: int = 0) -> List[float]:
+def bootstrap_ci(xs: Sequence[float], n: int = 10000, seed: int = 0) -> List[float]:
     if not xs:
         return [float("nan"), float("nan")]
     rng = random.Random(seed)
-    means = sorted(sum(rng.choices(xs, k=len(xs))) / len(xs) for _ in range(n))
+    k = len(xs)
+    means = sorted(sum(rng.choices(xs, k=k)) / k for _ in range(n))
     return [means[int(0.025 * n)], means[int(0.975 * n) - 1]]
+
+
+def paired_permutation_pvalue(diffs: Sequence[float], n_perm: int = 10000, seed: int = 0) -> float:
+    """Two-sided paired sign-flip permutation p-value on per-question differences."""
+    non_zero = [float(d) for d in diffs if abs(d) > 1e-12]
+    if not non_zero:
+        return 1.0
+    obs = abs(sum(non_zero) / len(non_zero))
+    rng = random.Random(seed)
+    m = len(non_zero)
+    extreme = 0
+    for _ in range(n_perm):
+        perm_mean = abs(sum((d if rng.random() < 0.5 else -d) for d in non_zero) / m)
+        if perm_mean >= obs - 1e-12:
+            extreme += 1
+    return (extreme + 1.0) / (n_perm + 1.0)
+
+
+def wilson_ci95(successes: int, total: int, z: float = 1.959963984540054) -> List[float]:
+    """Wilson score 95% confidence interval for binomial proportion (in percent)."""
+    if total <= 0:
+        return [0.0, 0.0]
+    p = successes / float(total)
+    denom = 1.0 + (z * z) / total
+    center = (p + (z * z) / (2.0 * total)) / denom
+    half = (z * math.sqrt((p * (1.0 - p) + (z * z) / (4.0 * total)) / total)) / denom
+    return [round(100.0 * max(0.0, center - half), 2), round(100.0 * min(1.0, center + half), 2)]
+
+
+def exact_mcnemar_pvalue(b_wins: int, c_losses: int) -> float:
+    """Exact two-sided binomial McNemar p-value on discordant pairs (b_wins vs c_losses)."""
+    n = b_wins + c_losses
+    if n == 0:
+        return 1.0
+    k = min(b_wins, c_losses)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) * (0.5 ** n)
+    return min(1.0, 2.0 * tail)
 
 
 def build_niah_context(
@@ -164,9 +230,17 @@ def build_qasper_prompt_ids(tokenizer, sample: Dict[str, Any], max_ctx: int = 60
             + tokenizer.decode(ids[-half:], skip_special_tokens=True)
         )
     if getattr(tokenizer, "chat_template", None):
-        ids_out = tokenizer.apply_chat_template(
-            [{"role": "user", "content": prompt}], add_generation_prompt=True, return_tensors="pt"
-        )
+        try:
+            ids_out = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                add_generation_prompt=True,
+                enable_thinking=False,
+                return_tensors="pt",
+            )
+        except TypeError:
+            ids_out = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}], add_generation_prompt=True, return_tensors="pt"
+            )
         if not isinstance(ids_out, torch.Tensor):
             ids_out = ids_out["input_ids"]
     else:
@@ -202,11 +276,16 @@ def attach_layer16_beltrami_hook(model: nn.Module, layer_idx: int = 16) -> Beltr
     On every prefill forward pass (`seq_len > 1`), extracts the `(B, 32, D)` callosal
     shell and caches live `zeno_flux` and `lca_variance` in `model._darksnail_layer16_telemetry`.
     """
+    mtype = str(getattr(model.config, "model_type", "")).lower()
+    if "gemma4" in mtype or len(_resolve_layers(model)) == 60:
+        from .gemma4 import attach_gemma4_beltrami_hook
+        return attach_gemma4_beltrami_hook(model, layer_idx=layer_idx)
     layers = _resolve_layers(model)
     if not layers:
         raise ValueError("Could not resolve transformer layers on model.")
     target_idx = min(layer_idx, len(layers) - 1)
-    d_model = int(getattr(model.config, "hidden_size", 4096))
+    tcfg = getattr(model.config, "text_config", model.config)
+    d_model = int(getattr(tcfg, "hidden_size", 4096))
 
     if hasattr(model, "_darksnail_layer16_hook_handle") and model._darksnail_layer16_hook_handle is not None:
         model._darksnail_layer16_hook_handle.remove()
@@ -247,7 +326,18 @@ def prepare_darksnail_llama_model(
     attention_backend: str = "block_list",
     layer16_hook: bool = True,
 ) -> nn.Module:
-    """Patch `model` with V4 Triad `SurgicalLlamaAttention`, load router sidecar, and attach Layer-16 hook."""
+    """Patch `model` with V4 Triad `SurgicalLlamaAttention` (or `SurgicalGemma4Attention` on Gemma 4), load router sidecar, and attach Beltrami hook."""
+    mtype = str(getattr(model.config, "model_type", "")).lower()
+    if "gemma4" in mtype or len(_resolve_layers(model)) == 60:
+        from .gemma4 import prepare_darksnail_gemma4_model
+        return prepare_darksnail_gemma4_model(
+            model,
+            sidecar_path=sidecar_path,
+            attention_backend=attention_backend,
+            enable_global_hook=False,
+            attach_callosal_shell_hook=layer16_hook,
+            hook_layer=29,
+        )
     from llama_surgery import inject_surgery, load_router_sidecar
 
     already_patched = any(hasattr(m, "_update_darksnail_shield") for m in attn_modules(model))
@@ -396,7 +486,7 @@ def evaluate_banal_niah_comparison(
     for r in depths:
         cond_names = (["window"] if include_window else []) + ["v4_triad", "darksnail"]
         stats = {
-            c: {"successes": 0, "total": num_positions, "budgets_pct": [], "allowed_keys": [], "zeno_flux": []}
+            c: {"successes": 0, "total": num_positions, "outcomes": [], "budgets_pct": [], "allowed_keys": [], "zeno_flux": []}
             for c in cond_names
         }
 
@@ -419,13 +509,14 @@ def evaluate_banal_niah_comparison(
                 do_sample=False,
                 temperature=None,
                 top_p=None,
-                pad_token_id=tokenizer.eos_token_id,
+                pad_token_id=_resolve_pad_token_id(tokenizer),
                 use_cache=True,
             )
             gen_v4 = tokenizer.decode(out_v4[0, prompt_len:], skip_special_tokens=True).strip().lower()
             pass_v4 = (clean_target in gen_v4) or (" " in clean_target and clean_target.split()[0] in gen_v4)
             allowed_v4, causal_v4 = collect_measured_budget(model)
             stats["v4_triad"]["successes"] += int(pass_v4)
+            stats["v4_triad"]["outcomes"].append(bool(pass_v4))
             if allowed_v4 and causal_v4:
                 stats["v4_triad"]["budgets_pct"].append(100.0 * allowed_v4 / causal_v4)
                 stats["v4_triad"]["allowed_keys"].append(allowed_v4)
@@ -447,13 +538,14 @@ def evaluate_banal_niah_comparison(
                 do_sample=False,
                 temperature=None,
                 top_p=None,
-                pad_token_id=tokenizer.eos_token_id,
+                pad_token_id=_resolve_pad_token_id(tokenizer),
                 use_cache=True,
             )
             gen_ds = tokenizer.decode(out_ds[0, prompt_len:], skip_special_tokens=True).strip().lower()
             pass_ds = (clean_target in gen_ds) or (" " in clean_target and clean_target.split()[0] in gen_ds)
             allowed_ds, causal_ds = collect_measured_budget(model)
             stats["darksnail"]["successes"] += int(pass_ds)
+            stats["darksnail"]["outcomes"].append(bool(pass_ds))
             if allowed_ds and causal_ds:
                 stats["darksnail"]["budgets_pct"].append(100.0 * allowed_ds / causal_ds)
                 stats["darksnail"]["allowed_keys"].append(allowed_ds)
@@ -482,13 +574,14 @@ def evaluate_banal_niah_comparison(
                     do_sample=False,
                     temperature=None,
                     top_p=None,
-                    pad_token_id=tokenizer.eos_token_id,
+                    pad_token_id=_resolve_pad_token_id(tokenizer),
                     use_cache=True,
                 )
                 gen_win = tokenizer.decode(out_win[0, prompt_len:], skip_special_tokens=True).strip().lower()
                 pass_win = (clean_target in gen_win) or (" " in clean_target and clean_target.split()[0] in gen_win)
                 allowed_win, causal_win = collect_measured_budget(model)
                 stats["window"]["successes"] += int(pass_win)
+                stats["window"]["outcomes"].append(bool(pass_win))
                 if allowed_win and causal_win:
                     stats["window"]["budgets_pct"].append(100.0 * allowed_win / causal_win)
                     stats["window"]["allowed_keys"].append(allowed_win)
@@ -499,16 +592,26 @@ def evaluate_banal_niah_comparison(
             b_pct = sum(st["budgets_pct"]) / len(st["budgets_pct"]) if st["budgets_pct"] else None
             a_keys = sum(st["allowed_keys"]) / len(st["allowed_keys"]) if st["allowed_keys"] else None
             z_flux = sum(st["zeno_flux"]) / len(st["zeno_flux"]) if st["zeno_flux"] else None
-            summary["conditions"][f"{c}@{r}"] = {
+            entry = {
                 "r": r,
                 "condition": c,
                 "recall_pct": round(recall, 2),
+                "recall_ci95_wilson": wilson_ci95(st["successes"], st["total"]),
                 "successes": st["successes"],
                 "total": st["total"],
                 "measured_budget_pct": round(b_pct, 2) if b_pct is not None else None,
                 "measured_allowed_keys": round(a_keys, 1) if a_keys is not None else None,
                 "mean_zeno_flux": round(z_flux, 4) if z_flux is not None else None,
             }
+            if c == "darksnail" and "v4_triad" in stats:
+                ds_out = st["outcomes"]
+                v4_out = stats["v4_triad"]["outcomes"]
+                wins_ds = sum(1 for a, b in zip(ds_out, v4_out) if a and not b)
+                losses_ds = sum(1 for a, b in zip(ds_out, v4_out) if b and not a)
+                entry["wins_vs_v4_triad"] = wins_ds
+                entry["losses_vs_v4_triad"] = losses_ds
+                entry["mcnemar_pvalue_vs_v4_triad"] = round(exact_mcnemar_pvalue(wins_ds, losses_ds), 6)
+            summary["conditions"][f"{c}@{r}"] = entry
 
     set_long_context_condition(model, req_depth=0, darksnail_mode=False)
     return summary
@@ -572,7 +675,12 @@ def evaluate_qasper_comparison(
                     gen_ids = input_ids[0, self.p_len :]
                     if gen_ids.numel() < 2:
                         return False
-                    txt = self.tok.decode(gen_ids, skip_special_tokens=True).lstrip("\n")
+                    raw_txt = self.tok.decode(gen_ids, skip_special_tokens=False)
+                    if ("<|channel>thought" in raw_txt and "<channel|>" not in raw_txt) or (
+                        "<think>" in raw_txt and "</think>" not in raw_txt
+                    ):
+                        return False
+                    txt = strip_thinking_trace(self.tok.decode(gen_ids, skip_special_tokens=True)).lstrip("\n")
                     return "\n" in txt
 
             stop_criteria_cls = (_FirstLineStop, StoppingCriteriaList)
@@ -601,7 +709,7 @@ def evaluate_qasper_comparison(
                     do_sample=False,
                     temperature=None,
                     top_p=None,
-                    pad_token_id=tokenizer.eos_token_id,
+                    pad_token_id=_resolve_pad_token_id(tokenizer),
                     use_cache=True,
                 )
                 if stop_criteria_cls is not None:
@@ -742,16 +850,20 @@ def evaluate_qasper_comparison(
             diffs_v4 = [a - b for a, b in zip(per_f1[ds_c], per_f1[v4_c])]
             results[ds_c]["minus_v4_triad_f1"] = round(100.0 * sum(diffs_v4) / max(1, len(diffs_v4)), 2)
             results[ds_c]["minus_v4_triad_ci95"] = [round(100.0 * x, 2) for x in bootstrap_ci(diffs_v4)]
+            results[ds_c]["minus_v4_triad_pvalue"] = round(paired_permutation_pvalue(diffs_v4), 6)
             results[ds_c]["wins_vs_v4_triad"] = sum(1 for d in diffs_v4 if d > 1e-6)
             results[ds_c]["losses_vs_v4_triad"] = sum(1 for d in diffs_v4 if d < -1e-6)
+            results[ds_c]["ties_vs_v4_triad"] = sum(1 for d in diffs_v4 if abs(d) <= 1e-6)
         if ds_c in per_f1 and win_c in per_f1:
             diffs_w = [a - b for a, b in zip(per_f1[ds_c], per_f1[win_c])]
             results[ds_c]["minus_window_f1"] = round(100.0 * sum(diffs_w) / max(1, len(diffs_w)), 2)
             results[ds_c]["minus_window_ci95"] = [round(100.0 * x, 2) for x in bootstrap_ci(diffs_w)]
+            results[ds_c]["minus_window_pvalue"] = round(paired_permutation_pvalue(diffs_w), 6)
         if ds_c in per_f1 and "dense" in per_f1:
             diffs_d = [a - b for a, b in zip(per_f1[ds_c], per_f1["dense"])]
             results[ds_c]["minus_dense_f1"] = round(100.0 * sum(diffs_d) / max(1, len(diffs_d)), 2)
             results[ds_c]["minus_dense_ci95"] = [round(100.0 * x, 2) for x in bootstrap_ci(diffs_d)]
+            results[ds_c]["minus_dense_pvalue"] = round(paired_permutation_pvalue(diffs_d), 6)
         if v4_c in per_f1 and win_c in per_f1:
             diffs_v4_w = [a - b for a, b in zip(per_f1[v4_c], per_f1[win_c])]
             results[v4_c]["minus_window_f1"] = round(100.0 * sum(diffs_v4_w) / max(1, len(diffs_v4_w)), 2)
