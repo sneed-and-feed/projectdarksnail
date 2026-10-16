@@ -27,7 +27,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .readout import DarkSnailCanvasReadout, SlowFastTriadCascade
-from .shell import compute_grid_prompt_zeno_flux
+from .shell import (
+    compute_grid_prompt_zeno_flux,
+    extract_beltrami_pullback_canvas,
+    infer_arc_output_shape_beltrami,
+)
 
 
 @dataclass
@@ -432,6 +436,8 @@ class DarkSnailSystem2Adaptor:
         self.use_slow_fast_cascade = bool(use_slow_fast_cascade)
         self._active_schedule: Optional[DarkSnailSchedule] = None
         self._cascade_applied_in_rollout: bool = False
+        self._active_inputs_pullback: Optional[torch.Tensor] = None
+        self._active_secondary_pullback: Optional[torch.Tensor] = None
 
         # Wire DarkSnail hooks onto `self.base_adaptor` so all forward/loss/prediction
         # paths automatically route through `DarkSnailCanvasReadout` and `SlowFastTriadCascade`!
@@ -555,6 +561,22 @@ class DarkSnailSystem2Adaptor:
         self._cascade_applied_in_rollout = False
         triad_gain = self._active_schedule.triad_gain if self._active_schedule is not None else None
         asym_gain = self._active_schedule.asym_gain if self._active_schedule is not None else None
+        pb_in = (
+            self._active_inputs_pullback.to(inputs.device)
+            if (
+                self._active_inputs_pullback is not None
+                and self._active_inputs_pullback.size(0) == inputs.size(0)
+            )
+            else None
+        )
+        sec_in = (
+            self._active_secondary_pullback.to(inputs.device)
+            if (
+                self._active_secondary_pullback is not None
+                and self._active_secondary_pullback.size(0) == inputs.size(0)
+            )
+            else None
+        )
         return self.readout(
             logits=logits,
             inputs=inputs,
@@ -566,6 +588,8 @@ class DarkSnailSystem2Adaptor:
             color_preserving=self.base_adaptor._active_color_preserving,
             triad_gain_override=triad_gain,
             asym_gain_override=asym_gain,
+            inputs_pullback=pb_in,
+            secondary_pullback=sec_in,
         )
 
     def adapt_task(
@@ -577,20 +601,24 @@ class DarkSnailSystem2Adaptor:
         lr: Optional[float] = None,
         lambda_anchor: Optional[float] = None,
     ) -> Tuple[torch.Tensor, dict]:
-        from brain_ai.models.callosum import infer_arc_output_shape
-
         self._ensure_cascade_lm_weight(model)
         demos = task_data.get("train", [])
         test_pairs = task_data.get("test", [])
         flux_info = compute_grid_prompt_zeno_flux(demos, test_pairs)
 
-        if test_pairs and "input" in test_pairs[0]:
-            th, tw = infer_arc_output_shape(demos, test_pairs[0]["input"])
+        test_inp_0 = test_pairs[0]["input"] if (test_pairs and "input" in test_pairs[0]) else None
+        if test_inp_0 is not None:
+            th, tw = infer_arc_output_shape_beltrami(demos, test_inp_0)
         elif demos and "output" in demos[0]:
             th, tw = len(demos[0]["output"]), len(demos[0]["output"][0])
         else:
             th, tw = 10, 10
         canvas_cells = th * tw
+
+        pb_res = extract_beltrami_pullback_canvas(demos, test_input=test_inp_0, target_shape=(th, tw))
+        use_pb = (not pb_res["is_same_size"]) and bool(pb_res["demo_exact_match"])
+        self._active_inputs_pullback = pb_res["demo_inputs_pullback"] if use_pb else None
+        self._active_secondary_pullback = pb_res["demo_secondary_pullback"] if use_pb else None
 
         use_auto_schedule = (
             self.use_zeno_schedule and n_steps is None and lr is None and lambda_anchor is None
@@ -644,6 +672,8 @@ class DarkSnailSystem2Adaptor:
             )
         finally:
             self.base_adaptor._step0_schedule_callback = None
+            self._active_inputs_pullback = None
+            self._active_secondary_pullback = None
 
         # Refine schedule using actual Step-0 loss and gradient norm for downstream ray extrapolation
         step0_loss_val = float(diag.get("step0_loss", 3.0))
@@ -665,6 +695,7 @@ class DarkSnailSystem2Adaptor:
         diag["regime"] = refined_sched.regime
         diag["ray_quantiles"] = refined_sched.ray_quantiles
         diag["unroll_steps"] = int(refined_sched.unroll_steps)
+        diag["pullback_rule"] = pb_res["rule_name"]
         return delta_z, diag
 
     def predict_s1_and_s2_pair(
@@ -684,12 +715,25 @@ class DarkSnailSystem2Adaptor:
         if self._active_schedule is not None:
             self.base_adaptor._active_unroll_steps = int(self._active_schedule.unroll_steps)
             self.base_adaptor._active_ray_quantiles = list(self._active_schedule.ray_quantiles)
-        res = self.base_adaptor.predict_s1_and_s2_pair(
-            model=model,
-            test_input_grid=test_input_grid,
-            puzzle_id=puzzle_id,
-            delta_z=delta_z,
-            accepted=accepted,
-            demos=demos,
-        )
+        task_demos = demos if demos is not None else self.base_adaptor._task_demos_by_pid.get(puzzle_id)
+        if task_demos:
+            pb_res = extract_beltrami_pullback_canvas(task_demos, test_input=test_input_grid)
+            use_pb = (not pb_res["is_same_size"]) and bool(pb_res["demo_exact_match"])
+            self._active_inputs_pullback = pb_res["test_input_pullback"] if use_pb else None
+            self._active_secondary_pullback = pb_res["test_secondary_pullback"] if use_pb else None
+        else:
+            self._active_inputs_pullback = None
+            self._active_secondary_pullback = None
+        try:
+            res = self.base_adaptor.predict_s1_and_s2_pair(
+                model=model,
+                test_input_grid=test_input_grid,
+                puzzle_id=puzzle_id,
+                delta_z=delta_z,
+                accepted=accepted,
+                demos=demos,
+            )
+        finally:
+            self._active_inputs_pullback = None
+            self._active_secondary_pullback = None
         return res

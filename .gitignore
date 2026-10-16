@@ -6,3 +6,8 @@ __pycache__/
 dist/
 build/
 .venv/
+
+# Evaluation run artifacts
+results/shards/
+results/eval_shard_*.log
+

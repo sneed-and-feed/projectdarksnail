@@ -1,6 +1,6 @@
 {
   "n_tasks": 400,
-  "elapsed_sec": 128.77,
+  "elapsed_sec": 0.29,
   "metrics": {
     "system1_zero_shot": {
       "fractional_score": 0.5,
@@ -21,25 +21,30 @@
       ]
     },
     "darksnail_v2_synthesis": {
-      "fractional_score": 27.0,
-      "fractional_pct": 6.75,
-      "strict_tasks_solved": 27,
+      "fractional_score": 38.0,
+      "fractional_pct": 9.5,
+      "strict_tasks_solved": 38,
       "wilson_95_ci_pct": [
-        4.68,
-        9.64
+        7.0,
+        12.77
       ]
     }
   },
   "paired_mcnemar_tests": {
     "darksnail_vs_system1": {
-      "gained_strict": 27,
+      "gained_strict": 38,
       "lost_strict": 0,
-      "exact_two_sided_p": 1.4901161193847656e-08
+      "exact_two_sided_p": 7.275957614183426e-12
     },
     "darksnail_vs_brain_ai_s2": {
-      "gained_strict": 12,
+      "gained_strict": 23,
       "lost_strict": 0,
-      "exact_two_sided_p": 0.00048828125
+      "exact_two_sided_p": 2.384185791015625e-07
+    },
+    "darksnail_phase2_vs_pass1_27": {
+      "gained_strict": 11,
+      "lost_strict": 0,
+      "exact_two_sided_p": 0.0009765625
     }
   },
   "near_miss_9_breakdown": {
@@ -52,7 +57,7 @@
       "darksnail_pair_accs": [
         1.0
       ],
-      "demo_ce": 4.3935971916653216e-05,
+      "demo_ce": 4.736497794510797e-05,
       "zeno_flux": 0.7371844379960095
     },
     "31d5ba1a": {
@@ -66,7 +71,7 @@
         1.0,
         1.0
       ],
-      "demo_ce": 5.5865120884845965e-06,
+      "demo_ce": 0.00011308428656775504,
       "zeno_flux": 0.8276317051821056
     },
     "ce039d91": {
@@ -78,7 +83,7 @@
       "darksnail_pair_accs": [
         1.0
       ],
-      "demo_ce": 5.5089931265683845e-05,
+      "demo_ce": 8.584377610532101e-06,
       "zeno_flux": 0.5392892457005719
     },
     "8ba14f53": {
@@ -90,7 +95,7 @@
       "darksnail_pair_accs": [
         0.7777777777777778
       ],
-      "demo_ce": 0.06846756488084793,
+      "demo_ce": 0.11605837196111679,
       "zeno_flux": 0.7215170706574237
     },
     "9110e3c5": {
@@ -104,7 +109,7 @@
         0.5555555555555556,
         0.7777777777777778
       ],
-      "demo_ce": 0.002178245224058628,
+      "demo_ce": 0.00309930881485343,
       "zeno_flux": 0.7732236645015772
     },
     "e57337a4": {
@@ -116,7 +121,7 @@
       "darksnail_pair_accs": [
         1.0
       ],
-      "demo_ce": 1.7593936718185432e-05,
+      "demo_ce": 2.698975549719762e-05,
       "zeno_flux": 0.4235060836872677
     },
     "195ba7dc": {
@@ -128,7 +133,7 @@
       "darksnail_pair_accs": [
         1.0
       ],
-      "demo_ce": 6.11698706052266e-05,
+      "demo_ce": 0.000121365359518677,
       "zeno_flux": 0.8080183245230326
     },
     "0b17323b": {
@@ -140,7 +145,7 @@
       "darksnail_pair_accs": [
         1.0
       ],
-      "demo_ce": 4.381774033390684e-06,
+      "demo_ce": 4.426532541401684e-06,
       "zeno_flux": 0.2763194394342252
     },
     "af22c60d": {
@@ -152,7 +157,7 @@
       "darksnail_pair_accs": [
         1.0
       ],
-      "demo_ce": 0.0028156270273029804,
+      "demo_ce": 0.0028154547326266766,
       "zeno_flux": 0.4069618107388759
     }
   },
@@ -168,7 +173,7 @@
         1.0,
         1.0
       ],
-      "demo_ce": 3.441014268901199e-05,
+      "demo_ce": 2.1352730982471257e-05,
       "zeno_flux": 0.8242414442370121
     },
     "6ea4a07e": {
@@ -182,7 +187,7 @@
         1.0,
         1.0
       ],
-      "demo_ce": 1.0602409020066261e-05,
+      "demo_ce": 9.844261512625962e-06,
       "zeno_flux": 0.8030229101073253
     },
     "e345f17b": {
@@ -196,8 +201,131 @@
         1.0,
         1.0
       ],
-      "demo_ce": 2.6631756554706953e-05,
+      "demo_ce": 2.1358557205530815e-05,
       "zeno_flux": 0.8371238440734701
+    }
+  },
+  "phase2_newly_solved_breakdown": {
+    "5783df64": {
+      "winning_stage": "stage1_base",
+      "pullback_rule": "block_downscale_summary",
+      "demo_ce": 5.1e-05,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "60c09cac": {
+      "winning_stage": "stage2a_pullback",
+      "pullback_rule": "nn_scale",
+      "demo_ce": 0.0,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "66e6c45b": {
+      "winning_stage": "stage2b_spectral",
+      "pullback_rule": "identity_same_size",
+      "demo_ce": 0.003062,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "84db8fc4": {
+      "winning_stage": "stage2b_spectral",
+      "pullback_rule": "identity_same_size",
+      "demo_ce": 0.000177,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "a59b95c0": {
+      "winning_stage": "stage2a_pullback",
+      "pullback_rule": "tile_id",
+      "demo_ce": 0.0,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "bc4146bd": {
+      "winning_stage": "stage2a_pullback",
+      "pullback_rule": "tile_fh",
+      "demo_ce": 0.0,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "c7d4e6ad": {
+      "winning_stage": "stage2b_spectral",
+      "pullback_rule": "identity_same_size",
+      "demo_ce": 9.1e-05,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "ccd554ac": {
+      "winning_stage": "stage2a_pullback",
+      "pullback_rule": "tile_id",
+      "demo_ce": 0.0,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "cd3c21df": {
+      "winning_stage": "stage2a_pullback",
+      "pullback_rule": "crop_cc4_any_rarest_color",
+      "demo_ce": 0.0,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "d4b1c2b1": {
+      "winning_stage": "stage2a_pullback",
+      "pullback_rule": "nn_scale",
+      "demo_ce": 0.0,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
+    },
+    "e872b94a": {
+      "winning_stage": "stage1_base",
+      "pullback_rule": "block_downscale_summary",
+      "demo_ce": 0.000956,
+      "darksnail_frac": 1.0,
+      "darksnail_strict": true,
+      "darksnail_pair_accs": [
+        1.0
+      ],
+      "s2_base_frac": 0.0
     }
   },
   "solved_tasks": [
@@ -210,24 +338,75 @@
     "31d5ba1a",
     "34b99a2b",
     "506d28a5",
+    "5783df64",
     "5b6cbef5",
     "5d2a5c43",
+    "60c09cac",
+    "66e6c45b",
     "66f2d22f",
     "68b67ca3",
     "6ea4a07e",
+    "84db8fc4",
     "903d1b4a",
     "929ab4e9",
     "a406ac07",
+    "a59b95c0",
     "a8610ef7",
     "af22c60d",
     "bbb1b8b6",
+    "bc4146bd",
     "be03b35f",
+    "c7d4e6ad",
     "ca8f78db",
+    "ccd554ac",
+    "cd3c21df",
     "ce039d91",
     "d19f7514",
+    "d4b1c2b1",
     "e133d23d",
     "e345f17b",
-    "e57337a4"
+    "e57337a4",
+    "e872b94a"
+  ],
+  "strict_solved_tasks": [
+    "00576224",
+    "0692e18c",
+    "0b17323b",
+    "0c9aba6e",
+    "195ba7dc",
+    "1c0d0a4b",
+    "31d5ba1a",
+    "34b99a2b",
+    "506d28a5",
+    "5783df64",
+    "5b6cbef5",
+    "5d2a5c43",
+    "60c09cac",
+    "66e6c45b",
+    "66f2d22f",
+    "68b67ca3",
+    "6ea4a07e",
+    "84db8fc4",
+    "903d1b4a",
+    "929ab4e9",
+    "a406ac07",
+    "a59b95c0",
+    "a8610ef7",
+    "af22c60d",
+    "bbb1b8b6",
+    "bc4146bd",
+    "be03b35f",
+    "c7d4e6ad",
+    "ca8f78db",
+    "ccd554ac",
+    "cd3c21df",
+    "ce039d91",
+    "d19f7514",
+    "d4b1c2b1",
+    "e133d23d",
+    "e345f17b",
+    "e57337a4",
+    "e872b94a"
   ],
   "exact_output_shapes_beltrami": 419,
   "total_test_pairs": 419,

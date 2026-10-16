@@ -40,8 +40,10 @@ from .readout import (
 )
 from .shell import (
     BeltramiCallosalShell,
+    PullbackCanvasResult,
     compute_grid_prompt_zeno_flux,
     extract_beltrami_lh_latents,
+    extract_beltrami_pullback_canvas,
     extract_grid_beltrami_shape_descriptors,
     infer_arc_output_shape_beltrami,
 )
@@ -49,8 +51,10 @@ from .shell import (
 __all__ = [
     "__version__",
     "BeltramiCallosalShell",
+    "PullbackCanvasResult",
     "compute_grid_prompt_zeno_flux",
     "extract_beltrami_lh_latents",
+    "extract_beltrami_pullback_canvas",
     "extract_grid_beltrami_shape_descriptors",
     "infer_arc_output_shape_beltrami",
     "SkewSymmetricTriadOperator",

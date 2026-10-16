@@ -1,0 +1,18 @@
+{
+  "training": {
+    "test_pairs": 416,
+    "shape_exact": 393,
+    "shape_acc_pct": 94.47,
+    "shape_changing_pairs": 148,
+    "generic_pullback_demo_exact": 26,
+    "generic_pullback_test_exact": 25
+  },
+  "evaluation": {
+    "test_pairs": 419,
+    "shape_exact": 419,
+    "shape_acc_pct": 100.0,
+    "shape_changing_pairs": 142,
+    "generic_pullback_demo_exact": 9,
+    "generic_pullback_test_exact": 8
+  }
+}

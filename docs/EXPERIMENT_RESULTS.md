@@ -2,7 +2,7 @@
 
 **Target Backbone:** Frozen `Meta-Llama-3.1-8B-Instruct` ($L=32, d=4096$, `bfloat16`) + `Llama Surgery` V4 `TriadTopologyRouter` (`11.56 MB` `.safetensors` sidecar) + `brain-ai` `BiHemisphericBrain` ($10.51\text{M}$ trainable RH + Callosum parameters: $6.83\text{M}$ TRM + $3.68\text{M}$ CallosalConditioning).
 
-> **Note:** For the Continuous Dynamical System (CDS) Extension results (Multi-Step `SlowFastTriadCascade`, `ContinuousSpectralFieldReadout` with `8,192 / 8,192` active coordinates, and `419 / 419 = 100.00%` Beltrami Shape Predictor), see [`CDS_EXTENSION_EXPERIMENT_RESULTS.md`](CDS_EXTENSION_EXPERIMENT_RESULTS.md).
+> **Note:** For the Continuous Dynamical System (CDS) Extension results (Multi-Step `SlowFastTriadCascade`, `ContinuousSpectralFieldReadout` with `8,192 / 8,192` active coordinates, and the Beltrami Shape Predictor), see [`CDS_EXTENSION_EXPERIMENT_RESULTS.md`](CDS_EXTENSION_EXPERIMENT_RESULTS.md). The current ARC-AGI-1 result (CDS Phase 2: `38 / 400`, with a leakage audit) is in [`CDS_PHASE2_EXPERIMENT_RESULTS.md`](CDS_PHASE2_EXPERIMENT_RESULTS.md). The `27 / 400` figures below are the original V2 / Pass-1 numbers.
 
 ---
 

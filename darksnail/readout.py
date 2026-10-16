@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
@@ -71,6 +72,176 @@ def _normalize_target_hw(
                 key_items.append(p)
         return tuple(key_items), seq
     return None, None
+
+
+def _normalize_pullback_grid(
+    pullback: Optional[torch.Tensor],
+    batch_size: int,
+    side: int,
+    device: torch.device,
+) -> Tuple[Optional[str], Optional[torch.Tensor], Optional[torch.Tensor]]:
+    """
+    Normalizes an optional pullback grid (`(B, L)`, `(B, side, side)`, `(B, L, 12)`, or `(B, side, side, 12)`)
+    into `(digest, g_pb, oh_pb)` where `g_pb` is `(B, side, side)` long in `0..11` and `oh_pb` is `(B, side, side, 12)` float.
+    """
+    if pullback is None:
+        return None, None, None
+    pb = pullback.detach().to(device=device)
+    digest = _tensor_blake2b(pb)
+    if pb.dim() == 4 and pb.shape[-1] == 12:
+        if pb.shape[0] == 1 and batch_size > 1:
+            pb = pb.expand(batch_size, -1, -1, -1)
+        oh_pb = pb[:, :side, :side, :].float().contiguous()
+        g_pb = oh_pb.argmax(dim=-1).long().clamp(0, 11)
+        return digest, g_pb, oh_pb
+    if pb.dim() == 3 and pb.shape[-1] == 12 and pb.shape[1] == side * side:
+        if pb.shape[0] == 1 and batch_size > 1:
+            pb = pb.expand(batch_size, -1, -1)
+        oh_pb = pb.view(batch_size, side, side, 12).float().contiguous()
+        g_pb = oh_pb.argmax(dim=-1).long().clamp(0, 11)
+        return digest, g_pb, oh_pb
+    if pb.dim() == 3 and pb.shape[1] == side and pb.shape[2] == side:
+        if pb.shape[0] == 1 and batch_size > 1:
+            pb = pb.expand(batch_size, -1, -1)
+        g_pb = pb.long().clamp(0, 11).contiguous()
+        oh_pb = F.one_hot(g_pb, num_classes=12).float()
+        return digest, g_pb, oh_pb
+    if pb.dim() == 2 and pb.shape[1] == side * side:
+        if pb.shape[0] == 1 and batch_size > 1:
+            pb = pb.expand(batch_size, -1)
+        g_pb = pb.view(batch_size, side, side).long().clamp(0, 11).contiguous()
+        oh_pb = F.one_hot(g_pb, num_classes=12).float()
+        return digest, g_pb, oh_pb
+    return None, None, None
+
+
+def _compute_extended_arc_operators_single(
+    gb: torch.Tensor,
+    oh_b: torch.Tensor,
+    hb: int,
+    wb: int,
+    th: int,
+    tw: int,
+    r_grid: torch.Tensor,
+    c_grid: torch.Tensor,
+    oh_pb_b: Optional[torch.Tensor] = None,
+    oh_sec_b: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Computes generic (task-agnostic) topological and pullback basis channels on a single sample `b`:
+      - `spec_eq_b`: `(side, side, 48, 12)` colour-equivariant basis (foreground channels `3..11`
+        permute covariantly under `Sym(9)`; `0..2` = `PAD`, `EOS`, `Background-0` are invariant).
+        Active channels: (0) enclosed-hole fill with the hole's enclosing colour, 4-connected,
+        (1) same for 8-connected exterior, (2) pullback-canvas difference, (3) secondary
+        pullback-canvas difference. Remaining channels are reserved (zero).
+      - `spec_rel_b`: `(side, side, 26)` scalar basis. Active channels: (0) 4-connected enclosed
+        background mask, (1) 8-connected enclosed background mask, (2) enclosed-hole boundary ring,
+        (3) output in-box mask. Remaining channels are reserved (zero).
+
+    Note: an earlier revision of this function contained hand-written operators keyed to specific
+    ARC-AGI-1 *evaluation* task IDs. Those were removed because they constitute test-set leakage.
+    """
+    import numpy as np
+    from collections import deque
+
+    device = gb.device
+    side = gb.shape[0]
+    g_np = (gb[:hb, :wb].detach().cpu().numpy() - 2).clip(0, 9)
+    in_box_np = (r_grid.detach().cpu().numpy() < th) & (c_grid.detach().cpu().numpy() < tw)
+    in_box_t = torch.from_numpy(in_box_np).to(device=device, dtype=torch.float32)
+
+    def _to_mask_t(mask_2d: Any) -> torch.Tensor:
+        canvas = np.zeros((side, side), dtype=np.float32)
+        mh, mw = mask_2d.shape
+        canvas[: min(side, mh), : min(side, mw)] = mask_2d[: min(side, mh), : min(side, mw)].astype(np.float32)
+        return torch.from_numpy(canvas * in_box_np.astype(np.float32)).to(device=device)
+
+    def _to_diff_oh(pred_grid: Any) -> torch.Tensor:
+        canvas = np.zeros((side, side), dtype=np.int64)
+        ph, pw = pred_grid.shape
+        canvas[: min(side, ph), : min(side, pw)] = np.clip(pred_grid[: min(side, ph), : min(side, pw)], 0, 9) + 2
+        p_oh = F.one_hot(torch.from_numpy(canvas).to(device=device), num_classes=12).float()
+        return (p_oh - oh_b) * in_box_t.unsqueeze(-1)
+
+    def _exterior_reach(conn: int) -> Any:
+        vis = np.zeros((hb, wb), dtype=bool)
+        q: deque = deque()
+        for r in range(hb):
+            for c in range(wb):
+                if (r in (0, hb - 1) or c in (0, wb - 1)) and g_np[r, c] == 0 and not vis[r, c]:
+                    vis[r, c] = True
+                    q.append((r, c))
+        if conn == 4:
+            nbrs = ((-1, 0), (1, 0), (0, -1), (0, 1))
+        else:
+            nbrs = tuple((dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0))
+        while q:
+            r, c = q.popleft()
+            for dr, dc in nbrs:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < hb and 0 <= nc < wb and g_np[nr, nc] == 0 and not vis[nr, nc]:
+                    vis[nr, nc] = True
+                    q.append((nr, nc))
+        return vis
+
+    def _hole_fill_with_enclosing_colour(holes: Any) -> Any:
+        """Fills each enclosed hole component with the majority colour of its 4-neighbour boundary."""
+        pred = g_np.copy()
+        vis = np.zeros((hb, wb), dtype=bool)
+        for r in range(hb):
+            for c in range(wb):
+                if holes[r, c] and not vis[r, c]:
+                    comp, border = [], []
+                    q = deque([(r, c)])
+                    vis[r, c] = True
+                    while q:
+                        cr, cc = q.popleft()
+                        comp.append((cr, cc))
+                        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                            nr, nc = cr + dr, cc + dc
+                            if 0 <= nr < hb and 0 <= nc < wb:
+                                if holes[nr, nc] and not vis[nr, nc]:
+                                    vis[nr, nc] = True
+                                    q.append((nr, nc))
+                                elif g_np[nr, nc] > 0:
+                                    border.append(int(g_np[nr, nc]))
+                    if border:
+                        vals, cnts = np.unique(border, return_counts=True)
+                        fill = int(vals[int(np.argmax(cnts))])
+                        for pr, pc in comp:
+                            pred[pr, pc] = fill
+        return pred
+
+    holes_4 = (g_np == 0) & (~_exterior_reach(4))
+    holes_8 = (g_np == 0) & (~_exterior_reach(8))
+    holes_dil = holes_4.copy()
+    holes_dil[1:, :] |= holes_4[:-1, :]
+    holes_dil[:-1, :] |= holes_4[1:, :]
+    holes_dil[:, 1:] |= holes_4[:, :-1]
+    holes_dil[:, :-1] |= holes_4[:, 1:]
+    hole_ring = holes_dil & (~holes_4) & (g_np > 0)
+
+    eq_list: List[torch.Tensor] = [
+        _to_diff_oh(_hole_fill_with_enclosing_colour(holes_4)),
+        _to_diff_oh(_hole_fill_with_enclosing_colour(holes_8)),
+    ]
+    zero_eq = torch.zeros((side, side, 12), device=device, dtype=torch.float32)
+    eq_list.append((oh_pb_b - oh_b) * in_box_t.unsqueeze(-1) if oh_pb_b is not None else zero_eq)
+    eq_list.append((oh_sec_b - oh_b) * in_box_t.unsqueeze(-1) if oh_sec_b is not None else zero_eq)
+    rel_list: List[torch.Tensor] = [
+        _to_mask_t(holes_4),
+        _to_mask_t(holes_8),
+        _to_mask_t(hole_ring),
+        in_box_t,
+    ]
+
+    while len(eq_list) < 48:
+        eq_list.append(zero_eq)
+    while len(rel_list) < 26:
+        rel_list.append(torch.zeros((side, side), device=device, dtype=torch.float32))
+    spec_eq_b = torch.stack(eq_list[:48], dim=-2)  # (side, side, 48, 12)
+    spec_rel_b = torch.stack(rel_list[:26], dim=-1)  # (side, side, 26)
+    return spec_eq_b, spec_rel_b
 
 
 def _exact_orthogonality_ulp_polish(
@@ -661,6 +832,7 @@ class DarkSnailCanvasReadout(nn.Module):
     EXT_REL_START: int = 5658
     EXT_REL_END: int = 8070
     K_EXT_SPEC: int = 201
+    K_SPEC_EQ: int = 48
     EXT_GATE_START: int = 8070
     EXT_GATE_END: int = 8072
     ACTIVE_DZ_END: int = 8072
@@ -683,7 +855,7 @@ class DarkSnailCanvasReadout(nn.Module):
         asym_gain: float = 1.5,
         tau_v: float = 1.0,
         rel_scale: float = 1.0,
-        spectral_gain: float = 0.0,
+        spectral_gain: float = 0.35,
     ):
         super().__init__()
         self.readout_scale = float(readout_scale)
@@ -697,8 +869,9 @@ class DarkSnailCanvasReadout(nn.Module):
 
         self._basis_cache: Dict[Any, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = {}
         self._spectral_basis_cache: Dict[
-            Any, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+            Any, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
         ] = {}
+        self._ext_op_cache: Dict[Any, Tuple[torch.Tensor, torch.Tensor]] = {}
         self._pinv_cache: Dict[Any, torch.Tensor] = {}
 
         # Telemetry from the most recent forward call
@@ -712,30 +885,67 @@ class DarkSnailCanvasReadout(nn.Module):
         self.last_pooled_k: Optional[torch.Tensor] = None
         self.last_pooled_v: Optional[torch.Tensor] = None
         self.last_phi_guard: Optional[torch.Tensor] = None
+        self.last_spec_eq: Optional[torch.Tensor] = None
+
+    def _get_extended_ops_single(
+        self,
+        content_hash: str,
+        b: int,
+        gb: torch.Tensor,
+        oh_b: torch.Tensor,
+        hb: int,
+        wb: int,
+        th: int,
+        tw: int,
+        r_grid: torch.Tensor,
+        c_grid: torch.Tensor,
+        pb_digest: Optional[str] = None,
+        oh_pb_b: Optional[torch.Tensor] = None,
+        sec_digest: Optional[str] = None,
+        oh_sec_b: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        key = (content_hash, b, hb, wb, th, tw, pb_digest, sec_digest, str(gb.device))
+        if key in self._ext_op_cache:
+            return self._ext_op_cache[key]
+        res = _compute_extended_arc_operators_single(
+            gb, oh_b, hb, wb, th, tw, r_grid, c_grid, oh_pb_b=oh_pb_b, oh_sec_b=oh_sec_b
+        )
+        if len(self._ext_op_cache) >= 32:
+            self._ext_op_cache.clear()
+        self._ext_op_cache[key] = res
+        return res
 
     def get_spatial_relational_and_occlusion_tensors(
         self,
         inputs: torch.Tensor,
         target_hw: Optional[Union[Tuple[int, int], Sequence[Tuple[int, int]]]] = None,
+        inputs_pullback: Optional[torch.Tensor] = None,
+        secondary_pullback: Optional[torch.Tensor] = None,
+        demo_target_hws: Optional[Sequence[Tuple[int, int]]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Builds and caches:
-          - `E_t`: `(B, L, 12, 38)` symmetric color-equivariant basis (identical to `callosum.py`)
-          - `Phi`: `(B, L, 205)` spatial-relational basis (identical to `callosum.py`)
+          - `E_t`: `(B, L, 12, 38)` symmetric color-equivariant basis (identical to `callosum.py` when `inputs_pullback is None`)
+          - `Phi`: `(B, L, 205)` spatial-relational basis (identical to `callosum.py` when `inputs_pullback is None`)
           - `u_occ`: `(B, L, 16)` multi-layer structural/occlusion context vector
           - `E_asym`: `(B, L, 12, 8)` directional asymmetry & Z-order color-equivariant basis
 
-        Supports `target_hw` as `None`, a single `(th, tw)`, or a per-sample sequence of `(th_b, tw_b)`.
+        Supports `target_hw` as `None`, a single `(th, tw)`, or a per-sample sequence of `(th_b, tw_b)`,
+        as well as optional `inputs_pullback`, `secondary_pullback`, and `demo_target_hws`.
         """
+        if target_hw is None and demo_target_hws is not None:
+            target_hw = demo_target_hws
         B, L = inputs.shape
+        device = inputs.device
+        side = int(round(math.sqrt(L)))
         content_hash = _tensor_blake2b(inputs)
         hw_key, hw_per_sample = _normalize_target_hw(target_hw, B)
-        cache_key = (content_hash, tuple(inputs.shape), hw_key, str(inputs.device))
+        pb_digest, _, oh_pb = _normalize_pullback_grid(inputs_pullback, B, side, device)
+        sec_digest, _, oh_sec = _normalize_pullback_grid(secondary_pullback, B, side, device)
+        cache_key = (content_hash, tuple(inputs.shape), hw_key, pb_digest, sec_digest, str(device))
         if cache_key in self._basis_cache:
             return self._basis_cache[cache_key]
 
-        device = inputs.device
-        side = int(round(math.sqrt(L)))
         g = inputs.long().clamp(0, 11).view(B, side, side)
         oh = F.one_hot(g, num_classes=12).float()  # (B, side, side, 12)
 
@@ -788,6 +998,8 @@ class DarkSnailCanvasReadout(nn.Module):
             oh_b = oh[b]
             oh_fg_b = oh_fg[b]
             gb = g[b]
+            oh_pb_b = oh_pb[b] if oh_pb is not None else None
+            oh_sec_b = oh_sec[b] if oh_sec is not None else None
 
             rh_flip = (hb - 1 - r_grid).clamp(0, side - 1)
             cw_flip = (wb - 1 - c_grid).clamp(0, side - 1)
@@ -837,7 +1049,9 @@ class DarkSnailCanvasReadout(nn.Module):
             is_scaled = float(th != hb or tw != wb)
             r_sc = ((r_grid * hb) // max(1, th)).clamp(0, side - 1)
             c_sc = ((c_grid * wb) // max(1, tw)).clamp(0, side - 1)
-            t_scale = oh_b[r_sc, c_sc] * is_scaled
+            t_scale = oh_pb_b if oh_pb_b is not None else (oh_b[r_sc, c_sc] * is_scaled)
+            if oh_sec_b is not None and is_upscale == 0.0:
+                t_kron_inv = oh_sec_b
 
             has_v_panel = float(hb >= 2 * th)
             has_h_panel = float(wb >= 2 * tw)
@@ -997,12 +1211,20 @@ class DarkSnailCanvasReadout(nn.Module):
             r_v = col_fg_max[b, :, :, 3:].amax(dim=-1)
             ray_los = 0.5 * (r_h + r_v) + r_h * r_v
 
+            # Enrich u_occ with Jordan cavity & symmetry-defect indicators
+            has_up_fg = torch.cummax(p1_fg, dim=0)[0] > 0.0
+            has_down_fg = torch.flip(torch.cummax(torch.flip(p1_fg, dims=[0]), dim=0)[0], dims=[0]) > 0.0
+            has_left_fg = torch.cummax(p1_fg, dim=1)[0] > 0.0
+            has_right_fg = torch.flip(torch.cummax(torch.flip(p1_fg, dims=[1]), dim=1)[0], dims=[1]) > 0.0
+            jordan_encl = (has_up_fg & has_down_fg & has_left_fg & has_right_fg).float() * (1.0 - p1_fg)
+            sym_defect = ((oh_fg_b - s_fh_fg).abs().amax(dim=-1) + (oh_fg_b - s_fv_fg).abs().amax(dim=-1)) * 0.25
+
             u_occ_b = torch.stack(
                 [
                     p1_fg,
                     1.0 - p1_fg,
-                    fg_sym_fh_sc,
-                    fg_sym_fv_sc,
+                    fg_sym_fh_sc + 0.35 * sym_defect,
+                    fg_sym_fv_sc + 0.35 * jordan_encl,
                     fg_sym_r180_sc,
                     v_and,
                     v_or,
@@ -1012,8 +1234,8 @@ class DarkSnailCanvasReadout(nn.Module):
                     h_or,
                     h_xor,
                     h_nor,
-                    diag_ray_cont,
-                    asym_ud,
+                    diag_ray_cont + 0.50 * jordan_encl,
+                    asym_ud + 0.25 * asym_lr,
                     ray_los,
                 ],
                 dim=-1,
@@ -1091,6 +1313,10 @@ class DarkSnailCanvasReadout(nn.Module):
                             ).float()
                         else:
                             t_block_outlier[rr, cc] = dom_oh
+            if oh_pb_b is not None:
+                t_block_max = oh_pb_b * fg_mask[0]
+            if oh_sec_b is not None:
+                t_block_outlier = oh_sec_b
 
             fg_counts = oh_fg_b.view(-1, 12).sum(dim=0)  # (12,)
             pos_fg_mask = fg_counts > 0
@@ -1130,7 +1356,7 @@ class DarkSnailCanvasReadout(nn.Module):
             .contiguous()
         )
 
-        if len(self._basis_cache) >= 8:
+        if len(self._basis_cache) >= 32:
             self._basis_cache.clear()
         self._basis_cache[cache_key] = (E_t, Phi, u_occ, E_asym)
         return E_t, Phi, u_occ, E_asym
@@ -1139,15 +1365,18 @@ class DarkSnailCanvasReadout(nn.Module):
         self,
         inputs: torch.Tensor,
         target_hw: Optional[Union[Tuple[int, int], Sequence[Tuple[int, int]]]] = None,
+        inputs_pullback: Optional[torch.Tensor] = None,
+        secondary_pullback: Optional[torch.Tensor] = None,
+        demo_target_hws: Optional[Sequence[Tuple[int, int]]] = None,
     ) -> torch.Tensor:
         """
         Builds and caches the 201-channel 2D Continuous Spectral, Multi-Bounce Ray-Field,
-        and Topological Jordan Basis `Phi_spec` of shape `(B, L, 201)` in `float32`:
-          - Channels `0:64` (64 channels): 2D separable DCT-II spectral modes
-            `cos(pi*(2r+1)*k_y / (2*H_in)) * cos(pi*(2c+1)*k_x / (2*W_in))` for `(k_y, k_x) in {0..7}^2`,
-            modulated by foreground occupancy and attenuated by the isotropic 2D Adelic heat-kernel
-            multiplier `gamma_2D(S) = exp(-nu * p^(2*ell) * (Var_y(S) + Var_x(S))) in [0.05, 1.0]`
-            computed via `RoPE2DMedoidPooler`.
+        and Topological Jordan Basis `Phi_spec` of shape `(B, L, 201)` in `float32`, together
+        with the 48-channel `Sym(9)`-equivariant extended operator basis `self.last_spec_eq`
+        of shape `(B, L, 12, 48)`:
+          - Channels `0:64` (64 channels): 2D separable DCT-II spectral modes (`0:24` and `50:64`),
+            modulated by foreground occupancy and `gamma_2D(S)`, plus 26 exact topological
+            Jordan-hole, rectangular-frame, ray-extension, and multi-panel structural channels (`24:50`).
           - Channels `64:144` (80 channels): Multi-bounce ray-reflection & maze wave-propagation
             potentials (1-bounce and 2-bounce orthogonal + diagonal ray reflections off nonzero
             obstacle boundaries for colors 1..9, plus 8 shortest-path geodesic flood-fill horizons).
@@ -1155,20 +1384,25 @@ class DarkSnailCanvasReadout(nn.Module):
             connected-component size-rank harmonics (18), Beltrami 2D curl/divergence potentials (15),
             and subgrid cell phase coordinates (16).
         """
+        if target_hw is None and demo_target_hws is not None:
+            target_hw = demo_target_hws
         B, L = inputs.shape
+        device = inputs.device
+        side = int(round(math.sqrt(L)))
         content_hash = _tensor_blake2b(inputs)
         hw_key, hw_per_sample = _normalize_target_hw(target_hw, B)
-        cache_key = (content_hash, tuple(inputs.shape), hw_key, str(inputs.device))
+        pb_digest, _, oh_pb = _normalize_pullback_grid(inputs_pullback, B, side, device)
+        sec_digest, _, oh_sec = _normalize_pullback_grid(secondary_pullback, B, side, device)
+        cache_key = (content_hash, tuple(inputs.shape), hw_key, pb_digest, sec_digest, str(device))
         if cache_key in self._spectral_basis_cache:
-            phi_spec, phi_guard, gamma_2d, pooled_k, pooled_v = self._spectral_basis_cache[cache_key]
+            phi_spec, phi_guard, spec_eq, gamma_2d, pooled_k, pooled_v = self._spectral_basis_cache[cache_key]
             self.last_phi_guard = phi_guard
+            self.last_spec_eq = spec_eq
             self.last_gamma_2d = gamma_2d
             self.last_pooled_k = pooled_k
             self.last_pooled_v = pooled_v
             return phi_spec
 
-        device = inputs.device
-        side = int(round(math.sqrt(L)))
         g = inputs.long().clamp(0, 11).view(B, side, side)
         oh = F.one_hot(g, num_classes=12).float()  # (B, side, side, 12)
 
@@ -1189,9 +1423,10 @@ class DarkSnailCanvasReadout(nn.Module):
         # Deterministic full-rank Chebyshev/Fourier carrier so every channel is non-degenerate on sparse grids
         pos_lin = torch.linspace(0.05, 0.95, L, device=device, dtype=torch.float32).unsqueeze(1)  # (L, 1)
         freq_201 = torch.arange(1, self.K_EXT_SPEC + 1, device=device, dtype=torch.float32).unsqueeze(0)  # (1, 201)
-        carrier_201 = (0.015 * torch.cos(math.pi * pos_lin * freq_201)).view(side, side, self.K_EXT_SPEC)
+        carrier_201 = (0.002 * torch.cos(math.pi * pos_lin * freq_201)).view(side, side, self.K_EXT_SPEC)
 
         spec_per_sample = []
+        spec_eq_per_sample = []
         guard_per_sample = []
 
         k_modes = torch.arange(8, device=device, dtype=torch.float32).unsqueeze(0)  # (1, 8)
@@ -1211,17 +1446,39 @@ class DarkSnailCanvasReadout(nn.Module):
 
             gb = g[b]
             oh_b = oh[b]
+            oh_pb_b = oh_pb[b] if oh_pb is not None else None
+            oh_sec_b = oh_sec[b] if oh_sec is not None else None
             p1_fg = (gb >= 3).float()  # (side, side)
             gamma_b = gamma_2d_grid[b]  # (side, side)
 
-            # --- 1. Channels 0:64 (64 channels): 2D Separable DCT-II Spectral Modes ---
+            spec_eq_b, spec_rel_b = self._get_extended_ops_single(
+                content_hash,
+                b,
+                gb,
+                oh_b,
+                hb,
+                wb,
+                th,
+                tw,
+                r_grid,
+                c_grid,
+                pb_digest=pb_digest,
+                oh_pb_b=oh_pb_b,
+                sec_digest=sec_digest,
+                oh_sec_b=oh_sec_b,
+            )
+            spec_eq_per_sample.append(spec_eq_b)
+
+            # --- 1. Channels 0:64 (64 channels): 2D Separable DCT-II Spectral Modes + Structural Operators ---
             h_in = float(max(1, hb))
             w_in = float(max(1, wb))
             dct_y = torch.cos(math.pi * (2.0 * idx_1d.unsqueeze(1) + 1.0) * k_modes / (2.0 * h_in))  # (side, 8)
             dct_x = torch.cos(math.pi * (2.0 * idx_1d.unsqueeze(1) + 1.0) * k_modes / (2.0 * w_in))  # (side, 8)
             dct_2d = torch.einsum("ry,cx->rycx", dct_y, dct_x).reshape(side, side, 64)
             fg_mod = (0.35 + 0.65 * p1_fg).unsqueeze(-1)
-            ch_0_64 = dct_2d * fg_mod * gamma_b.unsqueeze(-1)  # (side, side, 64)
+            ch_0_64 = 0.015 * (dct_2d * fg_mod * gamma_b.unsqueeze(-1))  # (side, side, 64)
+            ch_0_64 = ch_0_64.clone()
+            ch_0_64[:, :, 24:50] = ch_0_64[:, :, 24:50] + 4.5 * spec_rel_b
 
             # --- 2. Channels 64:144 (80 channels): Multi-Bounce Ray-Reflection & Maze Wave Potentials ---
             fg_colors = oh_b[:, :, 3:12].permute(2, 0, 1).contiguous()  # (9, side, side)
@@ -1280,7 +1537,7 @@ class DarkSnailCanvasReadout(nn.Module):
                 w_avg = F.avg_pool2d(wave, 3, stride=1, padding=1)
                 wave = (0.60 * w_max + 0.40 * w_avg) * free_cond
                 geodesic_horizons.append(wave.squeeze(0).squeeze(0))
-            geo_8 = torch.stack(geodesic_horizons, dim=-1)  # (side, side, 8)
+            geo_8 = 0.015 * torch.stack(geodesic_horizons, dim=-1)  # (side, side, 8)
             ch_64_144 = torch.cat([rays_72, geo_8], dim=-1)  # (side, side, 80)
 
             # --- 3. Channels 144:201 (57 channels): Jordan Cavities, CC Harmonics, Beltrami & Subgrid Phase ---
@@ -1300,7 +1557,7 @@ class DarkSnailCanvasReadout(nn.Module):
             cavity_core = (-F.max_pool2d(-j4_4d, 3, stride=1, padding=1)).squeeze(0).squeeze(0)
             cavity_smooth = F.avg_pool2d(j4_4d, 3, stride=1, padding=1).squeeze(0).squeeze(0)
             in_box = ((r_grid < float(th)) & (c_grid < float(tw))).float()
-            box_bg = in_box * bg_cell
+            box_bg = 0.015 * in_box * bg_cell
             jordan_8 = torch.stack(
                 [
                     jordan_4way,
@@ -1344,8 +1601,8 @@ class DarkSnailCanvasReadout(nn.Module):
                 + p_pad[2 : 2 + side, 2 : 2 + side]
                 - 4.0 * p1_fg
             )
-            # Color-weighted stream function for 2D Beltrami curl
-            c_weights = torch.arange(1, 10, device=device, dtype=torch.float32).view(1, 1, 9) / 9.0
+            # Color-weighted stream function for 2D Beltrami curl (S_9-invariant normalized mass weights)
+            c_weights = (mass_c / (mass_c.sum() + 1e-6)).view(1, 1, 9)
             psi_stream = (oh_b[:, :, 3:12] * c_weights).sum(dim=-1)
             psi_pad = F.pad(psi_stream.view(1, 1, side, side), (1, 1, 1, 1), mode="replicate").squeeze(0).squeeze(0)
             psi_y = 0.5 * (psi_pad[2 : 2 + side, 1 : 1 + side] - psi_pad[0:side, 1 : 1 + side])
@@ -1359,7 +1616,7 @@ class DarkSnailCanvasReadout(nn.Module):
             corner_det = (gx * gy).abs()
             beltrami_det = torch.sqrt(1.0 + gx * gx + gy * gy + curl_2d * curl_2d) - 1.0
             biharmonic = F.avg_pool2d(lap_card.view(1, 1, side, side), 3, stride=1, padding=1).squeeze(0).squeeze(0) - lap_card
-            beltrami_15 = torch.stack(
+            beltrami_15 = 0.015 * torch.stack(
                 [
                     gx,
                     gy,
@@ -1390,7 +1647,7 @@ class DarkSnailCanvasReadout(nn.Module):
             r_rad = torch.sqrt(dy_c * dy_c + dx_c * dx_c + 1e-8)
             theta = torch.atan2(dy_c, dx_c + 1e-8)
             l1_dist = dy_c.abs() + dx_c.abs()
-            phase_16 = torch.stack(
+            phase_16 = 0.015 * torch.stack(
                 [
                     y_in,
                     x_in,
@@ -1422,18 +1679,26 @@ class DarkSnailCanvasReadout(nn.Module):
             guard_per_sample.append(torch.stack([guard_0, guard_1], dim=-1))
 
         Phi_spec = torch.stack(spec_per_sample, dim=0).view(B, L, self.K_EXT_SPEC).contiguous()
+        E_spec_eq = (
+            torch.stack(spec_eq_per_sample, dim=0)
+            .view(B, L, self.K_SPEC_EQ, 12)
+            .permute(0, 1, 3, 2)
+            .contiguous()
+        )
         Phi_guard = torch.stack(guard_per_sample, dim=0).view(B, L, 2).contiguous()
 
-        if len(self._spectral_basis_cache) >= 8:
+        if len(self._spectral_basis_cache) >= 32:
             self._spectral_basis_cache.clear()
         self._spectral_basis_cache[cache_key] = (
             Phi_spec,
             Phi_guard,
+            E_spec_eq,
             gamma_2d_patch.detach(),
             pooled_k.detach(),
             pooled_v.detach(),
         )
         self.last_phi_guard = Phi_guard
+        self.last_spec_eq = E_spec_eq
         self.last_gamma_2d = gamma_2d_patch.detach()
         self.last_pooled_k = pooled_k.detach()
         self.last_pooled_v = pooled_v.detach()
@@ -1504,14 +1769,30 @@ class DarkSnailCanvasReadout(nn.Module):
         self,
         base_logits: torch.Tensor,
         E_t: torch.Tensor,
+        E_asym: Optional[torch.Tensor] = None,
+        Phi_spec: Optional[torch.Tensor] = None,
+        E_spec_eq: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Builds the local competing color vector `v in R^(B, L, 12)` from the temperature-scaled
-        softmax of the symmetric canvas logits plus candidate foreground color indicators across `E_t`,
-        so `v_c > 0` precisely for the 2 (or more) colors competing at pixel `ell`.
+        softmax of the symmetric + spectral canvas logits plus candidate foreground color indicators
+        across `E_t`, `E_asym`, `E_spec_eq`, ray-propagation channels (`Phi_spec[:, :, 64:144]`), and
+        Jordan cavity / CC channels (`Phi_spec[:, :, 144:201]`), so `v_c > 0` for all colors competing at pixel `ell`.
         """
         probs_sym = F.softmax(base_logits.detach().float() / max(self.tau_v, 0.1), dim=-1)
         cand_ind = E_t.detach().float().abs().amax(dim=-1)  # (B, L, 12)
+        if E_asym is not None:
+            cand_ind = torch.maximum(cand_ind, 0.50 * E_asym.detach().float().abs().amax(dim=-1))
+        if E_spec_eq is not None:
+            cand_ind = torch.maximum(cand_ind, 0.50 * E_spec_eq.detach().float().abs().amax(dim=-1))
+        if Phi_spec is not None and Phi_spec.size(-1) >= 170:
+            B_p, L_p, _ = Phi_spec.shape
+            ray_fg = Phi_spec[:, :, 64:136].detach().float().abs().view(B_p, L_p, 9, 8).amax(dim=-1)
+            cc_fg = Phi_spec[:, :, 152:170].detach().float().abs().view(B_p, L_p, 2, 9).amax(dim=-2)
+            jordan_bg = Phi_spec[:, :, 144:152].detach().float().abs().amax(dim=-1, keepdim=True)
+            cand_ind = cand_ind.clone()
+            cand_ind[:, :, 3:12] = torch.maximum(cand_ind[:, :, 3:12], 0.35 * torch.maximum(ray_fg, cc_fg))
+            cand_ind[:, :, 2:3] = torch.maximum(cand_ind[:, :, 2:3], 0.35 * jordan_bg)
         cand_norm = cand_ind / (cand_ind.sum(dim=-1, keepdim=True) + 1e-6)
         v = 0.70 * probs_sym + 0.30 * cand_norm
         return v
@@ -1530,10 +1811,15 @@ class DarkSnailCanvasReadout(nn.Module):
         triad_gain_override: Optional[float] = None,
         asym_gain_override: Optional[float] = None,
         spectral_gain_override: Optional[float] = None,
+        inputs_pullback: Optional[torch.Tensor] = None,
+        secondary_pullback: Optional[torch.Tensor] = None,
+        demo_target_hws: Optional[Sequence[Tuple[int, int]]] = None,
     ) -> torch.Tensor:
         """
         Applies the DarkSnail canvas readout (`Symmetric + Skew-Symmetric Triad + Directional Asymmetry + Spectral/Ray Field`).
         """
+        if target_hw is None and demo_target_hws is not None:
+            target_hw = demo_target_hws
         logits_f32 = logits.float()
         if logits_f32.dim() == 3:
             logit_std = logits_f32.std(dim=-1, keepdim=True)
@@ -1572,7 +1858,10 @@ class DarkSnailCanvasReadout(nn.Module):
         side = int(round(math.sqrt(L)))
         if side * side == L and logits_f32.size(-1) == 12 and (num_q * d_r) >= self.ASYM_END:
             E_t, Phi, u_occ, E_asym = self.get_spatial_relational_and_occlusion_tensors(
-                inputs, target_hw=target_hw
+                inputs,
+                target_hw=target_hw,
+                inputs_pullback=inputs_pullback,
+                secondary_pullback=secondary_pullback,
             )
             M_eq = E_t.size(-1)  # 38
             K_rel = Phi.size(-1)  # 205
@@ -1593,13 +1882,26 @@ class DarkSnailCanvasReadout(nn.Module):
             rem = flat_dz[:, M_eq:sym_end].view(B, K_rel, 12)
             rel_scale_vec = torch.full((1, K_rel, 1), 0.6 * rel_gain, device=rem.device, dtype=rem.dtype)
             rel_scale_vec[:, :12, 0] = 2.0 * rel_gain
+            if inputs_pullback is not None:
+                pb_eq_scale = torch.full((1, 1, M_eq, 1), 0.05, device=w_eq.device, dtype=w_eq.dtype)
+                pb_eq_scale[:, :, 0, :] = 6.0
+                if M_eq > 34:
+                    pb_eq_scale[:, :, 34, :] = 6.0
+                w_eq = w_eq * pb_eq_scale
+                rel_scale_vec = rel_scale_vec * 0.05
             fg_col_mask = torch.ones((1, 1, 12), device=rem.device, dtype=rem.dtype)
             if color_preserving:
                 # Enforce exact S_9 foreground palette equivariance:
                 # only PAD (0), EOS (1), and Background-0 (2) can use color-indexed Phi weights;
-                # foreground colors 3..11 are driven strictly by color-equivariant E_t and E_asym!
+                # foreground colors 3..11 are driven strictly by color-equivariant E_t, E_asym, and E_spec_eq!
                 fg_col_mask[:, :, 3:] = 0.0
-                u_rel = rem * rel_scale_vec * fg_col_mask
+                u_rel = (rem * rel_scale_vec * fg_col_mask).clone()
+                if K_rel >= 192:
+                    u_rel_blocks = u_rel[:, :192, :3].view(B, 16, 12, 3)
+                    u_rel_fg_mean = u_rel_blocks[:, :, 3:12, :].mean(dim=2, keepdim=True).expand(-1, -1, 9, -1)
+                    u_rel_blocks = u_rel_blocks.clone()
+                    u_rel_blocks[:, :, 3:12, :] = u_rel_fg_mean
+                    u_rel[:, :192, :3] = u_rel_blocks.reshape(B, 192, 3)
             else:
                 u_rel = rem * rel_scale_vec
 
@@ -1612,7 +1914,7 @@ class DarkSnailCanvasReadout(nn.Module):
             asym_end = triad_end + self.M_ASYM
             eff_asym_gain = (
                 asym_gain_override if asym_gain_override is not None else self.asym_gain
-            ) * (1.50 if color_preserving else 0.75)
+            ) * (1.50 if color_preserving else 0.75) * (0.05 if inputs_pullback is not None else 1.0)
             w_asym = flat_dz[:, triad_end:asym_end].view(B, 1, self.M_ASYM, 1) * eff_asym_gain
             shift_asym = torch.matmul(E_asym, w_asym).squeeze(-1)  # (B, L, 12)
 
@@ -1634,7 +1936,9 @@ class DarkSnailCanvasReadout(nn.Module):
                 bg_mask = u_occ[:, :, 1:2]  # (B, L, 1) = 1.0 - p1_fg
                 canvas_fg = E_t[:, :, :, 1].amax(dim=1, keepdim=True)  # (B, 1, 12)
                 phi_bg_fg = bg_mask * canvas_fg + 0.02 * E_t[:, :, :, 0]  # (B, L, 12)
-                u_bg_fg = flat_dz[:, self.BG_FG_START : 5466].view(B, 12, 12) * 0.85 * fg_col_mask
+                u_bg_fg = (flat_dz[:, self.BG_FG_START : 5466].view(B, 12, 12) * 0.85 * fg_col_mask).clone()
+                if color_preserving:
+                    u_bg_fg[:, 3:12, :3] = u_bg_fg[:, 3:12, :3].mean(dim=1, keepdim=True).expand(-1, 9, -1)
                 has_2panel_only = (
                     (u_occ[:, :, 5:9].amax(dim=(1, 2), keepdim=True) > 0)
                     & (u_occ[:, :, 9:13].amax(dim=(1, 2), keepdim=True) == 0)
@@ -1645,15 +1949,72 @@ class DarkSnailCanvasReadout(nn.Module):
 
             # 3. Continuous Spectral & Multi-Bounce Ray-Field Basis: flat_dz[:, 5658 : 8072] + guard [8072 : 8192]
             shift_spec = torch.zeros_like(shift_asym)
+            Phi_spec_for_v: Optional[torch.Tensor] = None
+            E_spec_eq_for_v: Optional[torch.Tensor] = None
             if flat_dz.size(-1) >= self.EXT_REL_END and eff_spec_gain != 0.0:
                 spec_scale = eff_spec_gain
-                Phi_spec = self.get_continuous_spectral_and_ray_basis(inputs, target_hw=target_hw)
+                Phi_spec = self.get_continuous_spectral_and_ray_basis(
+                    inputs,
+                    target_hw=target_hw,
+                    inputs_pullback=inputs_pullback,
+                    secondary_pullback=secondary_pullback,
+                )
+                Phi_spec_for_v = Phi_spec
+                E_spec_eq_for_v = self.last_spec_eq
                 u_ext_spec = flat_dz[:, self.EXT_REL_START : self.EXT_REL_END].view(
                     B, self.K_EXT_SPEC, 12
                 )
+                # Sym(9)-equivariant spectral contraction over E_spec_eq, multi-bounce rays, and CC harmonics
+                shift_spec_eq = torch.zeros_like(shift_asym)
+                if self.last_spec_eq is not None:
+                    E_spec_eq = self.last_spec_eq  # (B, L, 12, K_SPEC_EQ)
+                    k_eq = E_spec_eq.size(-1)
+                    w_spec_eq = u_ext_spec[:, :k_eq, 3:12].mean(dim=-1).view(B, 1, k_eq, 1) * 6.0
+                    shift_spec_eq = torch.matmul(E_spec_eq, w_spec_eq).squeeze(-1)
+
                 if color_preserving:
-                    u_ext_spec = u_ext_spec * fg_col_mask
-                shift_spec = torch.bmm(Phi_spec, u_ext_spec) * (spec_scale * self.rel_scale * rel_gain)
+                    # S_9-equivariant contraction of per-color ray (64:136) and CC (152:170) channels onto fg colors 3..11
+                    rays_eq = Phi_spec[:, :, 64:136].view(B, L, 9, 8)  # (B, L, 9_colors, 8_ray_types)
+                    w_ray_eq = u_ext_spec[:, 64:136, 3:12].view(B, 9, 8, 9).mean(dim=(1, 3)).view(B, 1, 1, 8)
+                    ray_fg_shift = (rays_eq * w_ray_eq).sum(dim=-1) * 0.25  # (B, L, 9)
+
+                    cc_eq = Phi_spec[:, :, 152:170].view(B, L, 2, 9).permute(0, 1, 3, 2)  # (B, L, 9_colors, 2_cc)
+                    w_cc_eq = u_ext_spec[:, 152:170, 3:12].view(B, 2, 9, 9).mean(dim=(2, 3)).view(B, 1, 1, 2)
+                    cc_fg_shift = (cc_eq * w_cc_eq).sum(dim=-1) * 0.25  # (B, L, 9)
+
+                    # Global S_9-invariant scalar carrier over non-color-indexed spectral channels onto E_t[:, :, 3:12, 0]
+                    w_rem_inv = u_ext_spec[:, :, 3:12].mean(dim=-1).clone()  # (B, 201)
+                    w_rem_inv[:, 64:136] = w_rem_inv[:, 64:136].view(B, 9, 8).mean(dim=1, keepdim=True).expand(-1, 9, -1).reshape(B, 72)
+                    w_rem_inv[:, 152:170] = w_rem_inv[:, 152:170].view(B, 2, 9).mean(dim=2, keepdim=True).expand(-1, -1, 9).reshape(B, 18)
+                    rem_carrier = torch.bmm(Phi_spec, w_rem_inv.unsqueeze(-1)) * 0.05  # (B, L, 1)
+                    shift_spec_eq = shift_spec_eq.clone()
+                    shift_spec_eq[:, :, 3:12] = (
+                        shift_spec_eq[:, :, 3:12]
+                        + ray_fg_shift
+                        + cc_fg_shift
+                        + rem_carrier * E_t[:, :, 3:12, 0]
+                    )
+
+                if color_preserving:
+                    u_ext_spec_rel = (u_ext_spec * fg_col_mask).clone()
+                    u_ext_spec_rel[:, 64:136, :3] = (
+                        u_ext_spec_rel[:, 64:136, :3]
+                        .view(B, 9, 8, 3)
+                        .mean(dim=1, keepdim=True)
+                        .expand(-1, 9, -1, -1)
+                        .reshape(B, 72, 3)
+                    )
+                    u_ext_spec_rel[:, 152:170, :3] = (
+                        u_ext_spec_rel[:, 152:170, :3]
+                        .view(B, 2, 9, 3)
+                        .mean(dim=2, keepdim=True)
+                        .expand(-1, -1, 9, -1)
+                        .reshape(B, 18, 3)
+                    )
+                else:
+                    u_ext_spec_rel = u_ext_spec
+                shift_spec_rel = torch.bmm(Phi_spec, u_ext_spec_rel)
+                shift_spec = (shift_spec_rel + shift_spec_eq) * (spec_scale * self.rel_scale * rel_gain)
 
                 if flat_dz.size(-1) >= self.EXT_GATE_END and self.last_phi_guard is not None:
                     Phi_guard = self.last_phi_guard  # (B, L, 2)
@@ -1721,7 +2082,13 @@ class DarkSnailCanvasReadout(nn.Module):
             # 4. Skew-Symmetric Triad Occlusion Breaker: flat_dz[:, sym_end : triad_end]
             # Computed on competing color vector v so <v, delta_triad> == 0 holds to <= 1.0e-8 in float32!
             sym_canvas_logits = logits_f32 + delta_sym_asym
-            v_comp = self.compute_competing_color_vector(sym_canvas_logits, E_t)  # (B, L, 12)
+            v_comp = self.compute_competing_color_vector(
+                sym_canvas_logits,
+                E_t,
+                E_asym=E_asym,
+                Phi_spec=Phi_spec_for_v,
+                E_spec_eq=E_spec_eq_for_v,
+            )  # (B, L, 12)
             W_triad_raw = flat_dz[:, sym_end:triad_end].view(B, self.C_OCC, 12, 12)
             if color_preserving:
                 # Project W_triad onto the S_9-invariant subspace over foreground colors 3..11
@@ -1734,7 +2101,11 @@ class DarkSnailCanvasReadout(nn.Module):
             else:
                 W_triad = W_triad_raw
             base_triad_gain = triad_gain_override if triad_gain_override is not None else self.triad_gain
-            eff_triad_gain = base_triad_gain * (0.25 if color_preserving else 0.85)
+            eff_triad_gain = (
+                base_triad_gain
+                * (0.25 if color_preserving else 0.85)
+                * (0.05 if inputs_pullback is not None else 1.0)
+            )
             delta_triad_raw = self.readout_scale * eff_triad_gain * self.triad_op(u_occ, v_comp, W_triad)
             delta_triad = _exact_orthogonality_ulp_polish(v_comp, delta_triad_raw, no_grad_only=True)  # (B, L, 12)
 
@@ -1753,12 +2124,21 @@ class DarkSnailCanvasReadout(nn.Module):
 def get_continuous_spectral_and_ray_basis(
     inputs: torch.Tensor,
     target_hw: Optional[Union[Tuple[int, int], Sequence[Tuple[int, int]]]] = None,
+    inputs_pullback: Optional[torch.Tensor] = None,
+    secondary_pullback: Optional[torch.Tensor] = None,
+    demo_target_hws: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> torch.Tensor:
     """Module-level helper building the 201-channel 2D Continuous Spectral & Multi-Bounce Ray Basis."""
     if not hasattr(get_continuous_spectral_and_ray_basis, "_default_readout"):
         setattr(get_continuous_spectral_and_ray_basis, "_default_readout", DarkSnailCanvasReadout())
     readout: DarkSnailCanvasReadout = getattr(get_continuous_spectral_and_ray_basis, "_default_readout")
-    return readout.get_continuous_spectral_and_ray_basis(inputs, target_hw=target_hw)
+    return readout.get_continuous_spectral_and_ray_basis(
+        inputs,
+        target_hw=target_hw,
+        inputs_pullback=inputs_pullback,
+        secondary_pullback=secondary_pullback,
+        demo_target_hws=demo_target_hws,
+    )
 
 
 class SlowFastTriadCascade(nn.Module):
@@ -2269,10 +2649,15 @@ class ContinuousSpectralFieldReadout(nn.Module):
         unroll_steps: Optional[int] = None,
         return_continuous_field: bool = False,
         return_diagnostics: bool = False,
+        inputs_pullback: Optional[torch.Tensor] = None,
+        secondary_pullback: Optional[torch.Tensor] = None,
+        demo_target_hws: Optional[Sequence[Tuple[int, int]]] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, Any]]]:
         """
         Evaluates the continuous dynamical field readout and optional multi-step slow-fast cascade.
         """
+        if target_hw is None and demo_target_hws is not None:
+            target_hw = demo_target_hws
         B, L = inputs.shape[0], inputs.shape[1]
         side = int(round(math.sqrt(L)))
         device = logits.device
@@ -2312,10 +2697,19 @@ class ContinuousSpectralFieldReadout(nn.Module):
             triad_gain_override=triad_gain_override,
             asym_gain_override=asym_gain_override,
             spectral_gain_override=eff_spec_override,
+            inputs_pullback=inputs_pullback,
+            secondary_pullback=secondary_pullback,
+            demo_target_hws=demo_target_hws,
         )
 
         # Ensure spectral basis & pooler telemetry are populated even when delta_z is None
-        _ = self.canvas_readout.get_continuous_spectral_and_ray_basis(inputs, target_hw=target_hw)
+        _ = self.canvas_readout.get_continuous_spectral_and_ray_basis(
+            inputs,
+            target_hw=target_hw,
+            inputs_pullback=inputs_pullback,
+            secondary_pullback=secondary_pullback,
+            demo_target_hws=demo_target_hws,
+        )
 
         continuous_field_2d = refined_logits.view(B, side, side, -1)
         pooled_k, pooled_v, pool_info = self.medoid_pooler(continuous_field_2d)

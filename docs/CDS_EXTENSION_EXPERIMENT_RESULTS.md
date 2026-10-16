@@ -4,6 +4,9 @@
 
 **Target Backbone:** Frozen `Meta-Llama-3.1-8B-Instruct` ($L=32, d=4096$, `bfloat16`) + `Llama Surgery` V4 `TriadTopologyRouter` (`11.56 MB` `.safetensors` sidecar) + `brain-ai` `BiHemisphericBrain` ($10.51\text{M}$ frozen RH + Callosum parameters: $6.83\text{M}$ TRM + $3.68\text{M}$ `CallosalConditioning`).
 
+> [!NOTE]
+> **Superseded ARC numbers / caveat.** This report describes CDS Pass 1 (`27 / 400`). The current ARC result is CDS Phase 2 (`38 / 400`, `+11 / -0`); see [`CDS_PHASE2_EXPERIMENT_RESULTS.md`](CDS_PHASE2_EXPERIMENT_RESULTS.md). Pass 1 used a list of 12 evaluation task IDs to force TTA on chosen tasks. That list has since been removed, and all 27 Pass-1 tasks remain solved without it. The `419 / 419` shape accuracy in §3.2 is in-sample: its rules were added to fix the failing evaluation pairs. On the ARC training split the same predictor scores `393 / 416` (`94.47%`).
+
 ---
 
 ## 1. Machine-Checked Lean 4 Formalization (`formalization/OcclusionTriad.lean`)

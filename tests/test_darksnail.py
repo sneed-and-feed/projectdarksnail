@@ -50,6 +50,7 @@ from darksnail import (
     ZenoAmygdalaController,
     compute_grid_prompt_zeno_flux,
     extract_beltrami_lh_latents,
+    extract_beltrami_pullback_canvas,
     extract_grid_beltrami_shape_descriptors,
     infer_arc_output_shape_beltrami,
     verify_pointwise_orthogonality,
@@ -642,5 +643,95 @@ def test_cds_extension_invariants_n3600():
     sched_hi = controller(0.82, 0.85, 6.2, 3.0, s1_demo_fit=0.30, test_entropy=1.4, canvas_cells=900)
     assert sched_s1.unroll_steps == 1
     assert sched_hi.unroll_steps in (4, 8, 16)
+
+
+def test_beltrami_pullback_canvas_and_pre_triad_spectral_coupling():
+    from brain_ai.models.callosum import encode_grid_to_trm_seq
+
+    # 1. Sub-panel / Bounding-box crop pullback rule
+    demos_crop = [
+        {
+            "input": [
+                [0, 0, 0, 0, 0],
+                [0, 1, 1, 0, 0],
+                [0, 1, 1, 0, 0],
+                [0, 0, 0, 2, 2],
+                [0, 0, 0, 2, 0],
+            ],
+            "output": [[2, 2], [2, 0]],
+        },
+        {
+            "input": [
+                [3, 3, 3, 0, 0],
+                [3, 3, 3, 0, 0],
+                [0, 0, 4, 4, 0],
+                [0, 0, 0, 4, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            "output": [[4, 4], [0, 4]],
+        },
+    ]
+    test_in_crop = [
+        [0, 5, 5, 5, 0],
+        [0, 5, 5, 5, 0],
+        [0, 0, 0, 0, 0],
+        [7, 0, 0, 0, 0],
+        [7, 7, 0, 0, 0],
+    ]
+    pb_crop = extract_beltrami_pullback_canvas(demos_crop, test_input=test_in_crop)
+    assert not pb_crop["is_same_size"]
+    assert pb_crop["demo_exact_match"] is True
+    assert pb_crop["target_shape"] == (2, 2)
+    assert pb_crop["test_grid_pullback"] == [[7, 0], [7, 7]]
+
+    # 2. Same-size fallback preserves inputs bitwise
+    demos_same = [
+        {"input": [[1, 0], [0, 2]], "output": [[1, 1], [2, 2]]},
+        {"input": [[3, 0], [0, 4]], "output": [[3, 3], [4, 4]]},
+    ]
+    pb_same = extract_beltrami_pullback_canvas(demos_same, test_input=[[5, 0], [0, 6]])
+    assert pb_same["is_same_size"] is True
+    expected_test_seq = torch.tensor(np.asarray([encode_grid_to_trm_seq([[5, 0], [0, 6]])]), dtype=torch.long)
+    assert torch.equal(pb_same["test_input_pullback"], expected_test_seq)
+
+    # 3. Pre-Triad Spectral Coupling & Sym(9) foreground-palette equivariance of the full readout
+    # (including the enclosed-hole fill and pullback channels of E_spec_eq) under color_preserving=True.
+    readout = DarkSnailCanvasReadout(readout_scale=6.0, spectral_gain=0.35)
+    grid_a = [
+        [1, 1, 1, 0],
+        [1, 0, 1, 0],
+        [1, 1, 1, 2],
+        [0, 0, 2, 0],
+    ]
+    # Permute foreground colors 1 -> 4, 2 -> 7 (tokens 3 -> 6, 4 -> 9)
+    perm_map = {0: 0, 1: 4, 2: 7, 3: 3, 4: 1, 5: 5, 6: 6, 7: 2, 8: 8, 9: 9}
+    grid_b = [[perm_map[val] for val in row] for row in grid_a]
+
+    in_a = torch.tensor(np.asarray([encode_grid_to_trm_seq(grid_a)]), dtype=torch.long)
+    in_b = torch.tensor(np.asarray([encode_grid_to_trm_seq(grid_b)]), dtype=torch.long)
+    base_a = torch.nn.functional.one_hot(in_a.clamp(0, 11), num_classes=12).float() * 0.75
+    base_b = torch.nn.functional.one_hot(in_b.clamp(0, 11), num_classes=12).float() * 0.75
+
+    torch.manual_seed(99)
+    dz = torch.randn(1, 8192, dtype=torch.float32) * 0.1
+    # Make u_ext_spec foreground columns 3..11 symmetric under S_9 permutation
+    u_spec = dz[:, DarkSnailCanvasReadout.EXT_REL_START : DarkSnailCanvasReadout.EXT_REL_END].view(1, 201, 12)
+    u_spec[:, :, 3:12] = u_spec[:, :, 3:4].expand(1, 201, 9).clone()
+
+    out_a = readout(base_a, in_a, dz, target_hw=(4, 4), color_preserving=True, spectral_gain_override=0.35)
+    out_b = readout(base_b, in_b, dz, target_hw=(4, 4), color_preserving=True, spectral_gain_override=0.35)
+
+    # Verify pointwise triad orthogonality holds on pre-triad spectral-coupled v_comp
+    v_comp = readout.last_v_comp
+    delta_triad = readout.last_triad_shift
+    assert v_comp is not None and delta_triad is not None
+    assert float((v_comp * delta_triad).sum(dim=-1).abs().max().item()) <= 1.0e-8
+
+    # Verify foreground logit equivariance at active grid cells: color 1 (idx 3) in A matches color 4 (idx 6) in B
+    out_a_2d = out_a.view(30, 30, 12)[:4, :4]
+    out_b_2d = out_b.view(30, 30, 12)[:4, :4]
+    assert torch.allclose(out_a_2d[:, :, 3], out_b_2d[:, :, 6], atol=5e-4)
+    assert torch.allclose(out_a_2d[:, :, 4], out_b_2d[:, :, 9], atol=5e-4)
+
 
 

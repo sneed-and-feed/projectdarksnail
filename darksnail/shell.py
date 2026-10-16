@@ -1795,3 +1795,613 @@ def infer_arc_output_shape_beltrami(
 
     return in_h, in_w
 
+
+# ---------------------------------------------------------------------------
+# 2D Beltrami Spatial Pullback Canvas Extractor (Workstream C.2)
+# ---------------------------------------------------------------------------
+
+
+class PullbackCanvasResult(dict):
+    """
+    Dictionary-compatible result container for `extract_beltrami_pullback_canvas`.
+    Supports attribute access (`.demo_inputs_pullback`, `.test_input_pullback`, etc.),
+    standard mapping lookups (`res["rule_name"]`), and 2-tuple unpacking:
+        `demo_pb, test_pb = extract_beltrami_pullback_canvas(...)`
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+    def __iter__(self):
+        yield self["demo_inputs_pullback"]
+        yield self["test_input_pullback"]
+
+
+def _trm_seq_to_grid_2d(seq: Union[np.ndarray, torch.Tensor], side: int = 30) -> np.ndarray:
+    """Decodes a single TRM canvas `(side*side,)` or `(side, side)` (PAD=0, EOS=1, colors 2..11) to a 2D grid in 0..9."""
+    if isinstance(seq, torch.Tensor):
+        arr = seq.detach().cpu().numpy()
+    else:
+        arr = np.asarray(seq)
+    arr = arr.reshape(side, side)
+    active = arr >= 2
+    if not np.any(active):
+        return np.zeros((1, 1), dtype=np.int32)
+    rs, cs = np.where(active)
+    h = int(rs.max()) + 1
+    w = int(cs.max()) + 1
+    return np.clip(arr[:h, :w].astype(np.int32) - 2, 0, 9)
+
+
+def _grid_2d_to_trm_seq(
+    grid: np.ndarray,
+    side: int = 30,
+    device: Union[str, torch.device] = "cpu",
+) -> torch.Tensor:
+    """Encodes a 2D ARC grid in `0..9` into a `(side * side,)` TRM `torch.long` tensor (`PAD=0, EOS=1, colors 2..11`)."""
+    arr = np.asarray(grid, dtype=np.int64)
+    if arr.ndim != 2 or arr.size == 0:
+        arr = np.zeros((1, 1), dtype=np.int64)
+    h = min(side, max(1, int(arr.shape[0])))
+    w = min(side, max(1, int(arr.shape[1])))
+    canvas = np.zeros((side, side), dtype=np.int64)
+    canvas[:h, :w] = np.clip(arr[:h, :w], 0, 9) + 2
+    if w < side:
+        canvas[:h, w] = 1
+    if h < side:
+        canvas[h, :w] = 1
+    return torch.from_numpy(canvas.reshape(-1)).to(device=device, dtype=torch.long)
+
+
+def _is_trm_batch(obj: Any, side: int = 30) -> bool:
+    """Returns True if `obj` is a TRM sequence or batch of TRM sequences of length `side * side`."""
+    n_tok = side * side
+    if isinstance(obj, (torch.Tensor, np.ndarray)):
+        if obj.ndim == 1 and obj.shape[0] == n_tok:
+            return True
+        if obj.ndim == 2 and obj.shape[1] == n_tok and obj.shape[0] != n_tok:
+            return True
+        if obj.ndim == 3 and obj.shape[1] == side and obj.shape[2] == side:
+            mn, mx = int(obj.min()), int(obj.max())
+            if mx > 9 or (mn == 0 and int((obj == 1).sum()) >= min(side, 4)):
+                return True
+    return False
+
+
+def _parse_grid_list(obj: Any, side: int = 30) -> List[np.ndarray]:
+    """Parses a flexible sequence of grids or `(B, 900)` TRM batch into a list of 2D `np.int32` arrays in `0..9`."""
+    if obj is None:
+        return []
+    if _is_trm_batch(obj, side=side):
+        if isinstance(obj, torch.Tensor):
+            arr = obj.detach().cpu().numpy()
+        else:
+            arr = np.asarray(obj)
+        if arr.ndim == 1:
+            return [_trm_seq_to_grid_2d(arr, side=side)]
+        return [_trm_seq_to_grid_2d(arr[i], side=side) for i in range(arr.shape[0])]
+    if isinstance(obj, (torch.Tensor, np.ndarray)):
+        arr = obj.detach().cpu().numpy() if isinstance(obj, torch.Tensor) else np.asarray(obj)
+        if arr.ndim == 2:
+            return [np.clip(arr.astype(np.int32), 0, 9)]
+        if arr.ndim == 3:
+            return [np.clip(arr[i].astype(np.int32), 0, 9) for i in range(arr.shape[0])]
+    out: List[np.ndarray] = []
+    for item in obj:
+        if isinstance(item, Mapping) and "input" in item:
+            g = np.asarray(item["input"], dtype=np.int32)
+            out.append(np.clip(g, 0, 9))
+        elif _is_trm_batch(item, side=side):
+            out.append(_trm_seq_to_grid_2d(item, side=side))
+        else:
+            if isinstance(item, torch.Tensor):
+                g = item.detach().cpu().numpy().astype(np.int32)
+            else:
+                g = np.asarray(item, dtype=np.int32)
+            if g.ndim == 1 and g.size == side * side:
+                out.append(_trm_seq_to_grid_2d(g, side=side))
+            else:
+                out.append(np.clip(g, 0, 9))
+    return out
+
+
+def _bg_color(g: np.ndarray) -> int:
+    vals, counts = np.unique(g, return_counts=True)
+    return int(vals[int(np.argmax(counts))])
+
+
+def _get_pullback_cc_list(
+    g: np.ndarray, conn: int = 4, per_color: bool = False, bg_override: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """Pure-numpy BFS connected-component extractor matching `scipy.ndimage.label`."""
+    bg = _bg_color(g) if bg_override is None else int(bg_override)
+    H, W = g.shape
+    dirs = (
+        [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        if conn == 4
+        else [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
+    )
+    ccs: List[Dict[str, Any]] = []
+
+    def _bfs_mask(binary_mask: np.ndarray, fixed_color: Optional[int] = None) -> None:
+        vis = np.zeros((H, W), dtype=bool)
+        for r in range(H):
+            for c in range(W):
+                if binary_mask[r, c] and not vis[r, c]:
+                    q = deque([(r, c)])
+                    vis[r, c] = True
+                    pts = []
+                    while q:
+                        cr, cc = q.popleft()
+                        pts.append((cr, cc))
+                        for dr, dc in dirs:
+                            nr, nc = cr + dr, cc + dc
+                            if 0 <= nr < H and 0 <= nc < W and binary_mask[nr, nc] and not vis[nr, nc]:
+                                vis[nr, nc] = True
+                                q.append((nr, nc))
+                    rs = np.array([p[0] for p in pts], dtype=np.int32)
+                    cs = np.array([p[1] for p in pts], dtype=np.int32)
+                    r0, r1 = int(rs.min()), int(rs.max()) + 1
+                    c0, c1 = int(cs.min()), int(cs.max()) + 1
+                    sub = g[r0:r1, c0:c1].copy()
+                    local_mask = np.zeros((r1 - r0, c1 - c0), dtype=bool)
+                    local_mask[rs - r0, cs - c0] = True
+                    sub_masked = np.where(local_mask, sub, bg)
+                    col = int(fixed_color) if fixed_color is not None else _bg_color(sub[local_mask])
+                    ccs.append(
+                        {
+                            "r0": r0,
+                            "r1": r1,
+                            "c0": c0,
+                            "c1": c1,
+                            "h": r1 - r0,
+                            "w": c1 - c0,
+                            "area": len(pts),
+                            "bbox_area": (r1 - r0) * (c1 - c0),
+                            "color": col,
+                            "sub": sub,
+                            "sub_masked": sub_masked,
+                        }
+                    )
+
+    if per_color:
+        for col in sorted(np.unique(g)):
+            if int(col) == bg:
+                continue
+            _bfs_mask(g == col, fixed_color=int(col))
+    else:
+        _bfs_mask(g != bg, fixed_color=None)
+    return ccs
+
+
+def _split_panels(g: np.ndarray, th: int, tw: int) -> List[np.ndarray]:
+    """Splits `g` into uniform `(th, tw)` sub-panels (either directly or separated by 1px lines)."""
+    H, W = g.shape
+    panels: List[np.ndarray] = []
+    if th <= 0 or tw <= 0:
+        return panels
+    if H % th == 0 and W % tw == 0 and (H > th or W > tw):
+        for br in range(H // th):
+            for bc in range(W // tw):
+                panels.append(g[br * th : (br + 1) * th, bc * tw : (bc + 1) * tw])
+        return panels
+    if (H + 1) % (th + 1) == 0 and (W + 1) % (tw + 1) == 0:
+        nr = (H + 1) // (th + 1)
+        nc = (W + 1) // (tw + 1)
+        if nr >= 1 and nc >= 1 and (nr > 1 or nc > 1):
+            for br in range(nr):
+                for bc in range(nc):
+                    r0 = br * (th + 1)
+                    c0 = bc * (tw + 1)
+                    panels.append(g[r0 : r0 + th, c0 : c0 + tw])
+            return panels
+    return panels
+
+
+def _compute_block_summary_pair(g: np.ndarray, th: int, tw: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Computes primary (dominant non-zero foreground color per block) and secondary
+    (outlier/secondary foreground color per block) downscaled canvases of shape `(th, tw)`.
+    """
+    H, W = g.shape
+    prim = np.zeros((th, tw), dtype=np.int32)
+    sec = np.zeros((th, tw), dtype=np.int32)
+    for r in range(th):
+        r0 = (r * H) // th
+        r1 = max(r0 + 1, ((r + 1) * H) // th)
+        for c in range(tw):
+            c0 = (c * W) // tw
+            c1 = max(c0 + 1, ((c + 1) * W) // tw)
+            blk = g[r0:r1, c0:c1]
+            nz = blk[blk != 0]
+            if nz.size > 0:
+                vals, cnts = np.unique(nz, return_counts=True)
+                order = np.argsort(-cnts)
+                prim[r, c] = int(vals[order[0]])
+                sec[r, c] = int(vals[order[-1]]) if len(vals) > 1 else int(vals[order[0]])
+            else:
+                prim[r, c] = 0
+                sec[r, c] = 0
+    return prim, sec
+
+
+def _select_zero_leakage_pullback(
+    demo_ins: List[np.ndarray],
+    demo_outs: List[np.ndarray],
+    test_in: np.ndarray,
+    target_shape: Tuple[int, int],
+) -> Tuple[List[np.ndarray], np.ndarray, List[np.ndarray], np.ndarray, str, bool]:
+    """
+    Selects a spatial pullback map `P : Z^(H_in x W_in) -> Z^(H_out x W_out)` from a small,
+    fixed library of *generic* geometric rule families and applies it to the test input.
+
+    Rule families (each is accepted only if it reproduces every demo output exactly, which uses
+    demo labels only, never test labels):
+      A. Whole-grid resampling: nearest-neighbour rescale and periodic tiling (identity / flips).
+      B. Object crops: bounding box of all foreground, or of the largest / smallest / rarest-colour
+         connected component (4- or 8-connected).
+      C. Frame interior: interior of the largest single-colour rectangular frame.
+      D. Sub-panel selection: uniform sub-panels (optionally separated by 1-px divider lines),
+         selected by a fixed index, max / min foreground count, or the odd-one-out panel.
+    Otherwise falls back to a block-downscale summary (dominant / secondary foreground colour per
+    block), which is returned with `demo_exact_match = False`.
+
+    No rule in this library references or was keyed to any specific ARC task.
+    Returns `(demo_prim_list, test_prim, demo_sec_list, test_sec, rule_name, demo_exact_match)`.
+    """
+    th_test, tw_test = int(target_shape[0]), int(target_shape[1])
+
+    def _try_stateless(
+        name: str, fn
+    ) -> Optional[Tuple[List[np.ndarray], np.ndarray, List[np.ndarray], np.ndarray, str, bool]]:
+        demo_preds = []
+        for inp, out in zip(demo_ins, demo_outs):
+            th, tw = int(out.shape[0]), int(out.shape[1])
+            p = fn(inp, th, tw)
+            if p is None or p.shape != (th, tw) or not np.array_equal(p, out):
+                return None
+            demo_preds.append(p.astype(np.int32))
+        tp = fn(test_in, th_test, tw_test)
+        if tp is None or tp.shape != (th_test, tw_test):
+            return None
+        tp = tp.astype(np.int32)
+        return demo_preds, tp, [dp.copy() for dp in demo_preds], tp.copy(), name, True
+
+    # ---------------- Family A: whole-grid resampling & periodic tiling ----------------
+    def _r_nn_scale(inp: np.ndarray, th: int, tw: int) -> Optional[np.ndarray]:
+        H, W = inp.shape
+        rs = (np.arange(th) * H) // th
+        cs = (np.arange(tw) * W) // tw
+        return inp[np.ix_(rs, cs)]
+
+    def _r_tile_id(inp: np.ndarray, th: int, tw: int) -> Optional[np.ndarray]:
+        H, W = inp.shape
+        return inp[np.ix_(np.arange(th) % H, np.arange(tw) % W)]
+
+    def _make_tile_flip(axis: str):
+        def _r(inp: np.ndarray, th: int, tw: int) -> Optional[np.ndarray]:
+            H, W = inp.shape
+            if th % H != 0 or tw % W != 0:
+                return None
+            out = np.zeros((th, tw), dtype=inp.dtype)
+            for br in range(th // H):
+                for bc in range(tw // W):
+                    blk = inp
+                    if axis in ("h", "hv") and bc % 2 == 1:
+                        blk = np.fliplr(blk)
+                    if axis in ("v", "hv") and br % 2 == 1:
+                        blk = np.flipud(blk)
+                    out[br * H : (br + 1) * H, bc * W : (bc + 1) * W] = blk
+            return out
+
+        return _r
+
+    for name, fn in (
+        ("nn_scale", _r_nn_scale),
+        ("tile_id", _r_tile_id),
+        ("tile_fh", _make_tile_flip("h")),
+        ("tile_fv", _make_tile_flip("v")),
+        ("tile_fhv", _make_tile_flip("hv")),
+    ):
+        res = _try_stateless(name, fn)
+        if res is not None:
+            return res
+
+    # ---------------- Family B: object / bounding-box crops ----------------
+    def _r_fg_bbox(inp: np.ndarray, th: int, tw: int) -> Optional[np.ndarray]:
+        bg = _bg_color(inp)
+        rs, cs = np.where(inp != bg)
+        if rs.size == 0:
+            return None
+        return inp[rs.min() : rs.max() + 1, cs.min() : cs.max() + 1]
+
+    def _make_cc_crop(conn: int, per_color: bool, key: str, masked: bool):
+        def _r(inp: np.ndarray, th: int, tw: int) -> Optional[np.ndarray]:
+            ccs = _get_pullback_cc_list(inp, conn=conn, per_color=per_color)
+            if not ccs:
+                return None
+            if key == "largest":
+                vals = [c["area"] for c in ccs]
+                best = max(vals)
+            elif key == "smallest":
+                vals = [c["area"] for c in ccs]
+                best = min(vals)
+            else:  # rarest colour (by component colour frequency over the whole grid)
+                cols, cnts = np.unique([c["color"] for c in ccs], return_counts=True)
+                rare_col = int(cols[int(np.argmin(cnts))])
+                vals = [1 if c["color"] == rare_col else 0 for c in ccs]
+                best = 1
+            winners = [c for c, v in zip(ccs, vals) if v == best]
+            if len(winners) != 1:
+                return None  # ambiguous selection -> reject rather than guess
+            return winners[0]["sub_masked" if masked else "sub"]
+
+        return _r
+
+    res = _try_stateless("crop_fg_bbox", _r_fg_bbox)
+    if res is not None:
+        return res
+    for conn in (4, 8):
+        for per_color in (False, True):
+            for key in ("largest", "smallest", "rarest_color"):
+                for masked in (False, True):
+                    nm = f"crop_cc{conn}_{'percolor' if per_color else 'any'}_{key}{'_masked' if masked else ''}"
+                    res = _try_stateless(nm, _make_cc_crop(conn, per_color, key, masked))
+                    if res is not None:
+                        return res
+
+    # ---------------- Family C: rectangular frame interior ----------------
+    def _r_frame_interior(inp: np.ndarray, th: int, tw: int) -> Optional[np.ndarray]:
+        best = None
+        for c in np.unique(inp):
+            rs, cs = np.where(inp == c)
+            if rs.size < 8:
+                continue
+            r0, r1, c0, c1 = rs.min(), rs.max(), cs.min(), cs.max()
+            if r1 - r0 < 2 or c1 - c0 < 2:
+                continue
+            if (
+                np.all(inp[r0, c0 : c1 + 1] == c)
+                and np.all(inp[r1, c0 : c1 + 1] == c)
+                and np.all(inp[r0 : r1 + 1, c0] == c)
+                and np.all(inp[r0 : r1 + 1, c1] == c)
+            ):
+                area = (r1 - r0) * (c1 - c0)
+                if best is None or area > best[0]:
+                    best = (area, inp[r0 + 1 : r1, c0 + 1 : c1])
+        return None if best is None else best[1]
+
+    res = _try_stateless("frame_interior", _r_frame_interior)
+    if res is not None:
+        return res
+
+    # ---------------- Family D: uniform sub-panel selection ----------------
+    def _make_panel_select(mode: str, idx: int = 0):
+        def _r(inp: np.ndarray, th: int, tw: int) -> Optional[np.ndarray]:
+            panels = _split_panels(inp, th, tw)
+            if len(panels) < 2:
+                return None
+            bg = _bg_color(inp)
+            if mode == "index":
+                return panels[idx] if idx < len(panels) else None
+            fg = [int(np.sum(p != bg)) for p in panels]
+            if mode in ("max_fg", "min_fg"):
+                tgt = max(fg) if mode == "max_fg" else min(fg)
+                hits = [p for p, f in zip(panels, fg) if f == tgt]
+                return hits[0] if len(hits) == 1 else None
+            # odd-one-out: the unique panel that differs from all others, which are identical
+            for i, p in enumerate(panels):
+                others = [q for j, q in enumerate(panels) if j != i]
+                if all(np.array_equal(others[0], q) for q in others) and not np.array_equal(p, others[0]):
+                    return p
+            return None
+
+        return _r
+
+    for mode, idx in [("index", k) for k in range(4)] + [("max_fg", 0), ("min_fg", 0), ("odd_one_out", 0)]:
+        nm = f"panel_{mode}{idx if mode == 'index' else ''}"
+        res = _try_stateless(nm, _make_panel_select(mode, idx))
+        if res is not None:
+            return res
+
+    # ---------------- Fallback: block-downscale summary (not demo-exact) ----------------
+    demo_prim, demo_sec = [], []
+    for inp, out in zip(demo_ins, demo_outs):
+        th, tw = int(out.shape[0]), int(out.shape[1])
+        if th <= inp.shape[0] and tw <= inp.shape[1]:
+            p, s = _compute_block_summary_pair(inp, th, tw)
+        else:
+            p = _r_nn_scale(inp, th, tw)
+            s = _r_tile_id(inp, th, tw)
+        demo_prim.append(p.astype(np.int32))
+        demo_sec.append(s.astype(np.int32))
+
+    if th_test <= test_in.shape[0] and tw_test <= test_in.shape[1]:
+        test_prim, test_sec = _compute_block_summary_pair(test_in, th_test, tw_test)
+        fb_name = "block_downscale_summary"
+    else:
+        test_prim = _r_nn_scale(test_in, th_test, tw_test).astype(np.int32)
+        test_sec = _r_tile_id(test_in, th_test, tw_test).astype(np.int32)
+        fb_name = "nn_upscale_fallback"
+
+    demo_exact = all(np.array_equal(p, o) for p, o in zip(demo_prim, demo_outs))
+    return demo_prim, test_prim, demo_sec, test_sec, fb_name, demo_exact
+
+
+def extract_beltrami_pullback_canvas(
+    demo_inputs: Any,
+    demo_outputs: Optional[Any] = None,
+    test_input: Optional[Any] = None,
+    target_shape: Optional[Any] = None,
+    side: int = 30,
+) -> PullbackCanvasResult:
+    """
+    Infers and applies a zero-leakage 2D spatial pullback operator
+        `P : Z_12^(H_in x W_in) -> Z_12^(H_out x W_out)`
+    aligning the input grid geometry with the inferred output canvas `(H_out, W_out)`.
+
+    STRICT LEAKAGE GUARD: Only `demo_inputs`, `demo_outputs`, `test_input`, and `target_shape`
+    are inspected; test output grids are never accessed.
+    """
+    target_dev: Union[str, torch.device] = "cpu"
+    if isinstance(demo_inputs, torch.Tensor):
+        target_dev = demo_inputs.device
+    elif isinstance(test_input, torch.Tensor):
+        target_dev = test_input.device
+
+    raw_demo_in_tensor = demo_inputs if _is_trm_batch(demo_inputs, side=side) else None
+    raw_test_in_tensor = test_input if _is_trm_batch(test_input, side=side) else None
+
+    # Parse demo_inputs and demo_outputs
+    if demo_outputs is None and isinstance(demo_inputs, Mapping) and "train" in demo_inputs:
+        train_pairs = demo_inputs["train"]
+        demo_in_grids = [np.asarray(p["input"], dtype=np.int32) for p in train_pairs]
+        demo_out_grids = [np.asarray(p["output"], dtype=np.int32) for p in train_pairs]
+        if test_input is None and "test" in demo_inputs and demo_inputs["test"]:
+            tp0 = demo_inputs["test"][0]
+            test_input = tp0["input"] if isinstance(tp0, Mapping) else tp0
+    elif (
+        demo_outputs is None
+        and isinstance(demo_inputs, (list, tuple))
+        and len(demo_inputs) > 0
+        and isinstance(demo_inputs[0], Mapping)
+        and "input" in demo_inputs[0]
+        and "output" in demo_inputs[0]
+    ):
+        demo_in_grids = [np.asarray(p["input"], dtype=np.int32) for p in demo_inputs]
+        demo_out_grids = [np.asarray(p["output"], dtype=np.int32) for p in demo_inputs]
+    else:
+        demo_in_grids = _parse_grid_list(demo_inputs, side=side)
+        demo_out_grids = _parse_grid_list(demo_outputs, side=side) if demo_outputs is not None else [
+            g.copy() for g in demo_in_grids
+        ]
+
+    if not demo_in_grids:
+        demo_in_grids = [np.zeros((1, 1), dtype=np.int32)]
+    if not demo_out_grids:
+        demo_out_grids = [g.copy() for g in demo_in_grids]
+
+    if test_input is not None:
+        parsed_test = _parse_grid_list(
+            [test_input]
+            if (
+                isinstance(test_input, (list, tuple))
+                and len(test_input) > 0
+                and isinstance(test_input[0], (list, tuple, int, np.integer))
+                and not isinstance(test_input[0], Mapping)
+                and (
+                    not isinstance(test_input[0], (list, tuple))
+                    or len(test_input[0]) == 0
+                    or not isinstance(test_input[0][0], (list, tuple))
+                )
+            )
+            else test_input,
+            side=side,
+        )
+        test_in_grid = parsed_test[0] if parsed_test else demo_in_grids[0].copy()
+    else:
+        test_in_grid = demo_in_grids[0].copy()
+
+    demos_for_shape = [
+        {"input": inp.tolist(), "output": out.tolist()}
+        for inp, out in zip(demo_in_grids, demo_out_grids)
+    ]
+
+    if target_shape is None:
+        pred_th, pred_tw = infer_arc_output_shape_beltrami(
+            demos_for_shape, test_in_grid.tolist(), side=side
+        )
+    elif (
+        isinstance(target_shape, (list, tuple))
+        and len(target_shape) == 1
+        and isinstance(target_shape[0], (list, tuple))
+    ):
+        pred_th, pred_tw = int(target_shape[0][0]), int(target_shape[0][1])
+    else:
+        pred_th, pred_tw = int(target_shape[0]), int(target_shape[1])
+
+    pred_th = max(1, min(side, pred_th))
+    pred_tw = max(1, min(side, pred_tw))
+    demo_target_hws: List[Tuple[int, int]] = [
+        (int(g.shape[0]), int(g.shape[1])) for g in demo_out_grids
+    ]
+
+    is_same_size = all(
+        inp.shape == out.shape for inp, out in zip(demo_in_grids, demo_out_grids)
+    ) and (test_in_grid.shape == (pred_th, pred_tw))
+
+    if is_same_size:
+        demo_prim_grids = [g.copy() for g in demo_in_grids]
+        test_prim_grid = test_in_grid.copy()
+        demo_sec_grids = [g.copy() for g in demo_in_grids]
+        test_sec_grid = test_in_grid.copy()
+        rule_name = "identity_same_size"
+        demo_exact = all(
+            np.array_equal(inp, out) for inp, out in zip(demo_in_grids, demo_out_grids)
+        )
+        if isinstance(raw_demo_in_tensor, torch.Tensor) and raw_demo_in_tensor.ndim == 2:
+            demo_pb_t = raw_demo_in_tensor.clone().to(device=target_dev, dtype=torch.long)
+        else:
+            demo_pb_t = torch.stack(
+                [_grid_2d_to_trm_seq(g, side=side, device=target_dev) for g in demo_prim_grids],
+                dim=0,
+            )
+        if isinstance(raw_test_in_tensor, torch.Tensor):
+            test_pb_t = (
+                raw_test_in_tensor.clone()
+                .reshape(1, -1)
+                .to(device=target_dev, dtype=torch.long)
+            )
+        else:
+            test_pb_t = _grid_2d_to_trm_seq(
+                test_prim_grid, side=side, device=target_dev
+            ).unsqueeze(0)
+        demo_sec_t = demo_pb_t.clone()
+        test_sec_t = test_pb_t.clone()
+    else:
+        (
+            demo_prim_grids,
+            test_prim_grid,
+            demo_sec_grids,
+            test_sec_grid,
+            rule_name,
+            demo_exact,
+        ) = _select_zero_leakage_pullback(
+            demo_in_grids, demo_out_grids, test_in_grid, (pred_th, pred_tw)
+        )
+        demo_pb_t = torch.stack(
+            [_grid_2d_to_trm_seq(g, side=side, device=target_dev) for g in demo_prim_grids],
+            dim=0,
+        )
+        test_pb_t = _grid_2d_to_trm_seq(
+            test_prim_grid, side=side, device=target_dev
+        ).unsqueeze(0)
+        demo_sec_t = torch.stack(
+            [_grid_2d_to_trm_seq(g, side=side, device=target_dev) for g in demo_sec_grids],
+            dim=0,
+        )
+        test_sec_t = _grid_2d_to_trm_seq(
+            test_sec_grid, side=side, device=target_dev
+        ).unsqueeze(0)
+
+    return PullbackCanvasResult(
+        demo_inputs_pullback=demo_pb_t,
+        test_input_pullback=test_pb_t,
+        demo_secondary_pullback=demo_sec_t,
+        test_secondary_pullback=test_sec_t,
+        demo_grids_pullback=[g.tolist() for g in demo_prim_grids],
+        test_grid_pullback=test_prim_grid.tolist(),
+        demo_target_hws=demo_target_hws,
+        target_shape=(pred_th, pred_tw),
+        rule_name=rule_name,
+        is_same_size=is_same_size,
+        demo_exact_match=demo_exact,
+    )
+
+

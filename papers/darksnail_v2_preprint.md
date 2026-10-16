@@ -38,6 +38,7 @@
   - [5.1 Beltrami Callosal Shell Spike Preservation & Live Layer-16 Telemetry](#51-beltrami-callosal-shell-spike-preservation--live-layer-16-telemetry)
   - [5.2 Full 400-Task ARC-AGI-1 Public Evaluation Suite](#52-full-400-task-arc-agi-1-public-evaluation-suite)
   - [5.3 Mechanistic Breakdown of the 12 Newly Solved ARC-AGI-1 Tasks](#53-mechanistic-breakdown-of-the-12-newly-solved-arc-agi-1-tasks)
+  - [5.4 CDS Phase 2: Coordinate Pullback, Pre-Triad Spectral Coupling \& Leakage Audit](#54-cds-phase-2-coordinate-pullback-pre-triad-spectral-coupling--leakage-audit)
 - [6. Reverse Synthesis Experiments — Full n = 200 LongBench QASPER & Banal NIAH (N = 4,096)](#6-reverse-synthesis-experiments--full-n--200-longbench-qasper--banal-niah-n--4096)
   - [6.1 Banal NIAH (N = 4,096) under Triple Iso-Budget Matching](#61-banal-niah-n--4096-under-triple-iso-budget-matching)
   - [6.2 Full n = 200 LongBench QASPER Evaluation](#62-full-n--200-longbench-qasper-evaluation)
@@ -55,10 +56,11 @@ In this third installment, **Project DarkSnail** (together with its **Continuous
 All foundational invariants of the synthesis—skew-symmetric 2-color occlusion tie-breaking, pointwise spherical energy conservation on the 12-color probability simplex and Slow-Fast recurrent shells, multi-step unrolled spherical norm invariance (`darksnail_multistep_spherical_invariance`) and trajectory homotopy (`darksnail_multistep_step0_homotopy`) across $K \in \lbrace 1, 4, 8, 16 \rbrace$, exact Step-0 System 1 homotopy invariance, and 2D axial RoPE medoid relative displacement invariance—are machine-checked in Lean 4 ([`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean), `0` `sorry`, `0` compiler warnings) and verified in PyTorch `float32` across $N = 3,600$ spatial cells with maximum numerical residuals of $7.451 \times 10^{-9}$, `0.000e+00` radial drift, and `0.000e+00` Step-0 drift.
 
 In the **Forward Synthesis** (`sparse-ai` $\to$ `brain-ai` on canonical $N = 400$ ARC-AGI-1), we diagnose and resolve three structural choke points in Phase 3 bi-hemispheric adaptation:
-(i) **Callosal Mean-Pooling Dilution & Dynamic Shape Inference**, resolved by replacing uniform `F.adaptive_avg_pool1d` with [`BeltramiCallosalShell`](../darksnail/shell.py#L28-L505), which recovers rule-boundary spikes from `0.0306` (`96.9%` signal loss) to **`1.0000` (`100%` spike preservation)** while matching the exact `(B, 32, 4096)` `float32` input contract of frozen `CallosalConditioning`, and pairing it with [`infer_arc_output_shape_beltrami`](../darksnail/shell.py#L1063-L1798) to lift held-out test output shape accuracy from `368 / 419` (`87.83%`) to **`419 / 419` (`100.00%`, `+51 / 51` dynamic shapes solved)**;
+(i) **Callosal Mean-Pooling Dilution & Dynamic Shape Inference**, resolved by replacing uniform `F.adaptive_avg_pool1d` with [`BeltramiCallosalShell`](../darksnail/shell.py#L28-L505), which recovers rule-boundary spikes from `0.0306` (`96.9%` signal loss) to **`1.0000` (`100%` spike preservation)** while matching the exact `(B, 32, 4096)` `float32` input contract of frozen `CallosalConditioning`, and pairing it with [`infer_arc_output_shape_beltrami`](../darksnail/shell.py#L1063-L1798) to lift evaluation-split test output shape accuracy from `368 / 419` (`87.83%`) to **`419 / 419` (`100.00%`, `+51 / 51` dynamic shapes solved)**. This figure is in-sample, since the added rules were developed against the failing evaluation pairs; the same predictor scores `393 / 416` (`94.47%`) on the ARC training split;
 (ii) the **Symmetric Readout Tie-Breaking Barrier**, resolved by harvesting all **`8,192 / 8,192` (`100.0%`) coordinates** (`+5,694` previously zero-gradient coordinates) of the test-time adaptation vector $\delta z \in \mathbb{R}^{16 \times 512}$ via [`SkewSymmetricTriadOperator`](../darksnail/readout.py#L31-L162), [`DarkSnailCanvasReadout`](../darksnail/readout.py#L173-L1854), [`ContinuousSpectralFieldReadout`](../darksnail/readout.py#L2168-L2345), and multi-step [`SlowFastTriadCascade`](../darksnail/readout.py#L1857-L2018); and
 (iii) the **Static Amygdalar Gate**, upgraded to the tri-signal [`ZenoAmygdalaController`](../darksnail/antenna.py#L68-L355) with adaptive unroll depth dispatch $K \in \lbrace 1, 4, 8, 16 \rbrace$ and surgical $1/N_{\mathrm{cells}}$ velocity ray extrapolation quantiles.
 Across the full $N = 400$ held-out ARC-AGI-1 public evaluation suite, DarkSnail V2 lifts the official ARC score from `0.50 / 400` (`0.125%`, System 1) and `16.50 / 400` (`4.125%`, `brain-ai` Phase 3 System 2, `15` strict tasks) to **`27.00 / 400` (`6.750%`, Wilson 95% CI `[4.68%, 9.64%]`, `27` strict all-pair tasks solved, `419 / 419` exact output shapes, `0` regressions)**, achieving an exact two-sided paired McNemar gain of **`+12 / -0`** ($p = 4.883 \times 10^{-4}$) **over `brain-ai` System 2** and **`+27 / -0`** ($p = 1.490 \times 10^{-8}$) **over System 1**.
+The **CDS Phase 2** extension (generic spatial pullback canvases and pre-triad spectral coupling, Section 5.4) raises this to **`38.00 / 400` (`9.50%`, Wilson 95% CI `[7.00%, 12.77%]`)**. That is `+11 / -0` over Pass 1 ($p = 9.77 \times 10^{-4}$) and `+23 / -0` over `brain-ai` S2 ($p = 2.38 \times 10^{-7}$), measured after removing all evaluation-task-keyed code (Section 5.4.3).
 
 In the **Reverse Synthesis** (`brain-ai` $\to$ `sparse-ai` on full $n = 200$ LongBench QASPER & $N = 4,096$ Banal NIAH), we resolve the **Deep-Sparsity Boundary Blind Spot** of standalone V4 ultrametric routing (`v4_triad@r`) at tree depths $r \ge 3$ by feeding Layer-16 [`BeltramiCallosalShell`](../darksnail/longbench.py#L199-L241) telemetry ($\Phi_{\mathrm{LH}} = 0.6039$), Query-Tail Beltrami Outlier Shielding ([`_update_darksnail_shield`](../llama_surgery/surgery.py#L521-L579)), and Measure-Preserving Callosal Block Bridges ([`_apply_darksnail_block_bridge`](../llama_surgery/surgery.py#L580-L671)) back into [`SurgicalLlamaAttention`](../llama_surgery/surgery.py#L136-L1251).
 Enforcing exact **triple iso-budget equivalence** across `window@r`, `v4_triad@r`, and `darksnail@r` within $\le 0.09\%$ causal keys via closed-form causal-triangle geometry ([`solve_iso_budget_window_width`](../darksnail/longbench.py#L344-L362)), `darksnail@3/4/5` achieves **`100.0%` recall (`10/10`) across all depths** on $N = 4,096$ Banal NIAH (`"spherical coordinates"`, vs. `40.0% / 30.0% / 30.0%` for iso-budget `window@3/4/5`).
@@ -159,7 +161,7 @@ flowchart TD
         AsymSlice["Indices 4802:4810 & 5322:5658: D_4 Consensus, Ray-March & Panel Complement Basis"]
         CascadeSlice["Indices 4810:5322 & 8072:8168: Multi-Step (K in 1..16) Slow-Fast Spherical Triad Cascade in so(8)"]
         SpecSlice["Indices 5658:8072 & 8168:8192: 201-Channel 2D Spectral, Multi-Bounce Ray & Jordan Enclosure Field Phi_spec"]
-        CanvasOut["Exact ARC Output Grid (27.00 / 400 Score, 419 / 419 Shapes, +12 / -0 McNemar p = 4.883e-4)"]
+        CanvasOut["Exact ARC Output Grid (Pass 1: 27.00 / 400; Phase 2: 38.00 / 400, +11 / -0 vs. Pass 1, p = 9.77e-4)"]
 
         DaleCC --> Adapt
         ShapePred --> CanvasOut
@@ -177,7 +179,7 @@ Our contributions are organized across four pillars:
    In [`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean), we prove seven machine-checked theorem families (`skew_triad_swap_neg`, `occlusion_triad_breaks_symmetric_tie`, `darksnail_readout_energy_conservation`, `darksnail_step0_system1_homotopy`, `rope2d_medoid_relative_invariance` / `rope2d_arithmetic_norm_lt`, `darksnail_multistep_spherical_invariance`, and `darksnail_multistep_step0_homotopy`) establishing that the 3-tensor skew-symmetric bilinear operator strictly resolves 2-color symmetric ties while conserving pointwise spherical energy with $\max \lvert\langle v, B_W(u, v)\rangle\rvert \le 7.451 \times 10^{-9}$ and maintaining exact `0.000e+00` radial norm drift across $K \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent cascade steps in `float32`.
 2. **Forward Synthesis & Continuous Dynamical System (CDS) Extension** (`sparse-ai` $\to$ `brain-ai`, Sections 3 & 5):
    We introduce [`BeltramiCallosalShell`](../darksnail/shell.py#L28-L505), [`infer_arc_output_shape_beltrami`](../darksnail/shell.py#L1063-L1798) (**`419 / 419` = `100.00%` exact ARC-AGI-1 output shapes**), [`DarkSnailCanvasReadout`](../darksnail/readout.py#L173-L1854) and [`ContinuousSpectralFieldReadout`](../darksnail/readout.py#L2168-L2345) (activating all **`8,192 / 8,192` = `100.0%`** coordinates of $\delta z$ across a 201-channel 2D DCT-II, multi-bounce ray, and Jordan enclosure basis `Phi_spec`), multi-step [`SlowFastTriadCascade`](../darksnail/readout.py#L1857-L2018), [`RoPE2DMedoidPooler`](../darksnail/readout.py#L2020-L2165), and [`ZenoAmygdalaController`](../darksnail/antenna.py#L68-L355).
-   On the canonical $N = 400$ ARC-AGI-1 benchmark, DarkSnail V2 solves **12 additional strict tasks with zero regressions** (`27.00 / 400` = `6.750%`, exact McNemar $p = 4.883 \times 10^{-4}$ vs. `brain-ai` Phase 3 S2).
+   On the canonical $N = 400$ ARC-AGI-1 benchmark, DarkSnail V2 solves **12 additional strict tasks with zero regressions** (`27.00 / 400` = `6.750%`, exact McNemar $p = 4.883 \times 10^{-4}$ vs. `brain-ai` Phase 3 S2). CDS Phase 2 adds [`extract_beltrami_pullback_canvas`](../darksnail/shell.py) and pre-triad spectral coupling for a further **`+11 / -0`** (`38.00 / 400` = `9.50%`, $p = 9.77 \times 10^{-4}$ vs. Pass 1).
 3. **Reverse Synthesis** (`brain-ai` $\to$ `sparse-ai`, Sections 4 & 6):
    We introduce the non-destructive Layer-16 [`BeltramiCallosalShell`](../darksnail/longbench.py#L199-L241) telemetry hook, Query-Tail Beltrami Outlier Shielding ([`_update_darksnail_shield`](../llama_surgery/surgery.py#L521-L579)), and Measure-Preserving Callosal Block Bridges ([`_apply_darksnail_block_bridge`](../llama_surgery/surgery.py#L580-L671)), paired with exact closed-form causal-triangle window matching ([`solve_iso_budget_window_width`](../darksnail/longbench.py#L344-L362)) and lossless first-line stopping ([`_FirstLineStop`](../darksnail/longbench.py#L566-L577)).
 4. **Statistically Significant Gains & Cross-Depth Dominance on Full** $n = 200$ **LongBench QASPER (Section 6):**
@@ -644,7 +646,8 @@ Table 3 reports the head-to-head comparison against System 1 Zero-Shot and `brai
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | System 1 Zero-Shot (`submission_s1_zero_shot.json`) | `368 / 419` (`87.83%`) | `0.50` | `0.125%` | `[0.01%, 1.19%]` | `0` | Baseline (`1 / 419` pair solved in `6.7 ms`) |
 | `brain-ai` Phase 3 System 2 (`submission_s2_adapted.json`) | `368 / 419` (`87.83%`) | `16.50` | `4.125%` | `[2.57%, 6.55%]` | `15` | `+15 / -0` vs. S1 ($p = 3.052 \times 10^{-5}$) |
-| DarkSnail V2 + CDS Extension (`submission_darksnail_v2.json`) | **`419 / 419` (`100.00%`)** | **`27.00`** | **`6.750%`** | **`[4.68%, 9.64%]`** | **`27`** | `+27 / -0` vs. S1 ($p = 1.490 \times 10^{-8}$); `+12 / -0` vs. `brain-ai` S2 ($p = 4.883 \times 10^{-4}$) |
+| DarkSnail V2 + CDS Extension, Pass 1 (`darksnail_arc_evaluation_summary_pass1.json`) | `419 / 419` (`100.00%`) | `27.00` | `6.750%` | `[4.68%, 9.64%]` | `27` | `+27 / -0` vs. S1 ($p = 1.490 \times 10^{-8}$); `+12 / -0` vs. `brain-ai` S2 ($p = 4.883 \times 10^{-4}$) |
+| DarkSnail V2 + CDS Phase 2 (`submission_darksnail_v2.json`) | **`419 / 419` (`100.00%`)** | **`38.00`** | **`9.500%`** | **`[7.00%, 12.77%]`** | **`38`** | `+38 / -0` vs. S1 ($p = 7.28 \times 10^{-12}$); `+23 / -0` vs. `brain-ai` S2 ($p = 2.38 \times 10^{-7}$); `+11 / -0` vs. Pass 1 ($p = 9.77 \times 10^{-4}$) |
 
 Across all 400 evaluation tasks (419 test pairs), `infer_arc_output_shape_beltrami` resolves **all `419 / 419` (`100.00%`) exact output shapes** (`+51 / 51` dynamic-shape pairs over the `368 / 419` baseline, with `0` regressions), while DarkSnail V2 increases the number of strictly solved full tasks by **`+80.0%` (`15 -> 27` strict tasks)** and raises the official fractional ARC score by **`+63.6%` (`16.50 -> 27.00 / 400`, `+10.50` fractional tasks)** while incurring **zero regressions (`-0` lost tasks)** across the 15 tasks already solved by `brain-ai` Phase 3 (`00576224`, `0692e18c`, `0c9aba6e`, `506d28a5`, `5b6cbef5`, `66f2d22f`, `903d1b4a`, `929ab4e9`, `a406ac07`, `a8610ef7`, `bbb1b8b6`, `be03b35f`, `ca8f78db`, `d19f7514`, `e133d23d`).
 Under an exact two-sided binomial McNemar test on discordant strict task pairs ($b = 12$ gained, $c = 0$ lost), the improvement over `brain-ai` Phase 3 System 2 is highly statistically significant at $\mathbf{p = 2^{-11} = 4.883 \times 10^{-4}}$ (and $p = 2^{-26} = 1.490 \times 10^{-8}$ vs. System 1).
@@ -670,7 +673,41 @@ Table 4 provides a task-by-task mechanistic breakdown of all 12 newly solved ARC
 
 ![DarkSnail V2 ARC-AGI-1 Visual Showcase Gallery](../results/darksnail_v2_showcase_gallery.png)
 
-**Figure 2:** Visual showcase of representative ARC-AGI-1 tasks newly solved to `100%` exact match by Project DarkSnail V2 (`af22c60d`, `0b17323b`, `ce039d91`, `195ba7dc`, `31d5ba1a`, `5d2a5c43`, `6ea4a07e`, `e345f17b`), illustrating how skew-symmetric triad occlusion breaking, off-center $D_4$ consensus repair, collinear diagonal ray-marching, and content-addressed basis caching convert 1–2 pixel near-misses and half-solved multi-pair tasks into exact solutions.
+**Figure 2:** ARC-AGI-1 tasks newly solved in CDS Phase 2 (test pair 0; columns: input, `brain-ai` S2, DarkSnail with winning stage, ground truth). The figure is regenerated from `results/darksnail_arc_evaluation_summary.json` by Colab Cell 6.
+
+### 5.4 CDS Phase 2: Coordinate Pullback, Pre-Triad Spectral Coupling & Leakage Audit
+
+#### 5.4.1 Method
+
+CDS Phase 2 adds two components ([`docs/CDS_PHASE2_EXPERIMENT_RESULTS.md`](../docs/CDS_PHASE2_EXPERIMENT_RESULTS.md)):
+
+1. **Spatial pullback canvas** ([`extract_beltrami_pullback_canvas`](../darksnail/shell.py)). For shape-changing tasks, a pullback $\mathcal P : \mathbb Z_{12}^{H_{\mathrm{in}} \times W_{\mathrm{in}}} \to \mathbb Z_{12}^{H_{\mathrm{out}} \times W_{\mathrm{out}}}$ is selected from a fixed library of generic geometric families: rescale/tiling, bounding-box and extremal-object crops, frame interior, sub-panel selection, and a block-downscale fallback. A rule is accepted only if it reproduces every demo output exactly. All readout bases are then built on the pulled-back canvas. For same-size tasks, $\mathcal P$ is the identity, bit-for-bit.
+2. **Pre-triad spectral coupling** in `DarkSnailCanvasReadout`. The spectral logit shift is folded into the canvas logits before the competing-colour vector `v_comp = 0.70 softmax(l_sym / tau_v) + 0.30 c_cand` is formed, with per-colour ray, connected-component and Jordan-enclosure support injected into the candidate term `c_cand`. The per-colour spectral weights are contracted $\mathrm{Sym}(9)$-equivariantly when `color_preserving=True`, and coordinate carriers are damped 10× to prevent pixel memorisation.
+
+TTA is staged identically for every task, with no task-ID gating:
+- Stage 1: base readout.
+- Stage 2a: pullback, only when a rule is demo-exact.
+- Stage 2b: spectral-triad, `spectral_gain = 0.35`.
+
+#### 5.4.2 Results
+
+Phase 2 solves **`38 / 400`** strict tasks (`+11 / -0` vs. Pass 1, $p = 9.77 \times 10^{-4}$). All 27 Pass-1 tasks are retained.
+
+| Mechanism | New tasks | Task IDs |
+| :--- | :---: | :--- |
+| Stage 2a pullback (`nn_scale`, `tile_id`, `tile_fh`, rarest-colour crop) | 6 | `60c09cac`, `d4b1c2b1`, `a59b95c0`, `ccd554ac`, `bc4146bd`, `cd3c21df` |
+| Stage 2b pre-triad spectral coupling | 3 | `66e6c45b`, `84db8fc4`, `c7d4e6ad` |
+| Stage 1 (colour-preserving detection; Stage 1 now run on every task) | 2 | `5783df64`, `e872b94a` |
+
+For the Stage 2a tasks the geometric rule already reproduces the demos, so these gains are attributable to rule search rather than the neural readout. The three Stage 2b tasks (relocating a centre block to the corners, distinguishing enclosed from exterior background, and row-wise colour projection) are the gains attributable to the Phase-2 readout itself.
+
+#### 5.4.3 Leakage Audit
+
+An intermediate Phase-2 revision contained hand-written operators keyed to **72 ARC-AGI-1 evaluation task IDs**, none from the training split. Pass 1 additionally used a list of 12 evaluation task IDs to force Stage-1 TTA. All of this was **deleted** before the measurement in 5.4.2, and the evaluated code contains no task-ID-dependent logic.
+
+As an out-of-sample check, we ran the shape predictor and the generic pullback library on the ARC **training** split ([`results/shape_and_pullback_generalization.json`](../results/shape_and_pullback_generalization.json)):
+- **Pullback rules:** exact on `25 / 148` training shape-changing pairs vs. `8 / 142` on evaluation, which is consistent with not being fitted to the evaluation set.
+- **Shape predictor:** `393 / 416` (`94.47%`) on training vs. `419 / 419` on evaluation, which indicates the latter is partly in-sample.
 
 ---
 
@@ -787,10 +824,12 @@ In the Continuous Dynamical System (CDS) Extension ([`docs/CDS_EXTENSION_EXPERIM
 
 1. **Resolution of the Demonstration Bounding-Box Inference Ceiling** (`368 / 419` $\to$ `419 / 419` = `100.00%`):
    Inferring output grid dimensions $(H_{\mathrm{out}}, W_{\mathrm{out}})$ from the 7 baseline geometric rules recovered `368 / 419` (`87.83%`) exact shapes, leaving `51 / 419` (`12.17%`) test pairs where output dimensions depend on dynamic object counts, separator subpanel crops, minority/majority outlier color bounding boxes, or topological enclosure cavities.
-   By integrating 2D Beltrami salience spike counts, connected-component extremum bounding boxes, and Jordan-enclosure cavity descriptors into [`infer_arc_output_shape_beltrami`](../darksnail/shell.py#L1063-L1798), DarkSnail achieves **`419 / 419` (`100.00%`) exact output shape accuracy** across the entire ARC-AGI-1 evaluation suite with zero regressions.
+   By integrating 2D Beltrami salience spike counts, connected-component extremum bounding boxes, and Jordan-enclosure cavity descriptors into [`infer_arc_output_shape_beltrami`](../darksnail/shell.py#L1063-L1798), DarkSnail achieves **`419 / 419` (`100.00%`) exact output shape accuracy** across the entire ARC-AGI-1 evaluation suite with zero regressions. Because these rules were developed against the failing evaluation pairs, this is an in-sample figure; on the ARC training split the predictor scores `393 / 416` (`94.47%`).
 2. **Multi-Step Unrolled Trajectory Integration** ($K \in \lbrace 1, 4, 8, 16 \rbrace$) **& Continuous Spectral Fields (`Phi_spec`):**
    By formalizing `darksnail_multistep_spherical_invariance` and `darksnail_multistep_step0_homotopy` in Lean 4 ([`OcclusionTriad.lean:L313-L511`](../formalization/OcclusionTriad.lean#L313-L511)) and unrolling `SlowFastTriadCascade` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent steps with `ContinuousSpectralFieldReadout`, the Right Hemisphere maintains exact `0.000e+00` radial norm drift and `0.000e+00` Step-0 trajectory homotopy while exposing 201 continuous spectral, multi-bounce ray, and topological enclosure channels during test-time adaptation.
-3. **Sub-50% Extreme Sparsity** ($r \ge 5$) **on Multi-Hop Scientific QA:**
+3. **Evaluation Hygiene on ARC:**
+   Hand-designed operators are easy to overfit to a public evaluation split. Phase 2's audit (Section 5.4.3) removed all task-ID-keyed code. Future operator families should be developed on the ARC training split, and only then scored once on evaluation.
+4. **Sub-50% Extreme Sparsity** ($r \ge 5$) **on Multi-Hop Scientific QA:**
    While `darksnail@4` retains `96.3%` of the `dense` F1 ceiling at `58.65%` causal budget (and achieves `100.0%` Banal NIAH recall down to $r = 5$ at `49.30%` budget), pushing multi-paragraph scientific QA below `35%` causal budget will require joint end-to-end training of the V4 `TriadTopologyRouter` sidecar under the `_apply_darksnail_block_bridge` distribution.
 
 ---
@@ -801,7 +840,7 @@ In the Continuous Dynamical System (CDS) Extension ([`docs/CDS_EXTENSION_EXPERIM
 
 Project DarkSnail completes our three-part investigation into ultrametric sparse transformers and lateralized neuromorphic reasoning.
 By unifying the Bruhat-Tits dyadic triad cascade of *Llama Surgery* with the Dale-constrained transcallosal relaxation of the *Bi-Hemispheric Brain*, and backing every operator with machine-checked proofs in Lean 4 ([`OcclusionTriad.lean`](../formalization/OcclusionTriad.lean)), we establish bidirectional improvements across both domains:
-- **Forward** (`sparse-ai` $\to$ `brain-ai`): `BeltramiCallosalShell` (`100%` rule-spike cosine preservation), `infer_arc_output_shape_beltrami` (**`419 / 419` = `100.00%` exact output shapes**), `DarkSnailCanvasReadout` + `ContinuousSpectralFieldReadout` (`8,192 / 8,192` = `100.0%` active $\delta z$ coordinates with $\mathfrak{so}(12)$ occlusion tie-breaking and 201-channel spectral/multi-bounce ray field `Phi_spec`), multi-step `SlowFastTriadCascade` ($\mathfrak{so}(8)$ spherical recurrent coupling across $K \in \lbrace 1, 4, 8, 16 \rbrace$ with `0.000e+00` radial drift), and `ZenoAmygdalaController` lift canonical $N = 400$ ARC-AGI-1 exact-match performance from `0.50 / 400` (S1) and `16.50 / 400` (`brain-ai` S2) to **`27.00 / 400`** (`6.750%`, `27` strict tasks, `+12 / -0` exact McNemar $p = 4.883 \times 10^{-4}$).
+- **Forward** (`sparse-ai` $\to$ `brain-ai`): `BeltramiCallosalShell` (`100%` rule-spike cosine preservation), `infer_arc_output_shape_beltrami` (**`419 / 419` = `100.00%` exact output shapes**), `DarkSnailCanvasReadout` + `ContinuousSpectralFieldReadout` (`8,192 / 8,192` = `100.0%` active $\delta z$ coordinates with $\mathfrak{so}(12)$ occlusion tie-breaking and 201-channel spectral/multi-bounce ray field `Phi_spec`), multi-step `SlowFastTriadCascade` ($\mathfrak{so}(8)$ spherical recurrent coupling across $K \in \lbrace 1, 4, 8, 16 \rbrace$ with `0.000e+00` radial drift), and `ZenoAmygdalaController` lift canonical $N = 400$ ARC-AGI-1 exact-match performance from `0.50 / 400` (S1) and `16.50 / 400` (`brain-ai` S2) to **`27.00 / 400`** (`6.750%`, `27` strict tasks, `+12 / -0` exact McNemar $p = 4.883 \times 10^{-4}$). CDS Phase 2 then reaches **`38.00 / 400`** (`9.50%`, `+11 / -0` vs. Pass 1) after removing all evaluation-task-keyed code.
 - **Reverse** (`brain-ai` $\to$ `sparse-ai`): Layer-16 `BeltramiCallosalShell` telemetry, Query-Tail Beltrami Outlier Shielding, and Measure-Preserving Callosal Block Bridges under exact triple iso-budget window matching lift $N = 4,096$ Banal NIAH recall to **`100.0%` across** $r = 3, 4, 5$ and boost full $n = 200$ LongBench QASPER accuracy from `37.70 / 35.92 / 29.73` F1 (`v4_triad@2/3/4`) to **`44.20 / 43.33 / 41.51` F1 (`darksnail@2/3/4`)**, surpassing the `100%` `dense` ceiling (`43.10` F1) at $r = 2, 3$ and achieving cross-depth dominance at $r = 4$.
 
 The tree routes the context. The triad breaks the occlusion. The callosum unites the hemispheres.

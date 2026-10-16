@@ -40,6 +40,7 @@ from darksnail.antenna import ZenoAmygdalaController
 from darksnail.readout import DarkSnailCanvasReadout
 from darksnail.shell import (
     compute_grid_prompt_zeno_flux,
+    extract_beltrami_pullback_canvas,
     extract_grid_beltrami_shape_descriptors,
     infer_arc_output_shape_beltrami,
 )
@@ -90,13 +91,30 @@ def is_demo_color_preserving(demos: Optional[Sequence[Mapping[str, Any]]]) -> bo
     if not demos or len(demos) < 2:
         return False
     in_palettes = []
+    diff_out_colors = []
     for d in demos:
-        inp_c = set(np.unique(d["input"]).tolist()) - {0}
-        out_c = set(np.unique(d["output"]).tolist()) - {0}
+        inp_arr = np.asarray(d["input"], dtype=int)
+        out_arr = np.asarray(d["output"], dtype=int)
+        inp_c = set(np.unique(inp_arr).tolist()) - {0}
+        out_c = set(np.unique(out_arr).tolist()) - {0}
         if not out_c or not out_c.issubset(inp_c):
             return False
         in_palettes.append(frozenset(inp_c))
-    return len(set(in_palettes)) > 1
+        if inp_arr.shape == out_arr.shape:
+            diff_m = inp_arr != out_arr
+            if diff_m.any():
+                dc = set(np.unique(out_arr[diff_m]).tolist()) - {0}
+                diff_out_colors.append(frozenset(dc))
+    # If every demo only writes a single fixed fill color across all changed pixels, it is a fixed-color fill rule
+    if (
+        len(diff_out_colors) == len(demos)
+        and len(set(diff_out_colors)) == 1
+        and len(next(iter(diff_out_colors))) == 1
+    ):
+        return False
+    if len(set(in_palettes)) > 1:
+        return True
+    return len(in_palettes[0]) >= 6
 
 
 def wilson_ci(k: float, n: int, z: float = 1.959963984540054) -> Tuple[float, float]:
@@ -203,80 +221,185 @@ def run_darksnail_tta_on_task(
         canvas_cells=(active_target_hw[0] * active_target_hw[1]) if active_target_hw else 100,
     )
 
-    base_final_loss = float(t_diag.get("final_demo_loss", 99.0))
-    force_eval_ids = {
-        "68b67ca3", "31d5ba1a", "ce039d91", "8ba14f53", "9110e3c5",
-        "e57337a4", "195ba7dc", "0b17323b", "af22c60d",
-        "5d2a5c43", "6ea4a07e", "e345f17b",
-    }
-    if base_final_loss > 0.055 and tid not in force_eval_ids:
-        return {
-            "demo_ce": base_final_loss,
-            "color_preserving": color_pres,
-            "zeno_flux": flux_info["zeno_flux"],
-            "lca_variance": flux_info["lca_variance"],
-            "turbulence_index": sched.turbulence_index,
-            "scheduled_steps": 0,
-            "actual_steps": 0,
-            "gate_accepted": False,
-            "test_preds": s2_base_task_preds,
-        }
-
-    dz = nn.Parameter(torch.zeros(16, 512, dtype=torch.float32, device=device))
-    opt = torch.optim.Adam([dz], lr=0.05)
-    best_loss = 1e9
-    best_dz = dz.data.clone()
-    actual_steps = 0
     supports_demo_hws = "demo_target_hws" in inspect.signature(readout.forward).parameters
     extra_demo_kwargs = {"demo_target_hws": demo_target_hws} if supports_demo_hws else {}
 
-    for step in range(30):
-        actual_steps = step + 1
-        opt.zero_grad()
-        logits = readout(
-            logits=base_demo,
-            inputs=demo_in,
-            delta_z=dz,
-            target_hw=active_target_hw,
-            color_preserving=color_pres,
-            triad_gain_override=sched.triad_gain,
-            asym_gain_override=sched.asym_gain,
-            **extra_demo_kwargs,
-        )
-        ce = weighted_ce(logits, demo_out)
-        reg = 0.5 * 0.1 * (dz.pow(2).mean())
-        loss = ce + reg
-        loss.backward()
-        opt.step()
-        ce_val = float(ce.item())
-        if ce_val < best_loss:
-            best_loss = ce_val
-            best_dz = dz.data.clone()
-        if step == 5 and best_loss > 0.45:
-            break
+    best_loss = 1e9
+    best_dz = torch.zeros(16, 512, dtype=torch.float32, device=device)
+    actual_steps = 0
+    winning_stage = "none"
+    pb_rule_name = "same_size_identity"
+
+    # --- Stage 1: Base Symmetric + Skew-Symmetric Triad + Asymmetry Readout (spectral_gain = 0) ---
+    # Runs on every task; acceptance is gated solely by demo CE (no test labels, no task IDs).
+    if True:
+        dz = nn.Parameter(torch.zeros(16, 512, dtype=torch.float32, device=device))
+        opt = torch.optim.Adam([dz], lr=0.05)
+        for step in range(30):
+            actual_steps = step + 1
+            opt.zero_grad()
+            logits = readout(
+                logits=base_demo,
+                inputs=demo_in,
+                delta_z=dz,
+                target_hw=active_target_hw,
+                color_preserving=color_pres,
+                triad_gain_override=sched.triad_gain,
+                asym_gain_override=sched.asym_gain,
+                spectral_gain_override=0.0,
+                **extra_demo_kwargs,
+            )
+            ce = weighted_ce(logits, demo_out)
+            reg = 0.5 * 0.1 * (dz.pow(2).mean())
+            loss = ce + reg
+            loss.backward()
+            opt.step()
+            ce_val = float(ce.item())
+            if ce_val < best_loss:
+                best_loss = ce_val
+                best_dz = dz.data.clone()
+            if step == 5 and best_loss > 0.45:
+                break
+        if best_loss <= 0.0032:
+            winning_stage = "stage1_base"
+
+    # --- Stage 2: Spatial Pullback Homography (2a) & Pre-Triad Spectral-Ray-Enclosure Coupling (2b) ---
+    pb_info = extract_beltrami_pullback_canvas(demos, test_input=task["test"][0]["input"])
+    pb_rule_name = str(pb_info.get("rule_name", "same_size_identity"))
+    use_pullback_stage = (not pb_info["is_same_size"]) and bool(pb_info.get("demo_exact_match", False))
+
+    if winning_stage == "none" and use_pullback_stage:
+        pb_demo_in = pb_info["demo_inputs_pullback"].to(device)
+        pb_demo_sec = pb_info["demo_secondary_pullback"].to(device)
+        pb_base_demo = F.one_hot(pb_demo_in.clamp(0, 11), num_classes=12).float() * 0.75
+        dz_pb = nn.Parameter(torch.zeros(16, 512, dtype=torch.float32, device=device))
+        opt_pb = torch.optim.Adam([dz_pb], lr=0.05)
+        pb_best_loss = 1e9
+        pb_best_dz = dz_pb.data.clone()
+        for step in range(15):
+            actual_steps += 1
+            opt_pb.zero_grad()
+            logits = readout(
+                logits=pb_base_demo,
+                inputs=pb_demo_in,
+                delta_z=dz_pb,
+                target_hw=demo_target_hws,
+                color_preserving=True,
+                triad_gain_override=sched.triad_gain,
+                asym_gain_override=sched.asym_gain,
+                spectral_gain_override=0.0,
+                inputs_pullback=pb_demo_in,
+                secondary_pullback=pb_demo_sec,
+                **extra_demo_kwargs,
+            )
+            ce = weighted_ce(logits, demo_out)
+            reg = 0.5 * 0.1 * (dz_pb.pow(2).mean())
+            loss = ce + reg
+            loss.backward()
+            opt_pb.step()
+            ce_val = float(ce.item())
+            if ce_val < pb_best_loss:
+                pb_best_loss = ce_val
+                pb_best_dz = dz_pb.data.clone()
+        if pb_best_loss <= 0.0032:
+            best_loss = pb_best_loss
+            best_dz = pb_best_dz
+            winning_stage = "stage2a_pullback"
+
+    if winning_stage == "none":
+        dz_sp = nn.Parameter(torch.zeros(16, 512, dtype=torch.float32, device=device))
+        opt_sp = torch.optim.Adam([dz_sp], lr=0.05)
+        sp_best_loss = 1e9
+        sp_best_dz = dz_sp.data.clone()
+        for step in range(30):
+            actual_steps += 1
+            opt_sp.zero_grad()
+            logits = readout(
+                logits=base_demo,
+                inputs=demo_in,
+                delta_z=dz_sp,
+                target_hw=demo_target_hws,
+                color_preserving=color_pres,
+                triad_gain_override=sched.triad_gain,
+                asym_gain_override=sched.asym_gain,
+                spectral_gain_override=0.35,
+                **extra_demo_kwargs,
+            )
+            ce = weighted_ce(logits, demo_out)
+            reg = 0.5 * 0.1 * (dz_sp.pow(2).mean())
+            loss = ce + reg
+            loss.backward()
+            opt_sp.step()
+            ce_val = float(ce.item())
+            if ce_val < sp_best_loss:
+                sp_best_loss = ce_val
+                sp_best_dz = dz_sp.data.clone()
+            if step == 5 and sp_best_loss > 0.45:
+                break
+        if sp_best_loss < best_loss:
+            best_loss = sp_best_loss
+            best_dz = sp_best_dz
+        if sp_best_loss <= 0.0032:
+            winning_stage = "stage2b_spectral"
 
     test_preds: List[Dict[str, List[List[int]]]] = []
-    if best_loss <= 0.0032:
+    if best_loss <= 0.0032 and winning_stage != "none":
         with torch.no_grad():
             for pidx, pair in enumerate(task["test"]):
                 test_in = pair["input"]
                 thw = infer_arc_output_shape(demos, test_in)
-                t_in = torch.tensor(
-                    np.asarray([encode_grid_to_trm_seq(test_in)]),
-                    dtype=torch.long,
-                    device=device,
-                )
-                s1_grid = s1_task_preds[pidx]["attempt_1"]
-                base_test = grid_to_base_logits(s1_grid, margin=0.75, device=device)
-                l_out = readout(
-                    logits=base_test,
-                    inputs=t_in,
-                    delta_z=best_dz,
-                    target_hw=thw,
-                    color_preserving=color_pres,
-                    triad_gain_override=sched.triad_gain,
-                    asym_gain_override=sched.asym_gain,
-                )
+                if winning_stage == "stage2a_pullback":
+                    pb_pair = extract_beltrami_pullback_canvas(demos, test_input=test_in, target_shape=thw)
+                    pb_t_in = pb_pair["test_input_pullback"].to(device)
+                    pb_t_sec = pb_pair["test_secondary_pullback"].to(device)
+                    base_test = F.one_hot(pb_t_in.clamp(0, 11), num_classes=12).float() * 0.75
+                    l_out = readout(
+                        logits=base_test,
+                        inputs=pb_t_in,
+                        delta_z=best_dz,
+                        target_hw=thw,
+                        color_preserving=True,
+                        triad_gain_override=sched.triad_gain,
+                        asym_gain_override=sched.asym_gain,
+                        spectral_gain_override=0.0,
+                        inputs_pullback=pb_t_in,
+                        secondary_pullback=pb_t_sec,
+                    )
+                elif winning_stage == "stage2b_spectral":
+                    t_in = torch.tensor(
+                        np.asarray([encode_grid_to_trm_seq(test_in)]),
+                        dtype=torch.long,
+                        device=device,
+                    )
+                    base_test = F.one_hot(t_in.clamp(0, 11), num_classes=12).float() * 0.75
+                    l_out = readout(
+                        logits=base_test,
+                        inputs=t_in,
+                        delta_z=best_dz,
+                        target_hw=thw,
+                        color_preserving=color_pres,
+                        triad_gain_override=sched.triad_gain,
+                        asym_gain_override=sched.asym_gain,
+                        spectral_gain_override=0.35,
+                    )
+                else:
+                    t_in = torch.tensor(
+                        np.asarray([encode_grid_to_trm_seq(test_in)]),
+                        dtype=torch.long,
+                        device=device,
+                    )
+                    s1_grid = s1_task_preds[pidx]["attempt_1"]
+                    base_test = grid_to_base_logits(s1_grid, margin=0.75, device=device)
+                    l_out = readout(
+                        logits=base_test,
+                        inputs=t_in,
+                        delta_z=best_dz,
+                        target_hw=thw,
+                        color_preserving=color_pres,
+                        triad_gain_override=sched.triad_gain,
+                        asym_gain_override=sched.asym_gain,
+                        spectral_gain_override=0.0,
+                    )
                 c_pred = (
                     torch.argmax(l_out[0, :, 2:], dim=-1).cpu().numpy().reshape(30, 30)
                 )
@@ -299,6 +422,8 @@ def run_darksnail_tta_on_task(
         "scheduled_steps": sched.num_steps,
         "actual_steps": actual_steps,
         "gate_accepted": gate_accepted,
+        "winning_stage": winning_stage,
+        "pullback_rule": pb_rule_name,
         "test_preds": test_preds,
     }
 
@@ -381,8 +506,31 @@ def main() -> None:
         "af22c60d",
     ]
     half_solved_3 = ["5d2a5c43", "6ea4a07e", "e345f17b"]
+    total_test_pairs = 0
+    exact_shapes = 0
 
-    for idx, (tid, task) in enumerate(tasks.items()):
+    shard_spec = os.environ.get("DARKSNAIL_SHARD", "")
+    merge_n = int(os.environ.get("DARKSNAIL_MERGE_SHARDS", "0"))
+    shard_dir = ROOT_DIR / "results" / "shards"
+    if shard_spec:
+        shard_k, shard_n = (int(x) for x in shard_spec.split("/"))
+        torch.set_num_threads(2)
+        task_items = [(i, kv) for i, kv in enumerate(tasks.items()) if i % shard_n == shard_k]
+    elif merge_n > 0:
+        task_items = []
+        for k in range(merge_n):
+            with open(shard_dir / f"shard_{k}.json", "r", encoding="utf-8") as f:
+                sh = json.load(f)
+            task_telemetry.update(sh["task_telemetry"])
+            sub_darksnail.update(sh["sub_darksnail"])
+            total_test_pairs += sh["total_test_pairs"]
+            exact_shapes += sh["exact_shapes"]
+        task_telemetry = {tid: task_telemetry[tid] for tid in tasks}
+        sub_darksnail = {tid: sub_darksnail[tid] for tid in tasks}
+    else:
+        task_items = list(enumerate(tasks.items()))
+
+    for idx, (tid, task) in task_items:
         s1_preds = sub_s1[tid]
         s2_base_preds = sub_s2_base[tid]
 
@@ -402,10 +550,17 @@ def main() -> None:
             device=device,
         )
         readout._basis_cache.clear()
+        readout._spectral_basis_cache.clear()
+        readout._ext_op_cache.clear()
 
         ds_preds = ds_res["test_preds"]
         sub_darksnail[tid] = ds_preds
         ds_frac, ds_strict, ds_accs = score_task_submission(ds_preds, task["test"])
+        for pair in task["test"]:
+            total_test_pairs += 1
+            gt_hw = (len(pair["output"]), len(pair["output"][0]))
+            if tuple(infer_arc_output_shape(task["train"], pair["input"])) == gt_hw:
+                exact_shapes += 1
 
         s1_frac_total += s1_frac
         s1_strict_total += int(s1_strict)
@@ -425,6 +580,8 @@ def main() -> None:
             "darksnail_pair_accs": ds_accs,
             "demo_ce": ds_res["demo_ce"],
             "gate_accepted": ds_res["gate_accepted"],
+            "winning_stage": ds_res.get("winning_stage", "none"),
+            "pullback_rule": ds_res.get("pullback_rule", "same_size_identity"),
             "zeno_flux": ds_res["zeno_flux"],
             "lca_variance": ds_res["lca_variance"],
             "turbulence_index": ds_res["turbulence_index"],
@@ -437,16 +594,38 @@ def main() -> None:
                 f"[{idx+1:3d}/400] Task {tid}: "
                 f"S1={s1_frac:.2f} | S2_Base={s2_b_frac:.2f} ({[round(a*100,1) for a in s2_b_accs]}) "
                 f"-> DarkSnail={ds_frac:.2f} ({[round(a*100,1) for a in ds_accs]}) "
-                f"[demo_ce={ds_res['demo_ce']:.4f}, gate={ds_res['gate_accepted']}]",
+                f"[demo_ce={ds_res['demo_ce']:.4f}, gate={ds_res['gate_accepted']}, stage={ds_res.get('winning_stage')}]",
                 flush=True,
             )
         elif (idx + 1) % 50 == 0:
             print(
                 f"[{idx+1:3d}/400] Progress: S1={s1_frac_total:.2f}, "
                 f"S2_Base={s2_base_frac_total:.2f}, DarkSnail={ds_frac_total:.2f} "
-                f"({time.time() - t0:.1f}s)",
+                f"[strict={ds_strict_total}] ({time.time() - t0:.1f}s)",
                 flush=True,
             )
+
+    if shard_spec:
+        shard_dir.mkdir(parents=True, exist_ok=True)
+        with open(shard_dir / f"shard_{shard_k}.json", "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "task_telemetry": task_telemetry,
+                    "sub_darksnail": sub_darksnail,
+                    "total_test_pairs": total_test_pairs,
+                    "exact_shapes": exact_shapes,
+                },
+                f,
+            )
+        print(f"Shard {shard_k}/{shard_n} done: {len(task_telemetry)} tasks ({time.time() - t0:.1f}s)", flush=True)
+        return
+
+    s1_frac_total = sum(t["s1_frac"] for t in task_telemetry.values())
+    s1_strict_total = sum(int(t["s1_strict"]) for t in task_telemetry.values())
+    s2_base_frac_total = sum(t["s2_base_frac"] for t in task_telemetry.values())
+    s2_base_strict_total = sum(int(t["s2_base_strict"]) for t in task_telemetry.values())
+    ds_frac_total = sum(t["darksnail_frac"] for t in task_telemetry.values())
+    ds_strict_total = sum(int(t["darksnail_strict"]) for t in task_telemetry.values())
 
     N = len(tasks)
     b_ds_vs_s1 = sum(
@@ -503,6 +682,29 @@ def main() -> None:
     solved_tasks_list = sorted(
         [tid for tid, t in task_telemetry.items() if t["darksnail_frac"] > 0.0]
     )
+    strict_solved_tasks_list = sorted(
+        [tid for tid, t in task_telemetry.items() if t["darksnail_strict"]]
+    )
+    pass1_path = ROOT_DIR / "results" / "darksnail_arc_evaluation_summary_pass1.json"
+    with open(pass1_path, "r", encoding="utf-8") as f:
+        pass1_27 = set(json.load(f)["solved_tasks"])
+    b_ds_vs_pass1 = sum(1 for tid in strict_solved_tasks_list if tid not in pass1_27)
+    c_ds_vs_pass1 = sum(1 for tid in pass1_27 if tid not in strict_solved_tasks_list)
+    p_ds_vs_pass1 = exact_mcnemar_p(b_ds_vs_pass1, c_ds_vs_pass1)
+
+    phase2_new_tasks = {
+        tid: {
+            "winning_stage": task_telemetry[tid]["winning_stage"],
+            "pullback_rule": task_telemetry[tid]["pullback_rule"],
+            "demo_ce": round(float(task_telemetry[tid]["demo_ce"]), 6),
+            "darksnail_frac": task_telemetry[tid]["darksnail_frac"],
+            "darksnail_strict": task_telemetry[tid]["darksnail_strict"],
+            "darksnail_pair_accs": task_telemetry[tid]["darksnail_pair_accs"],
+            "s2_base_frac": task_telemetry[tid]["s2_base_frac"],
+        }
+        for tid in sorted(task_telemetry.keys())
+        if task_telemetry[tid]["darksnail_frac"] > 0.0 and tid not in pass1_27
+    }
 
     summary = {
         "n_tasks": N,
@@ -547,10 +749,20 @@ def main() -> None:
                 "lost_strict": c_ds_vs_s2,
                 "exact_two_sided_p": p_ds_vs_s2,
             },
+            "darksnail_phase2_vs_pass1_27": {
+                "gained_strict": b_ds_vs_pass1,
+                "lost_strict": c_ds_vs_pass1,
+                "exact_two_sided_p": p_ds_vs_pass1,
+            },
         },
         "near_miss_9_breakdown": near_miss_report,
         "multi_pair_half_solved_3_breakdown": half_solved_report,
+        "phase2_newly_solved_breakdown": phase2_new_tasks,
         "solved_tasks": solved_tasks_list,
+        "strict_solved_tasks": strict_solved_tasks_list,
+        "exact_output_shapes_beltrami": exact_shapes,
+        "total_test_pairs": total_test_pairs,
+        "beltrami_shape_accuracy_pct": round(100.0 * exact_shapes / max(1, total_test_pairs), 2),
     }
 
     results_dir = ROOT_DIR / "results"
@@ -582,6 +794,9 @@ def main() -> None:
     )
     print(
         f"McNemar vs brain-ai S2  : +{b_ds_vs_s2} / -{c_ds_vs_s2} strict tasks (p = {p_ds_vs_s2:.3e})"
+    )
+    print(
+        f"McNemar vs Pass-1 (27)  : +{b_ds_vs_pass1} / -{c_ds_vs_pass1} strict tasks (p = {p_ds_vs_pass1:.3e})"
     )
     print("=" * 72, flush=True)
 
