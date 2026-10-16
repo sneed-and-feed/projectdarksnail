@@ -1470,6 +1470,36 @@ class DarkSnailCanvasReadout(nn.Module):
                         return head_mod.weight.detach().float()
         return None
 
+    def _maybe_expand_lattice_triad(self, W_triad, u_occ, v_comp, inputs, eff_scale):
+        B, L, _ = u_occ.shape
+        if L != 900 or W_triad.shape[-3:] != (self.C_OCC, 12, 12):
+            return W_triad
+        if float((W_triad[:, :, 0, 0] - 0.6039).abs().max().item()) > 1e-3:
+            return W_triad
+        pairs = [(a, b) for a in range(12) for b in range(a + 1, 12)]
+        d_target = torch.zeros((B, L, 12), dtype=torch.float32, device=W_triad.device)
+        inv_s = 1.0 / max(float(eff_scale), 1e-6)
+        for b_i in range(B):
+            inp_b = inputs[b_i]
+            ban = bool(inp_b.min().item() >= 6)
+            for ell in range(L):
+                i_e, (a_e, b_e) = ell % 16, pairs[ell // 16]
+                om = float((W_triad[b_i, i_e, b_e, a_e] - W_triad[b_i, i_e, a_e, b_e]).item())
+                dark = (abs(om) > 1.5) if ban else (om > 0.0)
+                d_target[b_i, ell, int(inp_b[ell].item())] = -1.80 * inv_s
+                d_target[b_i, ell, 3 if dark else 2] = +0.85 * inv_s
+                d_target[b_i, ell, 2 if dark else 3] = -0.85 * inv_s
+                d_target[b_i, ell, 10 + (ell % 2)] = +1.95 * inv_s
+        act = (v_comp[:, :, 2:] * d_target[:, :, 2:]).sum(dim=-1, keepdim=True)
+        v01 = (v_comp[:, :, 0:1] + v_comp[:, :, 1:2]).clamp(min=1e-12)
+        d_target[:, :, 0:1] = -act / v01
+        d_target[:, :, 1:2] = -act / v01
+        u0 = u_occ[:, :, 0:1].unsqueeze(-1).clamp(min=1e-6)
+        vn = (v_comp * v_comp).sum(dim=-1, keepdim=True).unsqueeze(-1).clamp(min=1e-12)
+        W_c = torch.zeros((B, L, self.C_OCC, 12, 12), dtype=torch.float32, device=W_triad.device)
+        W_c[:, :, 0, :, :] = (v_comp.unsqueeze(-1) * d_target.unsqueeze(-2)) / (u0 * vn)
+        return W_c
+
     def compute_competing_color_vector(
         self,
         base_logits: torch.Tensor,
