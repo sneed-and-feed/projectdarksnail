@@ -393,6 +393,21 @@ def test_patch_60_layer_gemma4_model_and_audit_fixes():
     assert 0.0 < warmup_stats["final_mean_block_density"] <= 1.0
     assert warmup_stats["num_steps"] == 2
 
+    # Audit Fix #9: Verify head-chunked long-context prefill (`seq_len > 64`) matches exact full-matrix attention
+    x_long = torch.randn(1, 96, cfg.hidden_size, dtype=torch.float32)
+    for req_d, ds_mode, mask_ov in ((0, False, None), (3, False, None), (3, True, None), (3, False, "window")):
+        model.config.surgical_req_depth = req_d
+        model.config.surgical_darksnail_mode = ds_mode
+        model.config.surgical_mask_override = mask_ov
+        model.config.surgical_window_size = 16
+        out_chunked, w_none = attn5(x_long, output_attentions=False)
+        out_eager, w_full = attn5(x_long, output_attentions=True)
+        assert w_none is None
+        assert w_full is not None
+        assert torch.allclose(out_chunked, out_eager, atol=1e-5), (
+            f"Mismatch in chunked prefill for req_depth={req_d}, darksnail={ds_mode}, override={mask_ov}"
+        )
+
 
 if __name__ == "__main__":
     test_gemma4_31b_topology_constants()

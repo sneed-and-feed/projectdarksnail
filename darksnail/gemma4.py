@@ -1078,8 +1078,12 @@ class SurgicalGemma4Attention(nn.Module):
 
             block_assignments, load_balance_loss = self.router(qk_desc, tau_override=tau)
             self._cached_block_assignments = block_assignments
-            self._cached_q_blk = q_blk
-            self._cached_k_blk = k_blk
+            if self.training or self.router.training:
+                self._cached_q_blk = q_blk
+                self._cached_k_blk = k_blk
+            else:
+                self._cached_q_blk = None
+                self._cached_k_blk = None
 
             if RB > 1:
                 token_assign = block_assignments.repeat_interleave(RB, dim=2)[:, :, :seq_len, :, :]
@@ -1206,44 +1210,45 @@ class SurgicalGemma4Attention(nn.Module):
 
         with torch.no_grad():
             _, k_nope = self.splitter.split(k)
-            k_nf = k_nope.to(torch.float32)
-            k_f = k.to(torch.float32)
-            q_tail = q[:, :, -w_q:, :].to(torch.float32)
-
             dk = torch.zeros((B, H, S), dtype=torch.float32, device=k.device)
             if S > 1:
-                dk[:, :, 1:] = torch.norm(k_nf[:, :, 1:, :] - k_nf[:, :, :-1, :], p=2, dim=-1)
+                dk[:, :, 1:] = torch.norm(
+                    (k_nope[:, :, 1:, :] - k_nope[:, :, :-1, :]).to(torch.float32), p=2, dim=-1
+                )
             flux_norm = dk / (dk.mean(dim=-1, keepdim=True) + 1e-6)
             flux_shield = F.max_pool1d(
                 flux_norm.reshape(B * H, 1, S), kernel_size=9, stride=1, padding=4
             ).reshape(B, H, S)
 
-            res_scores = torch.matmul(q_tail, k_f.transpose(-2, -1)) * self.scale
+            res_scores = (torch.matmul(q[:, :, -w_q:, :], k.transpose(-2, -1)) * self.scale).to(torch.float32)
             res_max = res_scores.max(dim=-2).values
             res_shield = F.max_pool1d(
                 res_max.reshape(B * H, 1, S), kernel_size=13, stride=1, padding=6
             ).reshape(B, H, S)
 
             res_z = (res_shield - res_shield.mean(dim=-1, keepdim=True)) / (
-                res_shield.std(dim=-1, keepdim=True) + 1e-6
+                res_shield.std(dim=-1, keepdim=True, correction=0) + 1e-6
             )
             flux_z = (flux_shield - flux_shield.mean(dim=-1, keepdim=True)) / (
-                flux_shield.std(dim=-1, keepdim=True) + 1e-6
+                flux_shield.std(dim=-1, keepdim=True, correction=0) + 1e-6
             )
             salience = torch.maximum(res_z, 0.85 * flux_z) + 0.35 * (res_z + flux_z)
-            self._darksnail_token_salience = salience
+            if getattr(self.config, "surgical_attention_backend", "eager") == "block_list":
+                self._darksnail_token_salience = salience
+            else:
+                self._darksnail_token_salience = None
 
-            masked_sal = salience.clone()
-            masked_sal[:, :, 0] = float("-inf")
+            salience[:, :, 0] = float("-inf")
             if local_window > 0 and S > local_window:
-                masked_sal[:, :, max(1, S - local_window) :] = float("-inf")
+                salience[:, :, max(1, S - local_window) :] = float("-inf")
 
             avail = max(1, S - max(1, local_window) - 1)
             actual_k = min(shield_k, max(1, avail // 4), avail, S)
             if actual_k > 0:
-                _, top_idx = masked_sal.topk(actual_k, dim=-1)
+                _, top_idx = salience.topk(actual_k, dim=-1)
                 self._darksnail_shield_tokens = top_idx
             else:
+                self._darksnail_shield_tokens = None
                 self._darksnail_shield_tokens = None
 
     def _block_list_eligible(
@@ -1565,11 +1570,16 @@ class SurgicalGemma4Attention(nn.Module):
         # --- Step 5: Post-p-RoPE `k_nope` Ultrametric Routing & DarkSnail Outlier Shield ---
         use_block_list = self._block_list_eligible(hidden_states, attention_mask, past_key_value)
         tau = float(getattr(self.config, "surgical_tau", 1.0))
+        L_kv = k_exp.shape[-2]
+        local_window = int(getattr(self.config, "surgical_local_window", 16))
+        surgical_req_depth = req_depth_cfg if req_depth_cfg == 0 else getattr(self.config, "surgical_req_depth", None)
 
-        if use_block_list and req_depth_cfg == 0:
+        skip_routing = (
+            ((surgical_req_depth == 0 and mask_override is None) or mask_override == "window")
+            and not (self.training or self.router.training)
+        )
+        if skip_routing:
             self.current_penalty = hidden_states.new_zeros(()) if hasattr(hidden_states, "new_zeros") else torch.zeros(1)
-            self._cached_assignments = None
-            self._cached_block_assignments = None
             assignments = None
             block_assignments = None
         else:
@@ -1600,186 +1610,253 @@ class SurgicalGemma4Attention(nn.Module):
                 proj_out = proj_out + delta_h_bridge
             return proj_out, None
 
-        # --- Step 6: Eager Attention Score Matrix & Ultrametric + Beltrami Masking ---
-        scores = torch.matmul(q.to(torch.float32), k_exp.to(torch.float32).transpose(-2, -1)) * self.scale
-        L_kv = k_exp.shape[-2]
+        # --- Step 6: Eager Attention & Memory-Efficient Chunked Ultrametric + Beltrami Masking ---
+        want_attn_weights = bool(kwargs.get("output_attentions", False)) or seq_len <= 64
 
-        if isinstance(attention_mask, torch.Tensor):
-            if attention_mask.dim() == 2:
-                pad_mask = (attention_mask[:, :L_kv] == 0).unsqueeze(1).unsqueeze(2)
-                scores = scores.masked_fill(pad_mask, float("-inf"))
-            elif attention_mask.dim() >= 4:
-                mask_slice = attention_mask[..., :seq_len, :L_kv]
-                if mask_slice.dtype == torch.bool:
-                    scores = scores.masked_fill(~mask_slice, float("-inf"))
-                else:
-                    scores = scores + mask_slice
-        if seq_len == L_kv and seq_len > 1:
-            causal_mask = torch.triu(
-                torch.ones(seq_len, L_kv, dtype=torch.bool, device=hidden_states.device), diagonal=1
-            )
-            scores = scores.masked_fill(causal_mask, float("-inf"))
-        elif seq_len > 1:
-            idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
-            idx_k = torch.arange(L_kv, device=hidden_states.device)
-            causal_mask = idx_k.unsqueeze(0) > idx_q.unsqueeze(1)
-            scores = scores.masked_fill(causal_mask, float("-inf"))
-
-        local_window = int(getattr(self.config, "surgical_local_window", 16))
-        levels = assignments.shape[-2] if assignments is not None else 5
-        surgical_req_depth = req_depth_cfg if req_depth_cfg == 0 else getattr(self.config, "surgical_req_depth", None)
-
+        # Fast-path 6A: Dense attention (`surgical_req_depth == 0` and `mask_override is None`)
         if surgical_req_depth == 0 and mask_override is None:
             if getattr(self.config, "surgical_collect_stats", False) and seq_len > 1:
                 self.last_mean_allowed_keys = float((L_kv + 1) / 2.0)
                 self.last_mean_causal_keys = float((L_kv + 1) / 2.0)
-            attn_weights = F.softmax(scores, dim=-1, dtype=torch.float32).nan_to_num(0.0).to(v_exp.dtype)
+            no_pad = attention_mask is None or (
+                isinstance(attention_mask, torch.Tensor)
+                and attention_mask.dim() == 2
+                and bool((attention_mask[:, :L_kv] != 0).all())
+            )
+            if not want_attn_weights and no_pad and (seq_len == L_kv or seq_len == 1):
+                out = F.scaled_dot_product_attention(
+                    q, k_exp, v_exp, is_causal=(seq_len > 1 and seq_len == L_kv), scale=self.scale
+                )
+                out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
+                proj_out = self.o_proj(out)
+                if delta_h_bridge is not None:
+                    proj_out = proj_out + delta_h_bridge
+                return proj_out, None
+
+            scores = torch.matmul(q.to(torch.float32), k_exp.to(torch.float32).transpose(-2, -1)) * self.scale
+            if isinstance(attention_mask, torch.Tensor):
+                if attention_mask.dim() == 2:
+                    pad_mask = (attention_mask[:, :L_kv] == 0).unsqueeze(1).unsqueeze(2)
+                    scores.masked_fill_(pad_mask, float("-inf"))
+                elif attention_mask.dim() >= 4:
+                    mask_slice = attention_mask[..., :seq_len, :L_kv]
+                    if mask_slice.dtype == torch.bool:
+                        scores.masked_fill_(~mask_slice, float("-inf"))
+                    else:
+                        scores.add_(mask_slice)
+            if seq_len > 1:
+                idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
+                idx_k = torch.arange(L_kv, device=hidden_states.device)
+                scores.masked_fill_(idx_k.unsqueeze(0) > idx_q.unsqueeze(1), float("-inf"))
+            attn_weights = F.softmax(scores, dim=-1, dtype=torch.float32).nan_to_num_(0.0).to(v_exp.dtype)
+            del scores
             out = torch.matmul(attn_weights, v_exp)
             out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
             proj_out = self.o_proj(out)
             if delta_h_bridge is not None:
                 proj_out = proj_out + delta_h_bridge
-            return proj_out, attn_weights
+            return proj_out, (attn_weights if want_attn_weights else None)
 
-        r = min(surgical_req_depth if surgical_req_depth is not None else (levels // 2), levels)
-        indices = assignments.argmax(dim=-1)[..., :r]
-        powers = self.p ** torch.arange(r, device=indices.device)
-        branch_id = (indices * powers).sum(dim=-1)
-
-        if seq_len == 1 and L_kv > 1:
-            curr_branch = branch_id[:, :, -1:].unsqueeze(-1)     # (B, H, 1, 1)
-            past_branches = branch_id[:, :, :L_kv].unsqueeze(-2)  # (B, H, 1, L_kv)
-            um_mask_bool = curr_branch == past_branches
-            if local_window > 0:
-                um_mask_bool[..., :, max(0, L_kv - local_window) :] = True
+        # Fast-path 6B: Matched-budget `window@r` override (head-shared 2D band mask, 32x smaller than 4D mask)
+        if mask_override == "window" and not want_attn_weights:
+            W = int(getattr(self.config, "surgical_window_size", 256) or 256)
+            idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
+            idx_k = torch.arange(L_kv, device=hidden_states.device)
+            win_2d = idx_k.unsqueeze(0) > (idx_q.unsqueeze(1) - W)
+            win_2d[:, 0] = True
+            if seq_len > 1:
+                causal_2d = idx_k.unsqueeze(0) <= idx_q.unsqueeze(1)
+                win_2d &= causal_2d
+                if getattr(self.config, "surgical_collect_stats", False):
+                    self.last_mean_allowed_keys = float(win_2d.sum(-1).float().mean().item())
+                    self.last_mean_causal_keys = float(causal_2d.sum(-1).float().mean().item())
+            um_mask_bool = win_2d.unsqueeze(0).unsqueeze(0)
         else:
-            curr_b = branch_id[:, :, -seq_len:]
-            past_b = branch_id[:, :, :L_kv]
-            um_mask_bool = curr_b.unsqueeze(-1) == past_b.unsqueeze(-2)
-            if local_window > 0:
-                idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
-                idx_k = torch.arange(L_kv, device=hidden_states.device)
-                band = torch.abs(idx_q.unsqueeze(1) - idx_k.unsqueeze(0)) <= local_window
-                um_mask_bool = um_mask_bool | band.unsqueeze(0).unsqueeze(0)
+            levels = assignments.shape[-2] if assignments is not None else 5
+            r = min(surgical_req_depth if surgical_req_depth is not None else (levels // 2), levels)
+            if assignments is not None:
+                indices = assignments.argmax(dim=-1)[..., :r]
+                powers = self.p ** torch.arange(r, device=indices.device)
+                branch_id = (indices * powers).sum(dim=-1)
+                if seq_len == 1 and L_kv > 1:
+                    curr_branch = branch_id[:, :, -1:].unsqueeze(-1)     # (B, H, 1, 1)
+                    past_branches = branch_id[:, :, :L_kv].unsqueeze(-2)  # (B, H, 1, L_kv)
+                    um_mask_bool = curr_branch == past_branches
+                    if local_window > 0:
+                        um_mask_bool[..., :, max(0, L_kv - local_window) :] = True
+                else:
+                    curr_b = branch_id[:, :, -seq_len:]
+                    past_b = branch_id[:, :, :L_kv]
+                    um_mask_bool = curr_b.unsqueeze(-1) == past_b.unsqueeze(-2)
+                    if local_window > 0:
+                        idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
+                        idx_k = torch.arange(L_kv, device=hidden_states.device)
+                        band = torch.abs(idx_q.unsqueeze(1) - idx_k.unsqueeze(0)) <= local_window
+                        um_mask_bool |= band.unsqueeze(0).unsqueeze(0)
+                um_mask_bool[..., :, 0] = True
+            else:
+                um_mask_bool = torch.ones(
+                    (batch_size, self.num_heads, seq_len, L_kv), dtype=torch.bool, device=hidden_states.device
+                )
 
-        # Always keep Token 0 (Attention Sink)
-        um_mask_bool[..., :, 0] = True
+            # Audit Fix #4b: Full DarkSnail Decode + Prefill Measure-Preserving Donor Pruning
+            if darksnail_mode and mask_override is None:
+                sh_tokens = self._darksnail_shield_tokens
+                if seq_len == 1 and L_kv > 1:
+                    if sh_tokens is not None:
+                        sh_idx = sh_tokens.unsqueeze(2).clamp(0, L_kv - 1)
+                        um_mask_bool.scatter_(-1, sh_idx, True)
+                    decode_k = min(int(getattr(self.config, "surgical_darksnail_decode_k", 64)), L_kv)
+                    if decode_k > 0:
+                        dec_scores = (torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale).to(torch.float32)
+                        live_pool = F.max_pool1d(
+                            dec_scores.squeeze(2).reshape(batch_size * self.num_heads, 1, L_kv),
+                            kernel_size=9,
+                            stride=1,
+                            padding=4,
+                        ).reshape(batch_size, self.num_heads, 1, L_kv)
+                        _, live_top = live_pool.topk(decode_k, dim=-1)
+                        um_mask_bool.scatter_(-1, live_top, True)
+                elif seq_len > 1 and sh_tokens is not None:
+                    w_q = min(16, max(1, seq_len // 8))
+                    tail_start = seq_len - w_q
+                    idx_q_tail = torch.arange(L_kv - w_q, L_kv, device=hidden_states.device)
+                    idx_k_all = torch.arange(L_kv, device=hidden_states.device)
+                    causal_tail = (idx_k_all.unsqueeze(0) <= idx_q_tail.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
+                    before_causal = (um_mask_bool[:, :, tail_start:, :] & causal_tail).sum(dim=(-2, -1))
 
-        # Audit Fix #4b: Full DarkSnail Decode + Prefill Measure-Preserving Donor Pruning
-        if darksnail_mode and mask_override is None:
-            sh_tokens = self._darksnail_shield_tokens
-            if seq_len == 1 and L_kv > 1:
-                if sh_tokens is not None:
-                    sh_idx = sh_tokens.unsqueeze(2).clamp(0, L_kv - 1)
-                    um_mask_bool.scatter_(-1, sh_idx, True)
-                decode_k = min(int(getattr(self.config, "surgical_darksnail_decode_k", 64)), L_kv)
-                if decode_k > 0:
-                    live_pool = F.max_pool1d(
-                        scores.squeeze(2).reshape(batch_size * self.num_heads, 1, L_kv),
-                        kernel_size=9,
-                        stride=1,
-                        padding=4,
-                    ).reshape(batch_size, self.num_heads, 1, L_kv)
-                    _, live_top = live_pool.topk(decode_k, dim=-1)
-                    um_mask_bool.scatter_(-1, live_top, True)
-            elif seq_len > 1 and sh_tokens is not None:
-                w_q = min(16, max(1, seq_len // 8))
-                idx_q_all = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
-                idx_k_all = torch.arange(L_kv, device=hidden_states.device)
-                causal_all = (idx_k_all.unsqueeze(0) <= idx_q_all.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
-                before_causal = (um_mask_bool & causal_all).sum(dim=(-2, -1))
+                    sh_exp = sh_tokens.unsqueeze(2).expand(-1, -1, w_q, -1).clamp(0, L_kv - 1)
+                    um_mask_bool[:, :, tail_start:, :].scatter_(-1, sh_exp, True)
 
-                # Snapshot tail slice before scatter in case donor rows cannot cover all additions
-                tail_start = seq_len - w_q
-                tail_backup = um_mask_bool[:, :, tail_start:, :].clone()
-                sh_exp = sh_tokens.unsqueeze(2).expand(-1, -1, w_q, -1).clamp(0, L_kv - 1)
-                um_mask_bool[:, :, tail_start:, :].scatter_(-1, sh_exp, True)
+                    after_causal = (um_mask_bool[:, :, tail_start:, :] & causal_tail).sum(dim=(-2, -1))
+                    added = (after_causal - before_causal).clamp(min=0)
 
-                after_causal = (um_mask_bool & causal_all).sum(dim=(-2, -1))
-                added = (after_causal - before_causal).clamp(min=0)
-
-                # Measure-preserving donor pruning on preceding filler query rows (batched on CPU to avoid CUDA syncs)
-                donor_end = tail_start
-                donor_start = max(1 + local_window, donor_end - 96)
-                added_cpu = added.cpu()
-                if int(added_cpu.max().item()) > 0:
-                    win_slice = um_mask_bool[:, :, donor_start:seq_len, :].cpu()
-                    tail_bak_cpu = tail_backup.cpu()
-                    n_donor = max(0, donor_end - donor_start)
-                    for b_i in range(batch_size):
-                        for h_i in range(self.num_heads):
-                            add_bh = int(added_cpu[b_i, h_i].item())
-                            if add_bh <= 0:
-                                continue
-                            rem = add_bh + max(8, int(round(0.55 * float(add_bh))))
-                            for d_rel in range(n_donor - 1, -1, -1):
-                                if rem <= 0:
-                                    break
-                                r_d = donor_start + d_rel
-                                k_lim = max(1, (L_kv - seq_len + r_d) - local_window)
-                                if k_lim <= 1:
+                    # Measure-preserving donor pruning on preceding filler query rows (batched on CPU to avoid CUDA syncs)
+                    donor_end = tail_start
+                    donor_start = max(1 + local_window, donor_end - 96)
+                    added_cpu = added.cpu()
+                    if int(added_cpu.max().item()) > 0:
+                        win_slice = um_mask_bool[:, :, donor_start:seq_len, :].cpu()
+                        n_donor = max(0, donor_end - donor_start)
+                        for b_i in range(batch_size):
+                            for h_i in range(self.num_heads):
+                                add_bh = int(added_cpu[b_i, h_i].item())
+                                if add_bh <= 0:
                                     continue
-                                row_d = win_slice[b_i, h_i, d_rel, 1:k_lim]
-                                true_pos = torch.nonzero(row_d, as_tuple=False).reshape(-1)
-                                if true_pos.numel() > 0:
-                                    take = min(rem, int(true_pos.numel()))
-                                    win_slice[b_i, h_i, d_rel, 1 + true_pos[:take]] = False
-                                    rem -= take
-                            # If short sequence had insufficient donor capacity, prune excess from non-final tail rows
-                            if rem > 0:
-                                for r_t in range(max(1, w_q - 1)):
+                                rem = add_bh + max(8, int(round(0.55 * float(add_bh))))
+                                for d_rel in range(n_donor - 1, -1, -1):
                                     if rem <= 0:
                                         break
-                                    q_abs = L_kv - seq_len + tail_start + r_t
-                                    k_lim_t = max(1, q_abs - local_window)
-                                    if k_lim_t <= 1:
+                                    r_d = donor_start + d_rel
+                                    k_lim = max(1, (L_kv - seq_len + r_d) - local_window)
+                                    if k_lim <= 1:
                                         continue
-                                    row_t = win_slice[b_i, h_i, n_donor + r_t, 1:k_lim_t]
-                                    true_pos_t = torch.nonzero(row_t, as_tuple=False).reshape(-1)
-                                    if true_pos_t.numel() > 0:
-                                        take_t = min(rem, int(true_pos_t.numel()))
-                                        win_slice[b_i, h_i, n_donor + r_t, 1 + true_pos_t[:take_t]] = False
-                                        rem -= take_t
-                    um_mask_bool[:, :, donor_start:seq_len, :] = win_slice.to(um_mask_bool.device)
+                                    row_d = win_slice[b_i, h_i, d_rel, 1:k_lim]
+                                    true_pos = torch.nonzero(row_d, as_tuple=False).reshape(-1)
+                                    if true_pos.numel() > 0:
+                                        take = min(rem, int(true_pos.numel()))
+                                        win_slice[b_i, h_i, d_rel, 1 + true_pos[:take]] = False
+                                        rem -= take
+                                if rem > 0:
+                                    for r_t in range(max(1, w_q - 1)):
+                                        if rem <= 0:
+                                            break
+                                        q_abs = L_kv - seq_len + tail_start + r_t
+                                        k_lim_t = max(1, q_abs - local_window)
+                                        if k_lim_t <= 1:
+                                            continue
+                                        row_t = win_slice[b_i, h_i, n_donor + r_t, 1:k_lim_t]
+                                        true_pos_t = torch.nonzero(row_t, as_tuple=False).reshape(-1)
+                                        if true_pos_t.numel() > 0:
+                                            take_t = min(rem, int(true_pos_t.numel()))
+                                            win_slice[b_i, h_i, n_donor + r_t, 1 + true_pos_t[:take_t]] = False
+                                            rem -= take_t
+                        um_mask_bool[:, :, donor_start:seq_len, :] = win_slice.to(um_mask_bool.device)
 
-        # Audit Fix #4c: Support matched-budget `window@r` and `oracle@r` overrides
-        if mask_override == "window":
-            W = int(getattr(self.config, "surgical_window_size", 256) or 256)
-            idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
-            idx_k = torch.arange(L_kv, device=hidden_states.device)
-            band = idx_k.unsqueeze(0) > (idx_q.unsqueeze(1) - W)
-            um_mask_bool = band.unsqueeze(0).unsqueeze(0).expand(*um_mask_bool.shape).clone()
-            um_mask_bool[..., :, 0] = True
-        elif mask_override == "oracle":
-            W = int(getattr(self.config, "surgical_window_size", 256) or 256)
-            recent_w = min(128, W)
-            top_k = max(0, W - recent_w)
-            idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
-            idx_k = torch.arange(L_kv, device=hidden_states.device)
-            band = (idx_k.unsqueeze(0) > (idx_q.unsqueeze(1) - recent_w)).unsqueeze(0).unsqueeze(0)
-            um_mask_bool = band.expand(*um_mask_bool.shape).clone()
-            if top_k > 0:
-                oracle_scores = scores.clone().masked_fill_(band, float("-inf"))
-                if L_kv > seq_len:
-                    causal = (idx_k.unsqueeze(0) <= idx_q.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
-                    oracle_scores.masked_fill_(~causal, float("-inf"))
-                _, topk_indices = oracle_scores.topk(min(top_k, L_kv), dim=-1)
-                um_mask_bool.scatter_(-1, topk_indices, True)
-            um_mask_bool[..., :, 0] = True
+            # Audit Fix #4c: Support matched-budget `window@r` and `oracle@r` overrides
+            if mask_override == "window":
+                W = int(getattr(self.config, "surgical_window_size", 256) or 256)
+                idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
+                idx_k = torch.arange(L_kv, device=hidden_states.device)
+                band = idx_k.unsqueeze(0) > (idx_q.unsqueeze(1) - W)
+                um_mask_bool = band.unsqueeze(0).unsqueeze(0).expand(*um_mask_bool.shape).clone()
+                um_mask_bool[..., :, 0] = True
+            elif mask_override == "oracle":
+                W = int(getattr(self.config, "surgical_window_size", 256) or 256)
+                recent_w = min(128, W)
+                top_k = max(0, W - recent_w)
+                idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
+                idx_k = torch.arange(L_kv, device=hidden_states.device)
+                band = (idx_k.unsqueeze(0) > (idx_q.unsqueeze(1) - recent_w)).unsqueeze(0).unsqueeze(0)
+                um_mask_bool = band.expand(*um_mask_bool.shape).clone()
+                if top_k > 0:
+                    oracle_scores = (torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale).to(torch.float32)
+                    oracle_scores.masked_fill_(band, float("-inf"))
+                    if seq_len > 1:
+                        causal = (idx_k.unsqueeze(0) <= idx_q.unsqueeze(1)).unsqueeze(0).unsqueeze(0)
+                        oracle_scores.masked_fill_(~causal, float("-inf"))
+                    _, topk_indices = oracle_scores.topk(min(top_k, L_kv), dim=-1)
+                    um_mask_bool.scatter_(-1, topk_indices, True)
+                    del oracle_scores
+                um_mask_bool[..., :, 0] = True
 
-        if getattr(self.config, "surgical_collect_stats", False) and seq_len > 1:
-            idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
-            idx_k = torch.arange(L_kv, device=hidden_states.device)
-            causal = idx_k.unsqueeze(0) <= idx_q.unsqueeze(1)
-            allowed = (um_mask_bool & causal).sum(-1).float()
-            self.last_mean_allowed_keys = float(allowed.mean().item())
-            self.last_mean_causal_keys = float(causal.sum(-1).float().mean().item())
+            if seq_len > 1:
+                idx_q = torch.arange(L_kv - seq_len, L_kv, device=hidden_states.device)
+                idx_k = torch.arange(L_kv, device=hidden_states.device)
+                causal_2d = idx_k.unsqueeze(0) <= idx_q.unsqueeze(1)
+                um_mask_bool &= causal_2d.unsqueeze(0).unsqueeze(0)
+                if getattr(self.config, "surgical_collect_stats", False):
+                    self.last_mean_allowed_keys = float(um_mask_bool.sum(-1).float().mean().item())
+                    self.last_mean_causal_keys = float(causal_2d.sum(-1).float().mean().item())
 
-        sparse_scores = scores.masked_fill(~um_mask_bool, float("-inf"))
-        is_all_neg_inf = (sparse_scores == float("-inf")).all(dim=-1, keepdim=True)
-        sparse_scores.masked_fill_(is_all_neg_inf, 0.0)
+        # Fast-path 6C: Head-chunked bfloat16/float32 attention for long prefill (`seq_len > 64`)
+        # Avoids materializing 3.82 GiB 32-head `(B, 32, S, S)` score/softmax copies simultaneously.
+        if not want_attn_weights:
+            out = torch.empty_like(q)
+            head_chunk = 2 if L_kv > 2048 else 4
+            for h0 in range(0, self.num_heads, head_chunk):
+                h1 = min(self.num_heads, h0 + head_chunk)
+                s_chunk = torch.matmul(q[:, h0:h1], k_exp[:, h0:h1].transpose(-2, -1)) * self.scale
+                if isinstance(attention_mask, torch.Tensor):
+                    if attention_mask.dim() == 2:
+                        pad_mask = (attention_mask[:, :L_kv] == 0).unsqueeze(1).unsqueeze(2)
+                        s_chunk.masked_fill_(pad_mask, float("-inf"))
+                    elif attention_mask.dim() >= 4:
+                        h_sl = slice(h0, h1) if attention_mask.shape[1] > 1 else slice(0, 1)
+                        mask_slice = attention_mask[:, h_sl, :seq_len, :L_kv]
+                        if mask_slice.dtype == torch.bool:
+                            s_chunk.masked_fill_(~mask_slice, float("-inf"))
+                        else:
+                            s_chunk.add_(mask_slice.to(s_chunk.dtype))
+                m_chunk = um_mask_bool[:, h0:h1] if um_mask_bool.shape[1] > 1 else um_mask_bool
+                s_chunk.masked_fill_(~m_chunk, float("-inf"))
+                w_chunk = F.softmax(s_chunk, dim=-1, dtype=torch.float32).nan_to_num_(0.0).to(v_exp.dtype)
+                out[:, h0:h1] = torch.matmul(w_chunk, v_exp[:, h0:h1])
+                del s_chunk, w_chunk
+            del um_mask_bool
+            out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
+            proj_out = self.o_proj(out)
+            if delta_h_bridge is not None:
+                proj_out = proj_out + delta_h_bridge
+            return proj_out, None
 
-        attn_weights = F.softmax(sparse_scores, dim=-1, dtype=torch.float32).nan_to_num(0.0).to(v_exp.dtype)
+        # Short-sequence / decode / `output_attentions=True` path (`seq_len <= 64`)
+        scores = torch.matmul(q.to(torch.float32), k_exp.to(torch.float32).transpose(-2, -1)) * self.scale
+        if isinstance(attention_mask, torch.Tensor):
+            if attention_mask.dim() == 2:
+                pad_mask = (attention_mask[:, :L_kv] == 0).unsqueeze(1).unsqueeze(2)
+                scores.masked_fill_(pad_mask, float("-inf"))
+            elif attention_mask.dim() >= 4:
+                mask_slice = attention_mask[..., :seq_len, :L_kv]
+                if mask_slice.dtype == torch.bool:
+                    scores.masked_fill_(~mask_slice, float("-inf"))
+                else:
+                    scores.add_(mask_slice)
+        scores.masked_fill_(~um_mask_bool, float("-inf"))
+        is_all_neg_inf = (scores == float("-inf")).all(dim=-1, keepdim=True)
+        scores.masked_fill_(is_all_neg_inf, 0.0)
+
+        attn_weights = F.softmax(scores, dim=-1, dtype=torch.float32).nan_to_num_(0.0).to(v_exp.dtype)
         out = torch.matmul(attn_weights, v_exp)
         out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
         proj_out = self.o_proj(out)

@@ -803,6 +803,11 @@ def main() -> None:
         f"McNemar vs Pass-1 (27)  : +{b_ds_vs_pass1} / -{c_ds_vs_pass1} strict tasks (p = {p_ds_vs_pass1:.3e})"
     )
     print("=" * 72, flush=True)
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.allow_tf32 = True
+    return summary
 
 
 if __name__ == "__main__":

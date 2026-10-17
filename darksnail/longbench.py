@@ -416,6 +416,10 @@ def set_long_context_condition(
     for m in attn_modules(model):
         m._darksnail_shield_tokens = None
         m._darksnail_token_salience = None
+        m._cached_assignments = None
+        m._cached_block_assignments = None
+        m._cached_q_blk = None
+        m._cached_k_blk = None
 
 
 def collect_measured_budget(model: nn.Module) -> Tuple[Optional[float], Optional[float]]:
@@ -469,6 +473,29 @@ def evaluate_banal_niah_comparison(
     iso_budget_window: bool = True,
 ) -> Dict[str, Any]:
     """Compare `window@r`, `v4_triad@r`, and `darksnail@r` on Banal NIAH (`spherical coordinates`)."""
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.allow_tf32 = True
+
+    if num_positions >= 20 and os.environ.get("DARKSNAIL_NIAH_NO_RESUME", "0") != "1":
+        import sys
+        main_mod = sys.modules.get("__main__")
+        existing_mem = getattr(main_mod, "niah_summary", None) if main_mod is not None else None
+        cache_path = Path("results/darksnail_banal_niah_cache.json")
+        for cand in (existing_mem, json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else None):
+            if (
+                isinstance(cand, dict)
+                and cand.get("context_len") == context_len
+                and cand.get("num_positions") == num_positions
+                and cand.get("needle_type") == needle_type
+                and cand.get("depths") == list(depths)
+                and isinstance(cand.get("conditions"), dict)
+                and all(f"darksnail@{r}" in cand["conditions"] for r in depths)
+            ):
+                print(f"[Banal NIAH Resume] Reusing completed {num_positions}-position Banal NIAH sweep from session/disk cache.")
+                return cand
+
     device = next(model.parameters()).device
     if num_positions <= 1:
         depth_ratios = [0.5]
@@ -513,6 +540,7 @@ def evaluate_banal_niah_comparison(
                 use_cache=True,
             )
             gen_v4 = tokenizer.decode(out_v4[0, prompt_len:], skip_special_tokens=True).strip().lower()
+            del out_v4
             pass_v4 = (clean_target in gen_v4) or (" " in clean_target and clean_target.split()[0] in gen_v4)
             allowed_v4, causal_v4 = collect_measured_budget(model)
             stats["v4_triad"]["successes"] += int(pass_v4)
@@ -542,6 +570,7 @@ def evaluate_banal_niah_comparison(
                 use_cache=True,
             )
             gen_ds = tokenizer.decode(out_ds[0, prompt_len:], skip_special_tokens=True).strip().lower()
+            del out_ds
             pass_ds = (clean_target in gen_ds) or (" " in clean_target and clean_target.split()[0] in gen_ds)
             allowed_ds, causal_ds = collect_measured_budget(model)
             stats["darksnail"]["successes"] += int(pass_ds)
@@ -578,6 +607,7 @@ def evaluate_banal_niah_comparison(
                     use_cache=True,
                 )
                 gen_win = tokenizer.decode(out_win[0, prompt_len:], skip_special_tokens=True).strip().lower()
+                del out_win
                 pass_win = (clean_target in gen_win) or (" " in clean_target and clean_target.split()[0] in gen_win)
                 allowed_win, causal_win = collect_measured_budget(model)
                 stats["window"]["successes"] += int(pass_win)
@@ -585,6 +615,8 @@ def evaluate_banal_niah_comparison(
                 if allowed_win and causal_win:
                     stats["window"]["budgets_pct"].append(100.0 * allowed_win / causal_win)
                     stats["window"]["allowed_keys"].append(allowed_win)
+
+            del input_ids
 
         for c in cond_names:
             st = stats[c]
@@ -614,6 +646,15 @@ def evaluate_banal_niah_comparison(
             summary["conditions"][f"{c}@{r}"] = entry
 
     set_long_context_condition(model, req_depth=0, darksnail_mode=False)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if num_positions >= 20:
+        try:
+            os.makedirs("results", exist_ok=True)
+            with open("results/darksnail_banal_niah_cache.json", "w", encoding="utf-8") as fn:
+                json.dump(summary, fn, indent=2)
+        except Exception:
+            pass
     return summary
 
 
@@ -640,6 +681,11 @@ def evaluate_qasper_comparison(
     bootstrap 95% CIs (`minus_v4_triad_ci95`, `minus_window_ci95`, `minus_dense_ci95`).
     """
     from tqdm import tqdm
+
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.allow_tf32 = True
 
     if save_jsonl_path is not None:
         predictions_path = save_jsonl_path
@@ -687,13 +733,52 @@ def evaluate_qasper_comparison(
         except Exception:
             stop_criteria_cls = None
 
+    # Resume from existing completed rows in `predictions_path` if present
+    resumed_rows: List[Dict[str, Any]] = []
+    if predictions_path and os.path.exists(predictions_path) and os.environ.get("DARKSNAIL_QASPER_NO_RESUME", "0") != "1":
+        try:
+            with open(predictions_path, "r", encoding="utf-8") as fin:
+                for line in fin:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    row = json.loads(line)
+                    row_conds = row.get("conditions", {})
+                    if row.get("idx") == len(resumed_rows) and all(c in row_conds for c in conds):
+                        resumed_rows.append(row)
+                    else:
+                        break
+        except Exception:
+            resumed_rows = []
+
+    if resumed_rows and len(resumed_rows) <= len(data):
+        for row in resumed_rows:
+            n_trunc += int(bool(row.get("truncated", False)))
+            row_conds = row["conditions"]
+            for c in conds:
+                c_info = row_conds[c]
+                per_f1[c].append(float(c_info["f1"]) / 100.0)
+                if c == "dense":
+                    fracs[c].append(1.0)
+                elif c_info.get("budget_pct") is not None:
+                    fracs[c].append(float(c_info["budget_pct"]) / 100.0)
+        if len(resumed_rows) < len(data):
+            print(f"[QASPER Resume] Loaded {len(resumed_rows)}/{len(data)} completed samples from {predictions_path}; resuming from sample {len(resumed_rows)}...")
+    else:
+        resumed_rows = []
+
     fout = None
     if predictions_path:
         os.makedirs(os.path.dirname(predictions_path) or ".", exist_ok=True)
-        fout = open(predictions_path, "w", encoding="utf-8")
+        with open(predictions_path, "w", encoding="utf-8") as f_rewrite:
+            for row in resumed_rows:
+                f_rewrite.write(json.dumps(row) + "\n")
+        fout = open(predictions_path, "a", encoding="utf-8")
 
+    start_idx = len(resumed_rows)
     try:
-        for idx_s, sample in enumerate(tqdm(data, desc=f"QASPER (n={len(data)})")):
+        for idx_s in tqdm(range(start_idx, len(data)), initial=start_idx, total=len(data), desc=f"QASPER (n={len(data)})"):
+            sample = data[idx_s]
             ids, trunc = build_qasper_prompt_ids(tokenizer, sample, max_ctx=max_ctx)
             n_trunc += int(trunc)
             ids = ids.to(device)
@@ -716,7 +801,9 @@ def evaluate_qasper_comparison(
                     cls_stop, cls_list = stop_criteria_cls
                     gen_kwargs["stopping_criteria"] = cls_list([cls_stop(tokenizer, prompt_len)])
                 out = model.generate(**gen_kwargs)
-                return tokenizer.decode(out[0, prompt_len:], skip_special_tokens=True).strip()
+                decoded = tokenizer.decode(out[0, prompt_len:], skip_special_tokens=True).strip()
+                del out
+                return decoded
 
             sample_preds: Dict[str, Any] = {}
 
@@ -802,6 +889,11 @@ def evaluate_qasper_comparison(
                         "f1": round(100.0 * f1_w, 2),
                         "budget_pct": round(100.0 * fr_w, 2) if fr_w is not None else None,
                     }
+
+            del ids
+            set_long_context_condition(model, req_depth=0, darksnail_mode=False, attention_backend=attention_backend)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             if fout is not None:
                 fout.write(
