@@ -325,7 +325,7 @@ class ProportionalRoPESubspaceSplitter(nn.Module):
 
 
 # ============================================================================
-# 3. DarkSnailGemma4GlobalHook (Upgraded from gemini-code-1792152508835.py)
+# 3. DarkSnailGemma4GlobalHook (Upgraded from scripts/gemini-code-1792152508835.py)
 # ============================================================================
 
 

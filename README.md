@@ -7,7 +7,7 @@
 [![ARC-AGI-3 Interactive](https://img.shields.io/badge/ARC--AGI--3_25_Games-19_%2F_183_Levels_(10.38%25)%20%7C%2016_%2F_25_Games-purple)](#embodied-interactive-evaluation-on-arc-agi-3-25-games-183-levels)
 [![Gemma 4 31B QASPER](https://img.shields.io/badge/Gemma--4--31B_QASPER_n%3D200_%40_r%3D4-48.61_F1_(%2B12.80_vs_V4_Triad)-orange)](#reverse-synthesis-full-n--200-longbench-qasper--50-position-banal-niah)
 
-**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](https://github.com/sneed-and-feed/sparse-ai/blob/main/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](https://github.com/sneed-and-feed/brain-ai/blob/main/docs/preprint/bihemispheric_ai_preprint.tex) across frozen **`google/gemma-4-31B-it`** ($L=60$ heterogeneous `5:1` Local/Global layers, $d=5376$, `global_head_dim=512`, `H_kv_global=4`, `attention_k_eq_v=True`, 25% `p-RoPE` on Global layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`, `arXiv:2607.02770`) and **`Meta-Llama-3.1-8B-Instruct`** ($L=32, d=4096$, `bfloat16`) backbones. See the NeurIPS 2026 preprints in [`papers/darksnail_v2_preprint.md`](papers/darksnail_v2_preprint.md) (Paper III: Core Bidirectional Synthesis) and [`papers/darksnail_gemma4_arc3_preprint.md`](papers/darksnail_gemma4_arc3_preprint.md) (Paper IV: Scaling to Gemma 4 31B & Embodied Interactive Fluid Intelligence on ARC-AGI-3), experimental reports in [`docs/EXPERIMENT_RESULTS.md`](docs/EXPERIMENT_RESULTS.md), [`docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md`](docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md), [`docs/CDS_PHASE2_EXPERIMENT_RESULTS.md`](docs/CDS_PHASE2_EXPERIMENT_RESULTS.md), and [`docs/ARC3_EXPERIMENT_RESULTS.md`](docs/ARC3_EXPERIMENT_RESULTS.md), and the interactive Colab GPU notebooks in [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) and [`notebooks/darksnail_arc3_colab.ipynb`](notebooks/darksnail_arc3_colab.ipynb).
+**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](https://github.com/sneed-and-feed/sparse-ai/blob/main/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](https://github.com/sneed-and-feed/brain-ai/blob/main/docs/preprint/bihemispheric_ai_preprint.tex) across frozen **`google/gemma-4-31B-it`** ($L=60$ heterogeneous `5:1` Local/Global layers, $d=5376$, `global_head_dim=512`, `H_kv_global=4`, `attention_k_eq_v=True`, 25% `p-RoPE` on Global layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`, `arXiv:2607.02770`) and **`Meta-Llama-3.1-8B-Instruct`** ($L=32, d=4096$, `bfloat16`) backbones. See the NeurIPS 2026 preprints in [`papers/darksnail_v2_preprint.md`](papers/darksnail_v2_preprint.md) (Paper III: Core Bidirectional Synthesis) and [`papers/darksnail_gemma4_arc3_preprint.md`](papers/darksnail_gemma4_arc3_preprint.md) (Paper IV: Scaling to Gemma 4 31B & Embodied Interactive Fluid Intelligence on ARC-AGI-3), experimental reports in [`docs/EXPERIMENT_RESULTS.md`](docs/EXPERIMENT_RESULTS.md), [`docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md`](docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md), [`docs/CDS_PHASE2_EXPERIMENT_RESULTS.md`](docs/CDS_PHASE2_EXPERIMENT_RESULTS.md), and [`docs/DARKSNAIL_GEMMA4_31B_ARCHITECTURE.md`](docs/DARKSNAIL_GEMMA4_31B_ARCHITECTURE.md), and the interactive Colab GPU notebooks in [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) and [`notebooks/darksnail_arc3_colab.ipynb`](notebooks/darksnail_arc3_colab.ipynb).
 
 ---
 
@@ -170,7 +170,7 @@ darksnail/
 │   ├── antenna.py           # ZenoAmygdalaController (dynamic K in {1,4,8,16}) & DarkSnailSystem2Adaptor
 │   └── longbench.py         # LongBench QASPER & Banal NIAH synthesis evaluators
 ├── docs/
-│   ├── ARC3_EXPERIMENT_RESULTS.md           # Full 25-game ARC-AGI-3 experimental & statistical report
+│   ├── DARKSNAIL_GEMMA4_31B_ARCHITECTURE.md # Canonical Gemma 4 31B architectural specification
 │   ├── CDS_PHASE2_EXPERIMENT_RESULTS.md     # Phase 2: pullback + pre-triad spectral coupling, leakage audit
 │   ├── CDS_EXTENSION_EXPERIMENT_RESULTS.md  # CDS extension experimental & formal verification report
 │   ├── CDS_EXTENSION_IMPLEMENTATION_PLAN.md # CDS extension architecture & verification gate specification
@@ -188,8 +188,7 @@ darksnail/
 │   └── darksnail_v2_preprint.md          # Paper III: Core Bidirectional Synthesis of Ultrametric Hydrodynamics & Neuromorphic Reasoning
 ├── results/
 │   ├── baselines/                                   # Archived Llama-3.1-8B & V4 Triad reference JSONs/JSONLs
-│   ├── darksnail_arc3_summary.json                  # Full 25-game / 183-level ARC-AGI-3 benchmark & Gemma 4 telemetry
-│   ├── darksnail_arc3_diagnostics.png               # 3-panel ARC-AGI-3 diagnostics figure
+│   ├── darksnail_arc3_evaluation_summary.json       # Full 25-game / 183-level ARC-AGI-3 benchmark & Gemma 4 telemetry
 │   ├── darksnail_arc_evaluation_summary.json        # Phase 2 ARC-AGI-1 (38 / 400 strict)
 │   ├── darksnail_arc_evaluation_summary_pass1.json  # Archived Pass-1 baseline for paired tests
 │   ├── shape_and_pullback_generalization.json       # Training vs. evaluation split check
@@ -204,12 +203,12 @@ darksnail/
 ├── scripts/
 │   ├── audit_gfm_math.py
 │   ├── check_shape_and_pullback_generalization.py
-│   ├── evaluate_darksnail_arc.py    # ARC-AGI-1 evaluator (supports DARKSNAIL_SHARD=k/n)
-│   └── evaluate_darksnail_arc3.py   # ARC-AGI-3 25-game interactive evaluator + Gemma 4 GPU telemetry
+│   ├── evaluate_darksnail_arc.py        # ARC-AGI-1 evaluator (supports DARKSNAIL_SHARD=k/n)
+│   ├── evaluate_darksnail_arc3.py       # ARC-AGI-3 25-game interactive evaluator + Gemma 4 GPU telemetry
+│   └── gemini-code-1792152508835.py     # Standalone Left-Hemisphere execution & surgical hook reference script
 └── tests/
-    ├── fixtures/                    # Archived anomaly fixtures (unsolved_anomaly_9481.json, delta_z_9481.bin)
     ├── test_darksnail.py            # 10-suite core DarkSnail V2 + CDS pytest verification
-    ├── test_darksnail_arc3.py       # 6-suite ARC-AGI-3 interactive agent & Callosal tie-breaker verification
+    ├── test_darksnail_arc3.py       # 7-suite ARC-AGI-3 interactive agent & Callosal tie-breaker verification
     └── test_darksnail_gemma4.py     # 5-suite + 10-audit Gemma 4 31B pytest verification
 ```
 
