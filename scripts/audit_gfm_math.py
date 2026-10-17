@@ -3,7 +3,7 @@ import sys
 
 
 def audit_file(filepath: str) -> int:
-    print(f"Auditing GFM KaTeX compliance (all 20 rules) for: {filepath}")
+    print(f"Auditing GFM KaTeX compliance (all 21 rules) for: {filepath}")
     with open(filepath, "r", encoding="utf-8") as f:
         lines = [raw.rstrip("\r\n") for raw in f.readlines()]
 
@@ -119,6 +119,10 @@ def audit_file(filepath: str) -> int:
         if re.search(r"\\(text|mathrm)\{[^}]*?[^\\]&.*?\}", line):
             issues.append((line_num, "Rule 20: Unescaped literal '&' inside \\text{...} or \\mathrm{...}"))
 
+        # Rule 21: Underscore inside \text or \mathrm
+        if re.search(r"\\(text|mathrm)\{[^}]*?_.*?\}", line):
+            issues.append((line_num, "Rule 21: Literal or escaped '_' inside \\text{...} or \\mathrm{...} (use \\textunderscore or code span outside math)"))
+
         if in_math_block:
             if re.search(r"<[a-zA-Z]", line):
                 issues.append((line_num, "Raw '<' followed by letter in display math (use \\lt)"))
@@ -141,7 +145,7 @@ def audit_file(filepath: str) -> int:
 
     print(f"Total math expressions: {math_expr_count} (Target < 800, GitHub limit ~1,000)")
     if not issues:
-        print("PASS: 0 KaTeX/GFM compliance issues detected across all 20 rules!")
+        print("PASS: 0 KaTeX/GFM compliance issues detected across all 21 rules!")
         return 0
     else:
         print(f"FAILED: {len(issues)} compliance issues detected:")

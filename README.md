@@ -104,7 +104,7 @@ Evaluating `google/gemma-4-31B-it` (`bfloat16`, $L=60$ heterogeneous `5:1` Local
 
 #### Banal NIAH (`'spherical coordinates'`, $N = 4,096$, $50$ Uniform Needle Positions)
 
-| Tree Depth $r$ | Measured Causal Budget | `window@r` Recall [Wilson 95% CI] | `v4_triad@r` Recall [Wilson 95% CI] | **`darksnail@r` Recall [Wilson 95% CI]** | $\Delta(\text{darksnail} - \text{v4\_triad})$ | Exact McNemar $p$-value (Wins / Losses) |
+| Tree Depth $r$ | Measured Causal Budget | `window@r` Recall [Wilson 95% CI] | `v4_triad@r` Recall [Wilson 95% CI] | **`darksnail@r` Recall [Wilson 95% CI]** | $\Delta(\text{darksnail} - \text{v4\textunderscore triad})$ | Exact McNemar $p$-value (Wins / Losses) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | $r = 2$ | $82.5\%$ ($1,689.9$ keys) | $62.0\%\ [48.15\%, 74.14\%]$ ($31/50$) | $92.0\%\ [81.16\%, 96.85\%]$ ($46/50$) | $\mathbf{100.0\%\ [92.87\%, 100.0\%]}$ ($\mathbf{50/50}$) | $\mathbf{+8.0\%}$ | $p = 0.1250\ (+4 / -0)$ |
 | $r = 3$ | $70.2\%$ ($1,438.0$ keys) | $46.0\%\ [32.98\%, 59.60\%]$ ($23/50$) | $42.0\%\ [29.38\%, 55.77\%]$ ($21/50$) | $\mathbf{94.0\%\ [83.78\%, 97.94\%]}$ ($\mathbf{47/50}$) | $\mathbf{+52.0\%}$ | $\mathbf{p < 10^{-6}}\ (+26 / -0)$ |
@@ -185,4 +185,4 @@ python -m pytest tests/test_darksnail_gemma4.py tests/test_darksnail.py -v
 ```
 
 ### Google Colab GPU Execution
-Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab (A100 / L4 runtime) to run GPU-accelerated full-benchmark sweeps across both **ARC-AGI-1** ($N=400$) and **LongBench QASPER ($n=200$) / Banal NIAH ($50$ positions)** on live `google/gemma-4-31B-it` or `Meta-Llama-3.1-8B-Instruct`.
+Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab (A100 / L4 runtime) to run GPU-accelerated full-benchmark sweeps across both **ARC-AGI-1** ($N=400$) and **LongBench QASPER** ($n=200$) / **Banal NIAH** ($50$ positions) on live `google/gemma-4-31B-it` or `Meta-Llama-3.1-8B-Instruct`.
