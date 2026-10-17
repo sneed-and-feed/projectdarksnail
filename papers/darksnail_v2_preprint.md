@@ -650,7 +650,7 @@ Table 3 reports the head-to-head comparison against System 1 Zero-Shot and `brai
 | DarkSnail V2 + CDS Phase 2 (`submission_darksnail_v2.json`) | **`419 / 419` (`100.00%`)** | **`38.00`** | **`9.500%`** | **`[7.00%, 12.77%]`** | **`38`** | `+38 / -0` vs. S1 ($p = 7.28 \times 10^{-12}$); `+23 / -0` vs. `brain-ai` S2 ($p = 2.38 \times 10^{-7}$); `+11 / -0` vs. Pass 1 ($p = 9.77 \times 10^{-4}$) |
 
 Across all 400 evaluation tasks (419 test pairs), `infer_arc_output_shape_beltrami` resolves **all `419 / 419` (`100.00%`) exact output shapes** (`+51 / 51` dynamic-shape pairs over the `368 / 419` baseline, with `0` regressions), while DarkSnail V2 Pass 1 increases the number of strictly solved full tasks by **`+80.0%` (`15 -> 27` strict tasks, `27.00 / 400`)** and CDS Phase 2 lifts this further by **`+153.3%` (`15 -> 38` strict tasks, `38.00 / 400`, `+21.50` fractional tasks over S2)** while incurring **zero regressions (`-0` lost tasks)** across the 15 tasks already solved by `brain-ai` Phase 3 (`00576224`, `0692e18c`, `0c9aba6e`, `506d28a5`, `5b6cbef5`, `66f2d22f`, `903d1b4a`, `929ab4e9`, `a406ac07`, `a8610ef7`, `bbb1b8b6`, `be03b35f`, `ca8f78db`, `d19f7514`, `e133d23d`).
-Under an exact two-sided binomial McNemar test on discordant strict task pairs, Pass 1 achieves `+12 / -0` ($\mathbf{p = 2^{-11} = 4.883 \times 10^{-4}}$ vs. S2; $p = 1.490 \times 10^{-8}$ vs. S1), and CDS Phase 2 achieves **`+11 / -0` over Pass 1 ($p = 9.77 \times 10^{-4}$), `+23 / -0` over `brain-ai` Phase 3 System 2 ($p = 2.38 \times 10^{-7}$), and `+38 / -0` over System 1 ($p = 7.28 \times 10^{-12}$)** (Section 5.4).
+Under an exact two-sided binomial McNemar test on discordant strict task pairs, Pass 1 achieves `+12 / -0` ($\mathbf{p = 2^{-11} = 4.883 \times 10^{-4}}$ vs. S2; $p = 1.490 \times 10^{-8}$ vs. S1), and CDS Phase 2 achieves **`+11 / -0` over Pass 1** ($p = 9.77 \times 10^{-4}$), **`+23 / -0` over `brain-ai` Phase 3 System 2** ($p = 2.38 \times 10^{-7}$), and **`+38 / -0` over System 1** ($p = 7.28 \times 10^{-12}$) (Section 5.4).
 
 ### 5.3 Mechanistic Breakdown of the 12 Newly Solved ARC-AGI-1 Tasks
 
@@ -713,12 +713,13 @@ As an out-of-sample check, we ran the shape predictor and the generic pullback l
 
 ## 6. Reverse Synthesis Experiments — Full $n = 200$ LongBench QASPER & Banal NIAH ($N = 4,096$)
 
-We evaluate the Reverse Synthesis (`prepare_darksnail_llama_model` in [`darksnail/longbench.py:L244-L295`](../darksnail/longbench.py#L244-L295)) on frozen `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) equipped with the pre-warmed V4 `TriadTopologyRouter` sidecar ([`checkpoints/router_sidecars/llama31_8b_router_v3.safetensors`](../checkpoints/router_sidecars/llama31_8b_router_v3.safetensors)) and Layer-16 `BeltramiCallosalShell` telemetry hook.
-All results are archived in [`results/darksnail_longbench_summary.json`](../results/darksnail_longbench_summary.json) and [`results/darksnail_qasper_predictions.jsonl`](../results/darksnail_qasper_predictions.jsonl).
+We evaluate the Reverse Synthesis across two distinct foundation architectures:
+1. **`Meta-Llama-3.1-8B-Instruct`** (`bfloat16`, $L = 32, d = 4096$, `prepare_darksnail_llama_model` in [`darksnail/longbench.py`](../darksnail/longbench.py), sidecar [`checkpoints/router_sidecars/llama31_8b_router_v3.safetensors`](../checkpoints/router_sidecars/llama31_8b_router_v3.safetensors), archived in [`results/baselines/llama31_8b_darksnail_longbench_summary.json`](../results/baselines/llama31_8b_darksnail_longbench_summary.json)).
+2. **`google/gemma-4-31B-it`** (`bfloat16`, $L = 60$ heterogeneous `5:1` Local/Global layers, $d = 5376$, `global_head_dim = 512`, `H_kv_global = 4`, `attention_k_eq_v = True`, `prepare_darksnail_gemma4_model` in [`darksnail/gemma4.py`](../darksnail/gemma4.py), sidecar [`checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors`](../checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors), archived in [`results/darksnail_longbench_summary.json`](../results/darksnail_longbench_summary.json) and [`results/darksnail_qasper_predictions.jsonl`](../results/darksnail_qasper_predictions.jsonl)).
 
 ### 6.1 Banal NIAH ($N = 4,096$) under Triple Iso-Budget Matching
 
-We first test long-range in-distribution retrieval on the $N = 4,096$ **Banal Needle-In-A-Haystack (NIAH)** benchmark (`needle_key = "The primary coordinate system used for the manifold calculation is spherical coordinates."`, target `"spherical coordinates"`, evaluated across `10` uniform insertion depths from `0.05` to `0.95` at deep tree sparsities $r \in \lbrace 3, 4, 5 \rbrace$).
+We first test long-range in-distribution retrieval on the $N = 4,096$ **Banal Needle-In-A-Haystack (NIAH)** benchmark (`needle_key = "The primary coordinate system used for the manifold calculation is spherical coordinates."`, target `"spherical coordinates"`, evaluated across `10` uniform insertion depths on `Meta-Llama-3.1-8B-Instruct` and `50` uniform insertion depths on `google/gemma-4-31B-it`).
 Using [`solve_iso_budget_window_width`](../darksnail/longbench.py#L344-L362), `window@r`, `v4_triad@r`, and `darksnail@r` operate at the **exact same measured causal key budget within** $\pm \mathbf{0.05\%}$ (Table 5).
 
 | Tree Depth $r$ | `window@r` Recall (%) [Measured Budget / Keys] | `v4_triad@r` Recall (%) [Measured Budget / Keys] | `darksnail@r` Recall (%) [Measured Budget / Keys] | Layer-16 Zeno Flux $\Phi_{\mathrm{LH}}$ |
@@ -729,7 +730,7 @@ Using [`solve_iso_budget_window_width`](../darksnail/longbench.py#L344-L362), `w
 
 Whereas iso-budget local sliding windows (`window@3/4/5`) collapse to `40.0% / 30.0% / 30.0%` recall as soon as the needle depth precedes the window horizon $W_{\mathrm{iso}}$, `darksnail@3/4/5` maintains **`100.0%` (`10/10`) recall down to `49.30%` causal budget** ($r = 5$) while matching `v4_triad@r` within `0.5` keys out of `2,048.5` causal keys.
 
-### 6.2 Full $n = 200$ LongBench QASPER Evaluation
+### 6.2 Full $n = 200$ LongBench QASPER Evaluation on `Meta-Llama-3.1-8B-Instruct`
 
 Next, we evaluate all ten routing conditions (`dense` at $r=0$, plus `window@r`, `v4_triad@r`, and `darksnail@r` across $r \in \lbrace 2, 3, 4 \rbrace$, totaling `2,000` full-article generations) on the **complete 200-sample LongBench QASPER test split** (`max_ctx = 6,000`, `41 / 200` truncated articles, mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6039$).
 Table 6 reports the complete quantitative results, including marginal 2,000-resample bootstrap 95% CIs, measured causal key budgets, **paired within-question bootstrap 95% CIs** (`minus_v4_triad_ci95`, `minus_window_ci95`, `minus_dense_ci95`), and question-level win/loss counts (`W / L`).
@@ -749,8 +750,7 @@ Table 6 reports the complete quantitative results, including marginal 2,000-resa
 
 ![DarkSnail V2 LongBench QASPER & Banal NIAH Retention Curves](../results/darksnail_longbench_curves.png)
 
-**Figure 3:** (Left) Banal NIAH (`'spherical coordinates'`, $N = 4,096$) needle retrieval recall (%) versus ultrametric tree matching depth $r \in \lbrace 3, 4, 5 \rbrace$ under triple iso-budget matching, comparing `Sliding Window (matched budget)` (gray dashed circles, `40.0% / 30.0% / 30.0%`), `Llama Surgery V4 Triad (routed@r)` (blue squares, `100.0%`), and `DarkSnail V2 (Beltrami Shield + Bridge)` (red diamonds, overlapping at `100.0%`).
-(Right) LongBench QASPER scientific paper QA ($n = 200$) Token F1 versus ultrametric tree matching depth $r \in \lbrace 2, 3, 4 \rbrace$, comparing the `Dense Ceiling (43.1 F1)` (green dotted line), `Sliding Window (matched budget)` (gray dashed circles, `34.41 / 29.99 / 27.45` F1), `Llama Surgery V4 Triad (routed@r)` (blue squares, `37.70 / 35.92 / 29.73` F1), and `DarkSnail V2 (Beltrami Shield + Bridge)` (red diamonds, `44.20 / 43.33 / 41.51` F1).
+**Figure 3:** LongBench QASPER ($n = 200$) Token F1 and 50-position Banal NIAH ($N = 4,096$) retrieval recall (%) across ultrametric tree depths $r$, comparing `Sliding Window (matched budget)`, `V4 Triad (routed@r)`, and `DarkSnail V2 (Beltrami Shield + Bridge)`.
 
 ### 6.3 Statistical Analysis of Paired Within-Question Differences & Cross-Depth Dominance
 
@@ -781,9 +781,9 @@ Thus, **`darksnail@4` (`58.65%` budget, `41.51` F1) uses `19.34%` fewer causal k
 
 ### 6.4 Qualitative Boundary-Spanning Case Studies (Samples `idx=4` and `idx=1`)
 
-To illustrate how `_apply_darksnail_block_bridge` and `_update_darksnail_shield` rescue multi-entity lists and technical definitions that straddle route-block boundaries, Table 7 presents verbatim model predictions from [`results/darksnail_qasper_predictions.jsonl`](../results/darksnail_qasper_predictions.jsonl) on two diagnostic QASPER articles.
+To illustrate how `_apply_darksnail_block_bridge` and `_update_darksnail_shield` rescue multi-entity lists and technical definitions that straddle route-block boundaries, Table 7 presents verbatim model predictions on two diagnostic QASPER articles.
 
-| Sample & Metadata | Condition | Measured Causal Budget | Verbatim Model Prediction (`results/darksnail_qasper_predictions.jsonl`) | Token F1 |
+| Sample & Metadata | Condition | Measured Causal Budget | Verbatim Model Prediction | Token F1 |
 | :--- | :--- | :---: | :--- | :---: |
 | Sample `idx=4` (`_id=14e889...`, `4,473` tokens)<br>*Gold Answer:* `"FoxNews, CNN, ESPN, New York Times, Time magazine, Huffington Post Weird News, The Guardian, Cartoon Network, Cooking Light, Home Cooking Adventure, Justin Bieber, Nickelodeon, Spongebob, Disney."` | `dense` ($r=0$) | `100.00%` | `"FoxNews, CNN, ESPN, New York Times, Time magazine, Huffington Post Weird News, The Guardian, Cartoon Network, Cooking Light, Home Cooking Adventure, Justin Bieber, Nickelodeon, Spongebob, Disney."` | `100.00` |
 | Sample `idx=4` (Boundary-Spanning 14-Entity List) | `window@3` | `66.96%` | `"Time, The Guardian, and Disney."` | `20.69` |
@@ -801,6 +801,30 @@ On Sample `idx=4`, the 14-entity Facebook page enumeration crosses a route-block
 Standalone `v4_triad@3` (`15.38` F1) and `window@3` (`20.69` F1) miss the boundary-spanning enumeration block and fall back to the 3-page subset, whereas `darksnail@3` bridges both contiguous blocks into the question tail and recovers all 14 entities verbatim (**`100.00` F1 at a lower `66.85%` budget**).
 On Sample `idx=1`, at deep sparsity $r = 4$, both `window@4` and `v4_triad@4` score `0.00` F1 by retrieving only a generic introductory sentence about VLAD pooling, whereas `darksnail@4` (`59.62%` budget) shields the `"GhostVLAD"` definition block and reproduces the `dense` answer **word-for-word (`51.85` F1)**.
 
+### 6.5 Scaling to `google/gemma-4-31B-it` (`arXiv:2607.02770v2`): 10-Global-Layer `p-RoPE` `k_nope` Routing ($n = 200$ QASPER & 50-Position Banal NIAH)
+
+To verify that the Reverse Synthesis generalizes beyond homogeneous 32-layer models to frontier heterogeneous architectures, we evaluate [`SurgicalGemma4Attention`](../darksnail/gemma4.py) and [`Gemma4BeltramiCallosalShell`](../darksnail/gemma4.py) on frozen **`google/gemma-4-31B-it`** (`bfloat16`, $L = 60$ layers with a `5:1` Local/Global ratio, leaving all 50 local sliding-window layers untouched at native Flash/SDPA speed while patching strictly the 10 Global Full-Attention layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`).
+Each Global layer applies proportional RoPE (`p-RoPE`, `partial_rotary_factor = 0.25`) to only `128 / 512` head dimensions (`k_rope`) and leaves `384 / 512` dimensions (`k_nope`) unrotated, with `attention_k_eq_v = True` (`v_proj = None`).
+Routing strictly on the post-`k_norm` unrotated 384-D `k_nope` semantic subspace with a 40-step Block-KL + Dual Lagrangian warmed router sidecar ([`checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors`](../checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors)) and Global Layer-29 `Gemma4BeltramiCallosalShell` (`5376 -> 4096` row-orthonormal isometric bridge), Tables 8 and 9 report the complete 50-position Banal NIAH ($N = 4,096$) and $n = 200$ LongBench QASPER results ([`results/darksnail_longbench_summary.json`](../results/darksnail_longbench_summary.json)).
+
+| Tree Depth $r$ | Measured Causal Budget | `window@r` Recall [Wilson 95% CI] | `v4_triad@r` Recall [Wilson 95% CI] | **`darksnail@r` Recall [Wilson 95% CI]** | $\Delta(\mathrm{DS} - \mathrm{V4})$ | Exact McNemar $p$-value (Wins / Losses) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| $r = 2$ | `82.5%` (`1,689.9` keys) | `62.0%` `[48.15%, 74.14%]` (`31/50`) | `92.0%` `[81.16%, 96.85%]` (`46/50`) | **`100.0%` `[92.87%, 100.0%]` (`50/50`)** | **`+8.0%`** | $p = 0.1250$ (`+4 / -0`) |
+| $r = 3$ | `70.2%` (`1,438.0` keys) | `46.0%` `[32.98%, 59.60%]` (`23/50`) | `42.0%` `[29.38%, 55.77%]` (`21/50`) | **`94.0%` `[83.78%, 97.94%]` (`47/50`)** | **`+52.0%`** | $p < 10^{-6}$ (`+26 / -0`) |
+| $r = 4$ | `59.9%` (`1,227.1` keys) | `32.0%` `[20.76%, 45.81%]` (`16/50`) | `16.0%` `[8.34%, 28.51%]` (`8/50`) | **`84.0%` `[71.49%, 91.66%]` (`42/50`)** | **`+68.0%`** | $p < 10^{-9}$ (`+34 / -0`) |
+| $r = 5$ | `52.3%` (`1,071.4` keys) | `24.0%` `[14.29%, 37.41%]` (`12/50`) | `6.0%` `[2.06%, 16.22%]` (`3/50`) | **`68.0%` `[54.19%, 79.24%]` (`34/50`)** | **`+62.0%`** | $p < 10^{-8}$ (`+31 / -0`) |
+
+**Table 8:** 50-position Banal NIAH (`'spherical coordinates'`, $N = 4,096$) on `google/gemma-4-31B-it` (`bfloat16`).
+
+| Tree Depth $r$ | `window@r` F1 [Budget] | `v4_triad@r` F1 [Budget] | **`darksnail@r` F1 [Budget]** | Paired $\Delta\text{F1}$ vs. `v4_triad@r` [95% CI] ($p$-value, `W/L/T`) | Paired $\Delta\text{F1}$ vs. `window@r` [95% CI] ($p$-value) | Paired $\Delta\text{F1}$ vs. `dense` (`49.92`) [95% CI] |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| $r = 0$ (`dense`) | — | `49.92` `[100.00%]` | `49.92` `[100.00%]` | — | — | `0.00` |
+| $r = 2$ | `42.55` `[84.55%]` | `44.70` `[84.54%]` | **`49.89` `[84.54%]`** | **`+5.18 [+2.40, +8.14]`** ($p = 0.0002$, `70/37/93`) | **`+7.33 [+3.37, +11.33]`** ($p = 0.0005$) | **`-0.04 [-1.92, +1.80]`** |
+| $r = 3$ | `37.75` `[72.13%]` | `42.04` `[72.11%]` | **`48.62` `[72.11%]`** | **`+6.58 [+3.24, +9.96]`** ($p = 0.0002$, `84/41/75`) | **`+10.87 [+6.30, +15.42]`** ($p = 0.0001$) | **`-1.30 [-2.79, +0.09]`** |
+| $r = 4$ | `34.77` `[62.25%]` | `35.81` `[62.23%]` | **`48.61` `[62.23%]`** | **`+12.80 [+8.98, +16.70]`** ($p = 0.0001$, `103/34/63`) | **`+13.84 [+8.52, +19.12]`** ($p = 0.0001$) | **`-1.31 [-3.73, +1.07]`** |
+
+**Table 9:** Full $n = 200$ LongBench QASPER evaluation on `google/gemma-4-31B-it` (`bfloat16`, `max_ctx = 6,000`). `darksnail@r` retains **`99.94%`** of the `dense` F1 ceiling at $r = 2$ (`49.89` vs. `49.92` F1) and **`97.38%`** at $r = 4$ (`48.61` F1 at `62.23%` causal budget, outperforming `v4_triad@4` by **`+12.80` F1**, $p = 0.0001$, `103W / 34L / 63T`, with all three paired 95% CIs vs. `dense` containing zero).
+
 ---
 
 ## 7. Discussion, Limitations, and Future Directions
@@ -816,7 +840,7 @@ A central takeaway of Project DarkSnail is that existing foundation and neuromor
    `344` coordinates to directional $D_4$ consensus repair and complement channels, and `2,438` coordinates to the 201-channel continuous spectral, multi-bounce ray, and Jordan enclosure field (`Phi_spec`), `DarkSnailCanvasReadout` and `ContinuousSpectralFieldReadout` activate **`8,192 / 8,192` (`100.0%`)** of $\delta z$ and unlock `+23` strict ARC-AGI-1 task solutions (`+12` in Pass 1 and `+11` in CDS Phase 2, reaching `38.00 / 400`) without adding a single parameter to the `10.51M` checkpoint.
 2. **Spatial Budget Reallocation in Ultrametric Attention:**
    Analogously, in `sparse-ai` V4, interior filler blocks in a `6,000`-token scientific article consume uniform causal attention bandwidth while starving the final question-tail block `NB - 1`.
-   By donating `1`–`4` interior block slots from redundant filler rows to the question tail and re-targeting them via `BeltramiCallosalShell` + Query-Tail salience, `_apply_darksnail_block_bridge` lifts `routed@4` QASPER performance by `+11.78` F1 while strictly reducing total causal key operations.
+   By donating `1`–`4` interior block slots from redundant filler rows to the question tail and re-targeting them via `BeltramiCallosalShell` + Query-Tail salience + Measure-Preserving Donor Pruning, DarkSnail lifts $r = 4$ QASPER performance by **`+11.78` F1** on `Meta-Llama-3.1-8B-Instruct` and **`+12.80` F1** on `google/gemma-4-31B-it` at $\le$ the `v4_triad@4` causal key budget.
 
 ### 7.2 Resolved Boundaries (CDS Extension) and Future Directions
 
@@ -830,7 +854,7 @@ In the Continuous Dynamical System (CDS) Extension ([`docs/CDS_EXTENSION_EXPERIM
 3. **Evaluation Hygiene on ARC:**
    Hand-designed operators are easy to overfit to a public evaluation split. Phase 2's audit (Section 5.4.3) removed all task-ID-keyed code. Future operator families should be developed on the ARC training split, and only then scored once on evaluation.
 4. **Sub-50% Extreme Sparsity** ($r \ge 5$) **on Multi-Hop Scientific QA:**
-   While `darksnail@4` retains `96.3%` of the `dense` F1 ceiling at `58.65%` causal budget (and achieves `100.0%` Banal NIAH recall down to $r = 5$ at `49.30%` budget), pushing multi-paragraph scientific QA below `35%` causal budget will require joint end-to-end training of the V4 `TriadTopologyRouter` sidecar under the `_apply_darksnail_block_bridge` distribution.
+   While `darksnail@4` retains `97.38%` of the `dense` F1 ceiling on `google/gemma-4-31B-it` at `62.23%` causal budget (`48.61` vs. `49.92` F1) and `96.3%` on `Meta-Llama-3.1-8B-Instruct` at `58.65%` causal budget (`41.51` vs. `43.10` F1), pushing multi-paragraph scientific QA below `35%` causal budget will require joint end-to-end training of the V4 `TriadTopologyRouter` sidecar under the `_apply_darksnail_block_bridge` distribution.
 
 ---
 
@@ -840,8 +864,8 @@ In the Continuous Dynamical System (CDS) Extension ([`docs/CDS_EXTENSION_EXPERIM
 
 Project DarkSnail completes our three-part investigation into ultrametric sparse transformers and lateralized neuromorphic reasoning.
 By unifying the Bruhat-Tits dyadic triad cascade of *Llama Surgery* with the Dale-constrained transcallosal relaxation of the *Bi-Hemispheric Brain*, and backing every operator with machine-checked proofs in Lean 4 ([`OcclusionTriad.lean`](../formalization/OcclusionTriad.lean)), we establish bidirectional improvements across both domains:
-- **Forward** (`sparse-ai` $\to$ `brain-ai`): `BeltramiCallosalShell` (`100%` rule-spike cosine preservation), `infer_arc_output_shape_beltrami` (**`419 / 419` = `100.00%` exact output shapes**), `DarkSnailCanvasReadout` + `ContinuousSpectralFieldReadout` (`8,192 / 8,192` = `100.0%` active $\delta z$ coordinates with $\mathfrak{so}(12)$ occlusion tie-breaking and 201-channel spectral/multi-bounce ray field `Phi_spec`), multi-step `SlowFastTriadCascade` ($\mathfrak{so}(8)$ spherical recurrent coupling across $K \in \lbrace 1, 4, 8, 16 \rbrace$ with `0.000e+00` radial drift), and `ZenoAmygdalaController` lift canonical $N = 400$ ARC-AGI-1 exact-match performance from `0.50 / 400` (S1) and `16.50 / 400` (`brain-ai` S2) to **`27.00 / 400`** (`6.750%`, `27` strict tasks, `+12 / -0` exact McNemar $p = 4.883 \times 10^{-4}$). CDS Phase 2 then reaches **`38.00 / 400`** (`9.50%`, `+11 / -0` vs. Pass 1) after removing all evaluation-task-keyed code.
-- **Reverse** (`brain-ai` $\to$ `sparse-ai`): Layer-16 `BeltramiCallosalShell` telemetry, Query-Tail Beltrami Outlier Shielding, and Measure-Preserving Callosal Block Bridges under exact triple iso-budget window matching lift $N = 4,096$ Banal NIAH recall to **`100.0%` across** $r = 3, 4, 5$ and boost full $n = 200$ LongBench QASPER accuracy from `37.70 / 35.92 / 29.73` F1 (`v4_triad@2/3/4`) to **`44.20 / 43.33 / 41.51` F1 (`darksnail@2/3/4`)**, surpassing the `100%` `dense` ceiling (`43.10` F1) at $r = 2, 3$ and achieving cross-depth dominance at $r = 4$.
+- **Forward** (`sparse-ai` $\to$ `brain-ai`): `BeltramiCallosalShell` (`100%` rule-spike cosine preservation), `infer_arc_output_shape_beltrami` (**`419 / 419` = `100.00%` exact output shapes**), `DarkSnailCanvasReadout` + `ContinuousSpectralFieldReadout` (`8,192 / 8,192` = `100.0%` active $\delta z$ coordinates with $\mathfrak{so}(12)$ occlusion tie-breaking and 201-channel spectral/multi-bounce ray field `Phi_spec`), multi-step `SlowFastTriadCascade` ($\mathfrak{so}(8)$ spherical recurrent coupling across $K \in \lbrace 1, 4, 8, 16 \rbrace$ with `0.000e+00` radial drift), and `ZenoAmygdalaController` lift canonical $N = 400$ ARC-AGI-1 exact-match performance from `0.50 / 400` (S1) and `16.50 / 400` (`brain-ai` S2) to **`27.00 / 400`** (`6.750%`, `27` strict tasks, `+12 / -0` exact McNemar $p = 4.883 \times 10^{-4}$). CDS Phase 2 then reaches **`38.00 / 400`** (`9.50%`, `+11 / -0` vs. Pass 1; `+23 / -0` vs. S2, $p = 2.38 \times 10^{-7}$) after removing all evaluation-task-keyed code.
+- **Reverse** (`brain-ai` $\to$ `sparse-ai`): On **`google/gemma-4-31B-it`** (`bfloat16`, 10 Global Full-Attention layers patched with post-`p-RoPE` 384-D `k_nope` routing + Layer-29 `Gemma4BeltramiCallosalShell`), DarkSnail lifts 50-position Banal NIAH ($N = 4,096$) recall from `92.0% / 42.0% / 16.0% / 6.0%` (`v4_triad@2/3/4/5`) to **`100.0% / 94.0% / 84.0% / 68.0%` (`darksnail@2/3/4/5`, up to `+68.0%`, $p < 10^{-9}$)** and lifts full $n = 200$ LongBench QASPER accuracy from `44.70 / 42.04 / 35.81` F1 (`v4_triad@2/3/4`) to **`49.89 / 48.62 / 48.61` F1 (`darksnail@2/3/4`, `+5.18 / +6.58 / +12.80` F1, $p \le 0.0002$)**, retaining `97.38%` of the `dense` ceiling (`49.92` F1) at $r = 4$ (`62.23%` budget). On **`Meta-Llama-3.1-8B-Instruct`**, DarkSnail lifts $n = 200$ LongBench QASPER from `37.70 / 35.92 / 29.73` F1 (`v4_triad@2/3/4`) to **`44.20 / 43.33 / 41.51` F1 (`darksnail@2/3/4`, `+6.50 / +7.41 / +11.78` F1)**.
 
 The tree routes the context. The triad breaks the occlusion. The callosum unites the hemispheres.
 
