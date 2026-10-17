@@ -81,6 +81,8 @@ __all__ = [
     "TemporalClockContentSplitter",
     "extract_arc3_beltrami_medoids",
     "compute_topological_symmetry_potential",
+    "compute_marginal_wasserstein1_distance",
+    "compute_canvas_target_alignment",
     "Arc3EpisodicBeltramiShell",
     "MagicNorm",
     "HRMRecurrentBlock",
@@ -104,9 +106,12 @@ from .arc3 import (
     MagicNorm,
     TemporalClockContentSplitter,
     TransitionRecord,
+    compute_canvas_target_alignment,
+    compute_marginal_wasserstein1_distance,
     compute_topological_symmetry_potential,
     extract_arc3_beltrami_medoids,
 )
+
 
 Arc3TransitionRecord = TransitionRecord
 

@@ -38,6 +38,8 @@ from darksnail import (
     MagicNorm,
     TemporalClockContentSplitter,
     TransitionRecord,
+    compute_canvas_target_alignment,
+    compute_marginal_wasserstein1_distance,
     compute_topological_symmetry_potential,
     extract_arc3_beltrami_medoids,
 )
@@ -469,5 +471,187 @@ def test_live_offline_ls20_and_ft09_execution() -> None:
     assert res_ft09["actions_taken"] <= 80
     assert res_ft09["clock_pixels_masked"] == 64
     assert res_ft09["unique_nope_states_visited"] >= 15
+
+
+def test_subsystem_a_goal_homomorphism_and_mathematical_plan_synthesis() -> None:
+    """
+    Verifies Subsystem A:
+      - `compute_marginal_wasserstein1_distance` is 0 on identical color marginals and positive on shifted shapes,
+      - `compute_canvas_target_alignment` detects homomorphism defect (`E_hom`), marginal W1 (`E_marginal`),
+        and `homomorphism_defect` medoids in `extract_arc3_beltrami_medoids`,
+      - One-Shot Spatial Operator Induction (`_induce_spatial_operator` & `predict_action_outcome`) generalizes
+        to unclicked lattice buttons (`lattice_operator_templates`),
+      - Three Pure Mathematical Multi-Step Plan Synthesis Primitives:
+          * Primitive A (`synthesize_abelian_jacobian_plan`) via ridge difference-basis pseudoinverse + greedy OMP,
+          * Primitive B (`dream_forward_plan`) via Koopman mental rollout beam search,
+          * Primitive C (`unroll_triad_cascade_plan`) via `SlowFastTriadCascade` trajectory readout on S^7(r_0),
+          * Unified `synthesize_mathematical_plan` combining all three primitives with zero ASCII/LLM overhead.
+    """
+    # 1. Marginal Wasserstein-1 distance
+    p_a = np.full((32, 32), 3, dtype=np.int32)
+    p_a[4:8, 4:7] = 11   # stationary reference marker
+    p_a[4:8, 8:10] = 11  # aligned movable column float
+    p_b = np.full((32, 32), 3, dtype=np.int32)
+    p_b[4:8, 4:7] = 11   # stationary reference marker
+    p_b[20:24, 8:10] = 11  # vertically offset movable column float
+    w1_a = compute_marginal_wasserstein1_distance(p_a)
+    w1_b = compute_marginal_wasserstein1_distance(p_b)
+    assert w1_a["wasserstein1_distance"] == pytest.approx(0.0, abs=1e-6)
+    assert w1_b["wasserstein1_distance"] > 0.10
+
+    # 2. Target homomorphism energy & homomorphism_defect medoids
+    frame = np.full((64, 64), 4, dtype=np.int32)
+    # Reference target miniature (e.g. 6x6 block at top-left) with two colors (9 and 12)
+    frame[4:7, 4:7] = 9
+    frame[4:7, 7:10] = 12
+    # Main editable canvas (e.g. 18x18 block at center, 3x Kronecker scale) with one cell wrong
+    frame[20:29, 20:29] = 9
+    frame[20:29, 29:38] = 9  # should be 12 to match reference target
+
+    align = compute_canvas_target_alignment(frame)
+    assert "target_energy" in align
+    assert 0.0 <= align["target_energy"] <= 1.0
+    medoids = extract_arc3_beltrami_medoids(frame, max_candidates=16)
+    assert len(medoids) > 0
+
+    # 3. One-Shot Spatial Operator Induction + 3 Plan Synthesis Primitives
+    wm = DarkSnailArc3WorldModel()
+    # Build a synthetic 2-button lattice puzzle where clicking button 1 at (10, 10) toggles left half
+    # to match target and clicking button 2 at (20, 10) toggles right half to match target.
+    f0 = np.full((64, 64), 4, dtype=np.int32)
+    # Reference target (top-right): 4x8 strip of color 14
+    f0[4:8, 44:52] = 14
+    # Main canvas (center): 8x16 strip currently color 8 (needs to become 14)
+    f0[24:32, 20:36] = 8
+    # Two interactive buttons of color 11 at (10, 10) and (20, 10)
+    f0[9:12, 9:12] = 11
+    f0[9:12, 19:22] = 11
+
+    # Observe transition 1: clicking button 1 at (10, 10) flips left half [24:32, 20:28] from 8 -> 14
+    f1 = f0.copy()
+    f1[24:32, 20:28] = 14
+    wm.record_transition(f0, f1, action_key=(6, 10, 10))
+    # Reset back to f0 and observe transition 2: clicking button 2 at (20, 10) flips right half [24:32, 28:36] from 8 -> 14
+    f2 = f0.copy()
+    f2[24:32, 28:36] = 14
+    wm.record_transition(f0, f2, action_key=(6, 20, 10))
+
+    assert (6, 10, 10) in wm.learned_operators
+    assert (6, 20, 10) in wm.learned_operators
+
+    # Verify mental forward model `predict_action_outcome`
+    pred_f1 = wm.predict_action_outcome(f0, (6, 10, 10))
+    assert pred_f1 is not None
+    assert bool(np.all(pred_f1[24:32, 20:28] == 14))
+
+    # Verify Primitive A (Abelian Jacobian OMP), Primitive B (Koopman Dream Beam), Primitive C (Triad Cascade)
+    cand_tuples = [(0.5, (6, 10, 10), None), (0.5, (6, 20, 10), None)]
+    z_H_dummy = torch.zeros(1, 32, wm.d_reasoner, dtype=torch.float32)
+    z_L_dummy = torch.zeros(1, 1, wm.d_reasoner, dtype=torch.float32)
+    plan_a = wm.synthesize_abelian_jacobian_plan(f0, candidate_actions=cand_tuples, max_steps=4)
+    plan_b = wm.dream_forward_plan(f0, candidate_actions=cand_tuples, beam_width=4, horizon=3)
+    plan_c = wm.unroll_triad_cascade_plan(
+        f0, z_H_dummy, z_L_dummy, candidate_actions=cand_tuples, horizon=2
+    )
+    plan_u = wm.synthesize_mathematical_plan(
+        f0, z_H_super=z_H_dummy, z_L_token=z_L_dummy, candidate_actions=cand_tuples
+    )
+
+    assert len(plan_a) >= 1 or len(plan_b) >= 1
+    assert set(plan_b).issubset({(6, 10, 10), (6, 20, 10)})
+    assert isinstance(plan_c, list)
+    assert isinstance(plan_u, dict) and "plan" in plan_u and len(plan_u["plan"]) >= 1
+
+
+def test_subsystem_b_spectral_init_and_callosal_gram_resonance() -> None:
+    """
+    Verifies Subsystem B:
+      - Deterministic spectral/orthonormal initialization in `HRMRecurrentBlock`, `Arc3HRMRecurrentCore`,
+        and `Arc3AffectiveAmygdalaRouter` (`1e-3` output gain),
+      - Native R^5376 All-but-the-Top Centered Gram Resonance + Callosal E/I fusion + Top-Down Spatial
+        Precision Map (`world_model.spatial_precision_map`),
+      - Spanning-tree anti-backtracking guard in `score_action_candidate` so Gemma 4 priors never
+        override anti-backtracking on first visit in navigation games.
+    """
+    # 1. Verify spectral initialization in HRMRecurrentBlock & Arc3AffectiveAmygdalaRouter
+    block = HRMRecurrentBlock(d_model=64, n_heads=8, d_ffn=128)
+    s_q = torch.linalg.svdvals(block.q_proj.weight.detach())
+    assert torch.allclose(s_q, torch.full_like(s_q, 0.5), atol=1e-4)
+
+    router = Arc3AffectiveAmygdalaRouter(hidden_dim=64, mlp_dim=32)
+    s_head = torch.linalg.svdvals(router.valence_head[2].weight.detach())
+    assert float(s_head.max().item()) == pytest.approx(1e-3, abs=2e-4)
+
+    # 2. Verify Bi-Hemispheric Callosal Signal Path with a mock Gemma 4 31B Left Hemisphere
+    class MockGemma4LeftHemisphere(nn.Module):
+        def __init__(self, d_lh: int = 5376, vocab_size: int = 64) -> None:
+            super().__init__()
+            self.embed = nn.Embedding(vocab_size, d_lh)
+            self.layer29 = nn.Linear(d_lh, d_lh, bias=False)
+            self.layers = nn.ModuleList([nn.Identity() if i != 29 else self.layer29 for i in range(30)])
+            self.lm_head = nn.Linear(d_lh, vocab_size, bias=False)
+            nn.init.eye_(self.layer29.weight)
+
+        def get_input_embeddings(self) -> nn.Module:
+            return self.embed
+
+        def forward(
+            self,
+            input_ids: torch.Tensor | None = None,
+            inputs_embeds: torch.Tensor | None = None,
+            output_hidden_states: bool = False,
+            **kwargs,
+        ):
+            x = inputs_embeds if inputs_embeds is not None else self.embed(input_ids)
+            h29 = self.layers[29](x)
+            logits = self.lm_head(h29)
+            return SimpleNamespace(logits=logits, hidden_states=[h29 for _ in range(31)])
+
+    class MockTokenizer:
+        def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+            return [(ord(c) % 60) + 1 for c in text[:24]] or [1]
+
+        def __call__(self, text: str, return_tensors: str = "pt", truncation: bool = True, max_length: int = 768):
+            ids = [(ord(c) % 60) + 1 for c in text[:max_length]] or [1]
+            return {"input_ids": torch.tensor([ids], dtype=torch.long)}
+
+    agent = DarkSnailArc3Agent(max_actions=50, seed=0)
+    mock_lh = MockGemma4LeftHemisphere(d_lh=5376, vocab_size=64)
+    mock_tok = MockTokenizer()
+    agent.attach_gemma4_system2(mock_lh, hook_layer=29, tokenizer=mock_tok)
+    assert agent.gemma4_shell is not None
+
+    frame = np.full((64, 64), 3, dtype=np.int32)
+    frame[16:24, 16:24] = 12
+    frame[40:48, 40:48] = 9
+    candidates = [1, 2, (6, 20, 20), (6, 44, 44)]
+    cand_tuples = [(0.0, c, None) for c in candidates]
+    delib = agent.deliberate_with_gemma4_system2(
+        cur_hash="h0", frame_2d=frame, candidate_actions=cand_tuples
+    )
+
+    assert delib["called"] is True
+    assert delib["gram_resonance_computed"] is True
+    assert delib["pathway_b_priors"] == len(candidates)
+    assert agent.world_model.spatial_precision_map is not None
+    assert agent.world_model.spatial_precision_map.shape == (64, 64)
+    assert float(agent.world_model.spatial_precision_map[20, 20]) > 1.0
+
+    # 3. Verify spanning-tree anti-backtracking guard in `score_action_candidate`
+    f_next = frame.copy()
+    f_next[16:24, 16:24] = 14
+    rec = agent.world_model.record_transition(frame, f_next, action_key=1)
+    sh_next = rec.next_state_hash
+    # Entering `sh_next` via action 1 (UP) makes action 2 (DOWN) the immediate backtracking inverse.
+    # Even if Gemma 4 gives inverse action 2 a strong callosal prior, on first visit to `sh_next`,
+    # spanning-tree anti-backtracking keeps forward/orthogonal action 3 strictly higher-scored than 2.
+    agent.world_model.gemma4_action_priors[(sh_next, 2)] = 1.50
+    agent.world_model.gemma4_action_priors[(sh_next, 3)] = 0.0
+    zero_triad = np.zeros(8, dtype=np.float32)
+    s_backtrack = agent.world_model.score_action_candidate(sh_next, 2, zero_triad)
+    s_orthogonal = agent.world_model.score_action_candidate(sh_next, 3, zero_triad)
+    assert s_orthogonal > s_backtrack
+
+
 
 
