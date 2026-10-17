@@ -10,4 +10,6 @@ build/
 # Evaluation run artifacts
 results/shards/
 results/eval_shard_*.log
+data/
+environment_files/
 

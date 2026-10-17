@@ -78,7 +78,29 @@ __all__ = [
     "prepare_darksnail_llama_model",
     "score_qasper_f1",
     "set_long_context_condition",
+    "TemporalClockContentSplitter",
+    "extract_arc3_beltrami_medoids",
+    "compute_topological_symmetry_potential",
+    "Arc3EpisodicBeltramiShell",
+    "TransitionRecord",
+    "Arc3TransitionRecord",
+    "DarkSnailArc3WorldModel",
+    "DarkSnailArc3Agent",
+    "load_gemma4_router_sidecar",
+    "save_gemma4_router_sidecar",
 ]
+
+from .arc3 import (
+    Arc3EpisodicBeltramiShell,
+    DarkSnailArc3Agent,
+    DarkSnailArc3WorldModel,
+    TemporalClockContentSplitter,
+    TransitionRecord,
+    compute_topological_symmetry_potential,
+    extract_arc3_beltrami_medoids,
+)
+
+Arc3TransitionRecord = TransitionRecord
 
 from .gemma4 import (
     GEMMA4_31B_SPEC,
@@ -96,7 +118,10 @@ from .gemma4 import (
     build_gemma4_prope_cache,
     discover_gemma4_decoder_layers,
     is_gemma4_global_layer,
+    load_gemma4_router_sidecar,
     patch_gemma4_model,
     prepare_darksnail_gemma4_model,
+    save_gemma4_router_sidecar,
     warmup_gemma4_routers_kl,
 )
+
