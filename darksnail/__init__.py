@@ -82,6 +82,10 @@ __all__ = [
     "extract_arc3_beltrami_medoids",
     "compute_topological_symmetry_potential",
     "Arc3EpisodicBeltramiShell",
+    "MagicNorm",
+    "HRMRecurrentBlock",
+    "Arc3HRMRecurrentCore",
+    "Arc3AffectiveAmygdalaRouter",
     "TransitionRecord",
     "Arc3TransitionRecord",
     "DarkSnailArc3WorldModel",
@@ -91,9 +95,13 @@ __all__ = [
 ]
 
 from .arc3 import (
+    Arc3AffectiveAmygdalaRouter,
     Arc3EpisodicBeltramiShell,
+    Arc3HRMRecurrentCore,
     DarkSnailArc3Agent,
     DarkSnailArc3WorldModel,
+    HRMRecurrentBlock,
+    MagicNorm,
     TemporalClockContentSplitter,
     TransitionRecord,
     compute_topological_symmetry_potential,

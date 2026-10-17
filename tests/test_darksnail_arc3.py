@@ -29,9 +29,13 @@ import torch
 import torch.nn as nn
 
 from darksnail import (
+    Arc3AffectiveAmygdalaRouter,
     Arc3EpisodicBeltramiShell,
+    Arc3HRMRecurrentCore,
     DarkSnailArc3Agent,
     DarkSnailArc3WorldModel,
+    HRMRecurrentBlock,
+    MagicNorm,
     TemporalClockContentSplitter,
     TransitionRecord,
     compute_topological_symmetry_potential,
@@ -45,7 +49,9 @@ def test_extract_arc3_beltrami_medoids_interior_ring_and_quadtree() -> None:
       - Returns at most `max_candidates` coordinates within `[0, 63] x [0, 63]`,
       - Selects an interior pixel strictly on the body of a non-convex hollow ring (`cc_object`),
       - Detects the enclosed cavity inside the ring (`enclosed_hole`),
-      - Stratifies candidates across all 4 spatial quadrants when multi-panel objects are present.
+      - Stratifies candidates across all 4 spatial quadrants when multi-panel objects are present,
+      - Orthogonal-projects out any candidate across all 4 channels (`fg_comps`, `enclosed_hole`,
+        `symmetry_defect`, `rope2d_patch`) whose medoid `(mx, my)` or >= 50% of its pixels lie in `H_clock`.
     """
     frame = np.full((64, 64), 3, dtype=np.int32)
 
@@ -81,6 +87,15 @@ def test_extract_arc3_beltrami_medoids_interior_ring_and_quadtree() -> None:
     quads = {(2 if int(c["y"]) >= 32 else 0) + (1 if int(c["x"]) >= 32 else 0) for c in cands}
     assert quads == {0, 1, 2, 3}
 
+    # Verify H_clock orthogonal projection: masking Quadrant 1 object [10:14, 48:52] and the ring hole [8:11, 8:11]
+    clock_mask = np.zeros((64, 64), dtype=bool)
+    clock_mask[10:14, 48:52] = True
+    clock_mask[8:11, 8:11] = True
+    cands_masked = extract_arc3_beltrami_medoids(frame, max_candidates=24, clock_mask=clock_mask)
+    for cm in cands_masked:
+        mx, my = int(cm["x"]), int(cm["y"])
+        assert not bool(clock_mask[my, mx]), f"Candidate ({mx}, {my}) of kind {cm['kind']} lies inside H_clock!"
+
 
 def test_temporal_clock_content_splitter_zero_border_priors_and_phase_reset() -> None:
     """
@@ -91,6 +106,7 @@ def test_temporal_clock_content_splitter_zero_border_priors_and_phase_reset() ->
         (which conserves global color mass `Delta M_c == 0`) remains in `H_nope`.
       - Confirms Law 4 (Periodic Phase-Reset / Respawn) detects when the clock bar refills
         to `F_0` and the board reverts to `F_0` minus a 4px life icon.
+      - Confirms `preserve_clock_mask=True` carries the discovered `H_clock` subspace into Level 2+.
     """
     splitter = TemporalClockContentSplitter()
 
@@ -136,6 +152,11 @@ def test_temporal_clock_content_splitter_zero_border_priors_and_phase_reset() ->
     assert is_reset3 is True
     assert splitter.hash_nope(f_respawn) == splitter.hash_nope(f0)
 
+    # Verify cross-level persistence of H_clock
+    splitter.initialize_level(f0, preserve_clock_mask=True)
+    assert splitter.num_clock_pixels >= 20
+    assert bool(np.all(splitter.clock_mask[30, 10:30]))
+
 
 def test_episodic_beltrami_shell_and_world_model_invariants() -> None:
     """
@@ -144,6 +165,7 @@ def test_episodic_beltrami_shell_and_world_model_invariants() -> None:
         `BeltramiCallosalShell` and `Gemma4BeltramiCallosalShell` (`use_gemma4_shell=True`),
       - `SlowFastTriadCascade` exact `0.000e+00` radial norm conservation,
       - `SkewSymmetricTriadOperator` `<= 1e-8` pointwise orthogonality,
+      - `Arc3HRMRecurrentCore` (`MagicNorm`, `L_module`, `H_module`, `q_head` `[Q_halt, Q_continue]`),
       - `compute_state_empowerment` and `compute_topological_symmetry_potential`.
     """
     f0 = np.zeros((64, 64), dtype=np.int32)
@@ -165,6 +187,9 @@ def test_episodic_beltrami_shell_and_world_model_invariants() -> None:
     assert priors.shape == (8,)
     assert float(cas_diag["max_norm_drift"]) == 0.0
     assert float(cas_diag["action_triad_orthogonality_error"]) <= 1e-8
+    assert math.isfinite(float(cas_diag["hrm_q_halt"]))
+    assert math.isfinite(float(cas_diag["hrm_q_continue"]))
+    assert isinstance(cas_diag["hrm_should_halt"], bool)
 
     # Verify Topological & Dual-Panel Symmetry Potential increases when two sub-panels agree
     panel_mismatch = np.zeros((64, 64), dtype=np.int32)
@@ -178,6 +203,149 @@ def test_episodic_beltrami_shell_and_world_model_invariants() -> None:
     phi_bad = compute_topological_symmetry_potential(panel_mismatch)
     phi_good = compute_topological_symmetry_potential(panel_aligned)
     assert phi_good > phi_bad
+
+
+def test_nonlocal_operator_factorization_and_d4_shape_invariance() -> None:
+    """
+    Verifies Non-Local Causal Operator Factorization (`G_act` vs `Omega_reg`) and
+    Dihedral `D_4` rotation-invariant shape transfer:
+      - Clicking an active peripheral slider/button at `(5, 30)` that mutates a remote passive
+        board region at `[20:24, 20:26]` (`nope_d = 24`, Chebyshev distance > 4, `eta_nonlocal = 1.0`)
+        registers `(5, 30)` in `remote_actuators` (`G_act`) and increments `driven_register_counts`
+        (`Omega_reg`) at `[20:24, 20:26]`,
+      - `is_driven_passive_register(23, 22)` returns True so the agent prunes passive display cells,
+        whereas `is_driven_passive_register(5, 30)` returns False for the active generator,
+      - Dihedral `D_4` shape transfer matches a `2x8` horizontal bar and an `8x2` vertical bar
+        under the same canonical signature `(kind, 2, 8, area_bucket)`.
+    """
+    wm = DarkSnailArc3WorldModel()
+    f0 = np.zeros((64, 64), dtype=np.int32)
+    # Peripheral horizontal slider/button 2x8 at rows 29..31, cols 2..10 (center ~ (6, 30))
+    f0[29:31, 2:10] = 11
+    # Passive state register at rows 20..24, cols 20..26
+    f0[20:24, 20:26] = 3
+
+    f1 = f0.copy()
+    # Clicking (6, 30) shifts the passive register at rows 20..24, cols 20..26 to color 8 (24 pixels remote)
+    f1[20:24, 20:26] = 8
+
+    cand_horiz = {
+        "x": 6,
+        "y": 30,
+        "kind": "cc_object",
+        "area": 16,
+        "bbox": (29, 2, 30, 9),  # bh=2, bw=8
+    }
+    rec = wm.record_transition(f0, f1, action_key=(6, 6, 30), candidate_meta=cand_horiz)
+    assert rec.nope_delta_l1 == 24
+    assert (6, 30) in wm.remote_actuators
+    assert wm.is_driven_passive_register(22, 22) is True
+    assert wm.is_driven_passive_register(6, 30) is False
+
+    # Now test a 90-degree rotated 8x2 vertical bar (bh=8, bw=2, area=16):
+    cand_vert = {
+        "x": 30,
+        "y": 6,
+        "kind": "cc_object",
+        "area": 16,
+        "bbox": (2, 29, 9, 30),  # bh=8, bw=2
+    }
+    assert wm.get_d4_shape_prior(cand_vert) > 0.4
+
+
+def test_hrm_and_amygdala_router_and_dual_pathway_gemma4_deliberation() -> None:
+    """
+    Verifies:
+      - `Arc3AffectiveAmygdalaRouter` computes 3D affective state `[V_t, U_t, Omega_t]` and
+        neuromodulatory gains `(gamma_E, gamma_I, T_gen, N_steps, bypass_active)`, and triggers
+        `should_call_gemma4_system2=True` on epistemic stall (`consecutive_non_progress >= 5`),
+      - `deliberate_with_gemma4_system2` executes a synthetic Gemma 4 model with hidden size 5376,
+        running BOTH Pathway A (`Gemma4BeltramiCallosalShell` `(1, T, 5376) -> (1, 32, 4096) -> (1, 32, 512)`
+        into `world_model.z_H`) and Pathway B (next-token digit `"0".."9"` logit softmax into
+        `world_model.gemma4_action_priors`).
+    """
+    router = Arc3AffectiveAmygdalaRouter(d_model=512)
+    z_H = torch.randn(1, 32, 512)
+    z_L = torch.randn(1, 1, 512)
+
+    # Normal progress step: System-1 reflex handles it without calling Gemma 4
+    mod_normal = router.step(
+        z_H,
+        z_L,
+        last_nope_delta=16,
+        is_new_state=True,
+        delta_phi=0.15,
+        untried_ratio=0.5,
+        consecutive_non_progress=0,
+        was_game_over=False,
+        step_idx=1,
+    )
+    assert -1.0 <= mod_normal["valence"] <= 1.0
+    assert 0.0 <= mod_normal["uncertainty"] <= 1.0
+    assert 0.0 <= mod_normal["urgency"] <= 1.0
+    assert mod_normal["gamma_E"] > 0.0 and mod_normal["gamma_I"] > 0.0
+    assert mod_normal["should_call_gemma4_system2"] is False
+
+    # Epistemic stall step: triggers System-2 callosal deliberation
+    mod_stall = router.step(
+        z_H,
+        z_L,
+        last_nope_delta=0,
+        is_new_state=False,
+        delta_phi=-0.05,
+        untried_ratio=0.9,
+        consecutive_non_progress=6,
+        was_game_over=False,
+        step_idx=10,
+    )
+    assert mod_stall["should_call_gemma4_system2"] is True
+
+    # Test Dual-Pathway Gemma 4 Callosal Deliberator with a lightweight mock Gemma 4 model & tokenizer
+    class DummyGemma4Tokenizer:
+        def __call__(self, prompt: str, return_tensors: str = "pt") -> dict:
+            return {"input_ids": torch.randint(0, 64, (1, 16))}
+
+        def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+            return [int(text) + 10]
+
+    class DummyGemma4Model(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.embed = nn.Embedding(64, 5376)
+            self.head = nn.Linear(5376, 64, bias=False)
+
+        def forward(self, input_ids: torch.Tensor, output_hidden_states: bool = False, **kwargs):
+            h = self.embed(input_ids)
+            logits = self.head(h)
+            # Bias digit "1" (token id 11) to be the highest-scoring candidate action
+            logits[:, -1, 11] += 10.0
+            hidden_states = tuple(h for _ in range(31)) if output_hidden_states else None
+            return SimpleNamespace(logits=logits, hidden_states=hidden_states)
+
+    agent = DarkSnailArc3Agent(max_actions=50, seed=0)
+    agent.attach_gemma4_system2(DummyGemma4Model(), tokenizer=DummyGemma4Tokenizer(), hook_layer=29)
+
+    f0 = np.zeros((64, 64), dtype=np.int32)
+    f0[20:24, 20:24] = 12
+    sh0 = agent.world_model.register_state(f0, step_idx=0)
+    cands = extract_arc3_beltrami_medoids(f0, max_candidates=8)
+    agent.world_model.state_candidates[sh0] = cands
+
+    delib = agent.deliberate_with_gemma4_system2(
+        cur_hash=sh0,
+        frame_2d=f0,
+        avail_set={1, 2, 6},
+        candidates=cands,
+        amygdala_diag=mod_stall,
+    )
+    assert delib["called"] is True
+    assert delib["pathway_a_injected"] is True
+    assert delib["pathway_b_priors"] >= 2
+    assert agent.gemma4_deliberations == 1
+    assert agent.world_model.z_H is not None
+    assert agent.world_model.z_H.shape == (1, 32, 512)
+    # Candidate [1] is simple action 2; verify Pathway B boosted its prior above Candidate [0] (action 1)
+    assert agent.world_model.gemma4_action_priors[(sh0, 2)] > agent.world_model.gemma4_action_priors[(sh0, 1)]
 
 
 def test_noop_pruning_local_patch_invariance_and_bfs_navigation() -> None:
@@ -301,4 +469,5 @@ def test_live_offline_ls20_and_ft09_execution() -> None:
     assert res_ft09["actions_taken"] <= 80
     assert res_ft09["clock_pixels_masked"] == 64
     assert res_ft09["unique_nope_states_visited"] >= 15
+
 

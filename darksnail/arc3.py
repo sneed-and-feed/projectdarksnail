@@ -267,17 +267,32 @@ class TemporalClockContentSplitter:
         self.max_nope_dist_from_init: int = 0
         self.transitions_observed: int = 0
 
-    def initialize_level(self, frame_2d: np.ndarray) -> None:
+    def initialize_level(self, frame_2d: np.ndarray, preserve_clock_mask: bool = False) -> None:
+        prev_mask: Optional[np.ndarray] = None
+        if preserve_clock_mask and self.clock_mask is not None:
+            prev_mask = self.clock_mask.copy()
         self.reset()
         f0 = np.asarray(frame_2d, dtype=np.int32).copy()
         H, W = f0.shape
         self.initial_frame = f0
-        self.clock_mask = np.zeros((H, W), dtype=bool)
+        if prev_mask is not None and prev_mask.shape == (H, W):
+            self.clock_mask = prev_mask
+        else:
+            self.clock_mask = np.zeros((H, W), dtype=bool)
         self.comp_id_map = np.full((H, W), -1, dtype=np.int32)
         comps = _connected_components_2d(f0, connectivity=4, same_color=True)
         for cid, comp in enumerate(comps):
             self.comp_by_id[cid] = comp
             self.comp_id_map[comp["rows"], comp["cols"]] = cid
+
+    def get_clock_mask(self) -> Optional[np.ndarray]:
+        """Returns the current boolean mask of exogenous clock pixels `H_clock`."""
+        return self.clock_mask
+
+    @property
+    def num_clock_pixels(self) -> int:
+        """Returns the number of pixels currently masked in `H_clock`."""
+        return int(self.clock_mask.sum()) if self.clock_mask is not None else 0
 
     def _mark_component_as_clock(self, cid: int, rows: np.ndarray, cols: np.ndarray) -> bool:
         """
@@ -465,9 +480,44 @@ def extract_arc3_beltrami_medoids(
       4. 2D Axial RoPE Salience Patch Medoids (`kind="rope2d_patch"`):
          Applies `RoPE2DMedoidPooler(patch_size=4)` over a 20-channel 16-color + Beltrami gradient
          + temporal innovation feature field.
+
+    Strictly projects out exogenous clock components `H_clock` across all 4 channels: any
+    component/cavity/defect/patch whose medoid `(mx, my)` lies in `clock_mask` OR has `>= 50%`
+    of its pixels inside `clock_mask` is excluded before NMS and quadtree selection.
     """
     arr = _frame_to_2d_numpy(frame_2d)
     H, W = arr.shape
+    clk_sum = int(clock_mask.sum()) if (clock_mask is not None and clock_mask.shape == (H, W)) else 0
+    has_any_clock = clock_mask is not None and clock_mask.shape == (H, W) and clk_sum > 0
+    has_deep_clock = has_any_clock and (prev_frame_2d is None or (128 < clk_sum <= 450))
+
+    def _is_clock_masked(
+        mx: int,
+        my: int,
+        rows: Optional[np.ndarray] = None,
+        cols: Optional[np.ndarray] = None,
+        r0: int = 0,
+        r1: int = 0,
+        c0: int = 0,
+        c1: int = 0,
+        deep_only: bool = False,
+    ) -> bool:
+        if not has_any_clock or clock_mask is None:
+            return False
+        if deep_only and not has_deep_clock:
+            return False
+        if 0 <= my < H and 0 <= mx < W and bool(clock_mask[my, mx]):
+            return True
+        if not has_deep_clock:
+            return False
+        if rows is not None and cols is not None and rows.size > 0:
+            if float(np.mean(clock_mask[rows, cols])) >= 0.50:
+                return True
+        elif r1 > r0 and c1 > c0:
+            if float(np.mean(clock_mask[max(0, r0) : min(H, r1), max(0, c0) : min(W, c1)])) >= 0.50:
+                return True
+        return False
+
     vals, counts = np.unique(arr, return_counts=True)
     bg_mode = int(vals[int(np.argmax(counts))])
 
@@ -480,7 +530,7 @@ def extract_arc3_beltrami_medoids(
     else:
         temp_diff = np.zeros((H, W), dtype=np.float32)
 
-    if clock_mask is not None and clock_mask.shape == (H, W):
+    if has_any_clock and clock_mask is not None:
         temp_diff = temp_diff * (~clock_mask).astype(np.float32)
 
     # Local 2D Beltrami spatial boundary gradient magnitude
@@ -511,7 +561,7 @@ def extract_arc3_beltrami_medoids(
 
     for comp in fg_comps:
         mx, my = int(comp["medoid_x"]), int(comp["medoid_y"])
-        if clock_mask is not None and clock_mask.shape == (H, W) and bool(clock_mask[my, mx]):
+        if _is_clock_masked(mx, my, rows=comp["rows"], cols=comp["cols"]):
             continue
 
         area = int(comp["area"])
@@ -666,6 +716,8 @@ def extract_arc3_beltrami_medoids(
             if hc["area"] > int(0.25 * H * W):
                 continue
             mx, my = int(hc["medoid_x"]), int(hc["medoid_y"])
+            if _is_clock_masked(mx, my, rows=hc["rows"], cols=hc["cols"], deep_only=True):
+                continue
             log_area = math.log2(max(1.0, float(hc["area"])))
             sal = (
                 2.60
@@ -708,7 +760,7 @@ def extract_arc3_beltrami_medoids(
             )
 
     # 3. Symmetry & Dual-Panel Pattern Discrepancy Candidates
-    fg_mask = arr != bg_mode
+    fg_mask = (arr != bg_mode) & (~clock_mask if (has_deep_clock and clock_mask is not None) else True)
     if np.any(fg_mask):
         frs, fcs = np.where(fg_mask)
         fr0, fr1 = int(frs.min()), int(frs.max()) + 1
@@ -730,6 +782,14 @@ def extract_arc3_beltrami_medoids(
                     for dc in defect_comps[:6]:
                         dy = fr0 + int(dc["medoid_y"])
                         dx = fc0 + int(dc["medoid_x"])
+                        if _is_clock_masked(
+                            dx,
+                            dy,
+                            rows=fr0 + dc["rows"],
+                            cols=fc0 + dc["cols"],
+                            deep_only=True,
+                        ):
+                            continue
                         sal = 2.95 * (1.0 - mismatch_ratio)
                         feat_vec = np.array(
                             [
@@ -799,7 +859,14 @@ def extract_arc3_beltrami_medoids(
                 continue
             py = int(np.clip(med_y_grid[pr, pc], 0, H - 1))
             px = int(np.clip(med_x_grid[pr, pc], 0, W - 1))
-            if clock_mask is not None and clock_mask.shape == (H, W) and bool(clock_mask[py, px]):
+            if _is_clock_masked(
+                px,
+                py,
+                r0=pr * 4,
+                r1=(pr + 1) * 4,
+                c0=pc * 4,
+                c1=(pc + 1) * 4,
+            ):
                 continue
             sal = float(1.35 + patch_sal[pr, pc])
             col = int(arr[py, px])
@@ -1175,6 +1242,366 @@ class TransitionRecord:
     count: int = 1
 
 
+class MagicNorm(nn.Module):
+    """
+    MagicNorm (Wang et al., Sapient HRM, arXiv:2506.21734):
+    Bounded RMS normalization at the exit boundary of recursive reasoning modules,
+    clamping spectral variance growth across deep unrolling cycles.
+    """
+
+    def __init__(self, d_model: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = float(eps)
+        self.weight = nn.Parameter(torch.ones(int(d_model)))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
+        return (x / rms) * self.weight
+
+
+class HRMRecurrentBlock(nn.Module):
+    """
+    Transformer-based recurrent refinement block with bidirectional attention
+    and SwiGLU feed-forward network (Sapient HRM / TRM, arXiv:2506.21734).
+    """
+
+    def __init__(self, d_model: int = 512, n_heads: int = 8, d_ffn: int = 1024):
+        super().__init__()
+        self.d_model = int(d_model)
+        self.n_heads = int(n_heads)
+        self.d_head = self.d_model // self.n_heads
+
+        self.norm1 = MagicNorm(self.d_model)
+        self.q_proj = nn.Linear(self.d_model, self.d_model, bias=False)
+        self.k_proj = nn.Linear(self.d_model, self.d_model, bias=False)
+        self.v_proj = nn.Linear(self.d_model, self.d_model, bias=False)
+        self.out_proj = nn.Linear(self.d_model, self.d_model, bias=False)
+
+        self.norm2 = MagicNorm(self.d_model)
+        self.ffn_gate = nn.Linear(self.d_model, int(d_ffn), bias=False)
+        self.ffn_up = nn.Linear(self.d_model, int(d_ffn), bias=False)
+        self.ffn_down = nn.Linear(int(d_ffn), self.d_model, bias=False)
+
+    def forward(self, state: torch.Tensor, context: Optional[torch.Tensor] = None) -> torch.Tensor:
+        h = self.norm1(state)
+        ctx = self.norm1(context) if context is not None else h
+
+        B, S, _ = state.shape
+        _, S_ctx, _ = ctx.shape
+
+        q = self.q_proj(h).view(B, S, self.n_heads, self.d_head).transpose(1, 2)
+        k = self.k_proj(ctx).view(B, S_ctx, self.n_heads, self.d_head).transpose(1, 2)
+        v = self.v_proj(ctx).view(B, S_ctx, self.n_heads, self.d_head).transpose(1, 2)
+
+        scale = 1.0 / math.sqrt(float(self.d_head))
+        attn = F.softmax(torch.matmul(q, k.transpose(-2, -1)) * scale, dim=-1)
+        attn_out = torch.matmul(attn, v).transpose(1, 2).contiguous().view(B, S, self.d_model)
+        h = state + self.out_proj(attn_out)
+
+        h_norm = self.norm2(h)
+        swiglu = F.silu(self.ffn_gate(h_norm)) * self.ffn_up(h_norm)
+        return h + self.ffn_down(swiglu)
+
+
+class Arc3HRMRecurrentCore(nn.Module):
+    """
+    Hierarchical Reasoning Model (HRM / TRM, Wang et al., arXiv:2506.21734) dual-timescale
+    recurrent core for ARC-AGI-3:
+      - `L_module`: Fast low-level tactical executor (`L_cycles` inner steps per segment),
+      - `H_module`: Slow high-level strategic planner (`1` outer step per segment),
+      - `q_head`: Adaptive Computation Time (ACT) Q-halting head predicting `[Q_halt, Q_continue]`.
+    """
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        n_heads: int = 8,
+        d_ffn: int = 1024,
+        L_cycles: int = 2,
+        M_max: int = 8,
+    ):
+        super().__init__()
+        self.d_model = int(d_model)
+        self.L_cycles = int(L_cycles)
+        self.M_max = int(M_max)
+
+        self.L_module = HRMRecurrentBlock(d_model=self.d_model, n_heads=n_heads, d_ffn=d_ffn)
+        self.H_module = HRMRecurrentBlock(d_model=self.d_model, n_heads=n_heads, d_ffn=d_ffn)
+        self.q_head = nn.Linear(self.d_model, 2)
+
+    def forward(
+        self,
+        z_H_init: torch.Tensor,
+        z_L_init: torch.Tensor,
+        max_steps: int = 4,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
+        """
+        Unrolls dual-timescale HRM segments until `Q_halt > Q_continue` or `max_steps` is reached.
+        """
+        z_H = z_H_init.float()
+        z_L = z_L_init.float()
+        steps_limit = max(1, min(int(max_steps), self.M_max))
+
+        steps_taken = 0
+        last_q_halt = 0.0
+        last_q_cont = 0.0
+        halted_early = False
+
+        for _ in range(steps_limit):
+            for _ in range(self.L_cycles):
+                z_L = self.L_module(state=z_L, context=z_H)
+            z_H = self.H_module(state=z_H, context=z_L)
+            q_vals = self.q_head(z_H.mean(dim=1))  # (B, 2): [Q_halt, Q_continue]
+            steps_taken += 1
+            last_q_halt = float(q_vals[0, 0].item())
+            last_q_cont = float(q_vals[0, 1].item())
+            if steps_taken >= 2 and last_q_halt > last_q_cont:
+                halted_early = True
+                break
+
+        return z_H, z_L, {
+            "hrm_steps_taken": steps_taken,
+            "hrm_halted_early": halted_early,
+            "hrm_should_halt": halted_early,
+            "q_halt": last_q_halt,
+            "q_continue": last_q_cont,
+            "hrm_q_halt": last_q_halt,
+            "hrm_q_continue": last_q_cont,
+        }
+
+
+class Arc3AffectiveAmygdalaRouter(nn.Module):
+    """
+    3D Affective State Classifier & Neuromodulatory Router for ARC-AGI-3
+    (integrating `OpenJevAmygdalarRouter`, `NeuromodulatoryController`, and
+    `ReflexFirstCascadedRouter` with `ZenoAmygdalaController`):
+
+      1. Extracts the 3D continuous Affective State vector `a_t = [V_t, U_t, Omega_t]^T`
+         by fusing neural readout heads (`valence_head`, `threat_head`, `urgency_head`) on
+         `z_L_tok` with embodied ARC-AGI-3 telemetry:
+           - Valence `V_t in [-1, +1]`: Topological progress `Delta Phi_topo` and novel state
+             discovery vs. self-loop stagnation / `GAME_OVER` / phase-reset penalty.
+           - Threat / Epistemic Uncertainty `U_t in [0, 1]`: Hazard proximity (`game_over_actions`
+             at current state) fused via probabilistic OR (`r + h - r*h`) with normalized
+             Shannon decision entropy `H(p) / log(K)` over untried candidate action scores.
+           - Urgency / Complexity `Omega_t in [0, 1]`: Ordinal expectation fused with exogenous
+             clock depletion ratio and frontier branching complexity.
+      2. Translates `(V_t, U_t, Omega_t)` via `NeuromodulatoryController` into:
+           - Callosal Excitatory & Inhibitory gains `(gamma_E, gamma_I)`,
+           - Candidate temperature scaling `T_gen`,
+           - Reflex-First Bypass mask (`bypass_active`), and
+           - Recurrent step budget `N_steps in [1, 16]`.
+    """
+
+    def __init__(
+        self,
+        hidden_dim: int = 512,
+        mlp_dim: int = 256,
+        d_model: Optional[int] = None,
+        gamma_E0: float = 1.0,
+        gamma_I0: float = 0.5,
+        T_min: float = 0.05,
+        T_max: float = 1.0,
+        N_min: int = 1,
+        N_max: int = 16,
+        theta_U: float = 0.15,
+        theta_Omega: float = 0.20,
+        theta_bypass: float = 0.90,
+    ):
+        super().__init__()
+        self.hidden_dim = int(d_model) if d_model is not None else int(hidden_dim)
+        self.gamma_E0 = float(gamma_E0)
+        self.gamma_I0 = float(gamma_I0)
+        self.T_min = float(T_min)
+        self.T_max = float(T_max)
+        self.N_min = int(N_min)
+        self.N_max = int(N_max)
+        self.theta_U = float(theta_U)
+        self.theta_Omega = float(theta_Omega)
+        self.theta_bypass = float(theta_bypass)
+
+        # 1. Valence Head: Bipolar [-1, +1]
+        self.valence_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, mlp_dim),
+            nn.GELU(),
+            nn.Linear(mlp_dim, 1),
+            nn.Tanh(),
+        )
+        # 2. Threat / Risk Head: Probability of hazard [0, 1]
+        self.threat_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, mlp_dim),
+            nn.GELU(),
+            nn.Linear(mlp_dim, 1),
+            nn.Sigmoid(),
+        )
+        # 3. Urgency / Complexity Head: Ordinal distribution over 4 tiers [0, 1]
+        self.urgency_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, mlp_dim),
+            nn.GELU(),
+            nn.Linear(mlp_dim, 4),
+        )
+        self.register_buffer(
+            "complexity_weights", torch.tensor([0.0, 0.333, 0.666, 1.0], dtype=torch.float32), persistent=False
+        )
+
+    def forward(
+        self,
+        state_repr: torch.Tensor,
+        candidate_scores: Optional[Sequence[float]] = None,
+        topo_delta: float = 0.0,
+        consecutive_no_progress: int = 0,
+        visit_count: int = 1,
+        has_game_over_hazard: bool = False,
+        clock_depletion_ratio: float = 0.0,
+        planned_bfs_active: bool = False,
+    ) -> Dict[str, Any]:
+        with torch.no_grad():
+            if state_repr.ndim == 3:
+                x = state_repr.mean(dim=1).view(1, -1).float()
+            else:
+                x = state_repr.view(1, -1).float()
+            v_neural = float(self.valence_head(x).squeeze(-1).item())
+            r_neural = float(self.threat_head(x).squeeze(-1).item())
+            urg_logits = self.urgency_head(x)
+            urg_probs = F.softmax(urg_logits, dim=-1)
+            omega_neural = float(torch.sum(urg_probs * self.complexity_weights, dim=-1).item())
+
+            # Embodied Valence V in [-1, +1]
+            v_emp = (
+                0.45 * math.tanh(4.0 * float(topo_delta))
+                + (0.35 if (visit_count <= 1 and consecutive_no_progress == 0) else 0.0)
+                - 0.30 * min(1.0, float(consecutive_no_progress) / 4.0)
+                - (0.40 if has_game_over_hazard else 0.0)
+            )
+            V_val = float(np.clip(0.35 * v_neural + 0.65 * v_emp, -1.0, 1.0))
+
+            # Embodied Threat + Decision Entropy U in [0, 1]
+            r_hazard = (
+                0.65
+                if has_game_over_hazard
+                else min(
+                    0.70,
+                    0.12 * float(visit_count - 1) + 0.14 * float(consecutive_no_progress),
+                )
+            )
+            r_threat = float(np.clip(0.20 * r_neural + 0.80 * r_hazard, 0.0, 1.0))
+
+            if candidate_scores is not None and len(candidate_scores) > 1:
+                arr_s = np.asarray(candidate_scores[:12], dtype=np.float64)
+                arr_s = (arr_s - np.max(arr_s)) / 0.25
+                probs = np.exp(arr_s)
+                probs = probs / max(1e-9, float(np.sum(probs)))
+                ent = float(-np.sum(probs * np.log(probs + 1e-12)))
+                h_norm = float(np.clip(ent / math.log(float(len(probs))), 0.0, 1.0))
+                if visit_count <= 1 and consecutive_no_progress == 0 and not has_game_over_hazard:
+                    h_eff = 0.12 * h_norm
+                else:
+                    h_eff = 0.65 * h_norm
+                U_val = float(np.clip(r_threat + h_eff - (r_threat * h_eff), 0.0, 1.0))
+            else:
+                U_val = r_threat
+
+            if planned_bfs_active and not has_game_over_hazard and consecutive_no_progress == 0:
+                U_val = min(U_val, 0.08)
+                V_val = max(V_val, 0.25)
+
+            # Embodied Urgency / Complexity Omega in [0, 1]
+            k_branch = len(candidate_scores) if candidate_scores is not None else 1
+            branch_comp = min(1.0, float(k_branch) / 20.0)
+            if (
+                (planned_bfs_active or (visit_count <= 1 and consecutive_no_progress == 0))
+                and clock_depletion_ratio < 0.25
+                and not has_game_over_hazard
+            ):
+                omega_emp = 0.12 * branch_comp
+            else:
+                omega_emp = 0.55 * float(np.clip(clock_depletion_ratio, 0.0, 1.0)) + 0.45 * branch_comp
+            Omega_val = float(np.clip(0.20 * omega_neural + 0.80 * omega_emp, 0.0, 1.0))
+
+            # NeuromodulatoryController equations
+            V_t = torch.tensor(V_val, dtype=torch.float32)
+            U_t = torch.tensor(U_val, dtype=torch.float32)
+            Omega_t = torch.tensor(Omega_val, dtype=torch.float32)
+
+            gamma_E = (
+                self.gamma_E0
+                * (1.0 + 0.5 * torch.tanh(V_t))
+                * torch.pow(1.0 - torch.clamp(U_t, 0.0, 0.99), 1.5)
+                * (1.0 - 0.7 * Omega_t)
+            )
+            gamma_E_f = float(torch.clamp(gamma_E, min=0.0, max=2.0).item())
+
+            gamma_I = self.gamma_I0 * (
+                1.0 + 2.0 * torch.pow(U_t, 2) + 1.5 * Omega_t - 0.3 * torch.clamp(V_t, min=0.0)
+            )
+            gamma_I_f = float(torch.clamp(gamma_I, min=0.1, max=5.0).item())
+
+            temp_scale = torch.sigmoid(V_t / 0.5) * torch.exp(-1.5 * U_t - 1.2 * Omega_t)
+            temp_f = float(
+                torch.clamp(
+                    self.T_min + (self.T_max - self.T_min) * temp_scale,
+                    min=self.T_min,
+                    max=self.T_max,
+                ).item()
+            )
+
+            bypass_active = bool(
+                (U_val < self.theta_U and Omega_val < self.theta_Omega and V_val >= 0.0)
+                or (planned_bfs_active and not has_game_over_hazard)
+            )
+            neg_val_threat = max(0.0, -V_val) * U_val
+            phi = 0.40 * Omega_val + 0.35 * U_val + 0.25 * neg_val_threat
+            phi = math.pow(float(np.clip(phi, 0.0, 1.0)), 1.8)
+            n_steps = 1 if bypass_active else int(round(self.N_min + (self.N_max - self.N_min) * phi))
+            n_steps = max(1, min(self.N_max, n_steps))
+
+            reflex_decision = (
+                "System 1 (Reflex Bypass)" if bypass_active else "Escalate to System 2"
+            )
+            should_call_gemma4 = bool(
+                (not bypass_active)
+                and (consecutive_no_progress >= 5 or has_game_over_hazard or U_val >= 0.75)
+            )
+
+            return {
+                "valence": round(V_val, 4),
+                "uncertainty": round(U_val, 4),
+                "urgency": round(Omega_val, 4),
+                "gamma_E": round(gamma_E_f, 4),
+                "gamma_I": round(gamma_I_f, 4),
+                "temperature": round(temp_f, 4),
+                "reasoning_steps": int(n_steps),
+                "bypass_active": bypass_active,
+                "reflex_decision": reflex_decision,
+                "should_call_gemma4_system2": should_call_gemma4,
+            }
+
+    def step(
+        self,
+        z_H: torch.Tensor,
+        z_L: torch.Tensor,
+        last_nope_delta: int = 0,
+        is_new_state: bool = True,
+        delta_phi: float = 0.0,
+        untried_ratio: float = 0.5,
+        consecutive_non_progress: int = 0,
+        was_game_over: bool = False,
+        step_idx: int = 0,
+    ) -> Dict[str, Any]:
+        """Convenience step wrapper fusing `(z_H, z_L)` and embodied transition telemetry."""
+        visit_cnt = 1 if (is_new_state and last_nope_delta > 0) else max(2, 1 + consecutive_non_progress)
+        return self.forward(
+            z_L,
+            candidate_scores=None,
+            topo_delta=delta_phi,
+            consecutive_no_progress=consecutive_non_progress,
+            visit_count=visit_cnt,
+            has_game_over_hazard=was_game_over,
+            clock_depletion_ratio=float(np.clip(1.0 - untried_ratio, 0.0, 1.0)) if not is_new_state else 0.0,
+            planned_bfs_active=False,
+        )
+
+
 class DarkSnailArc3WorldModel(nn.Module):
     """
     Bi-Hemispheric DarkSnail V2 World Model for ARC-AGI-3.
@@ -1182,12 +1609,13 @@ class DarkSnailArc3WorldModel(nn.Module):
     Combines:
       1. `TemporalClockContentSplitter`: Separates exogenous dissipative clock ticks (`H_clock`)
          from controllable state variables (`H_nope`) via the discrete continuity equation.
-      2. `SlowFastTriadCascade`: Exact `0.000e+00` spherical norm-conserving slow-fast
-         recurrent coupling (`d_reasoner=512, d_shell=8`) between the episodic callosal
-         shell summary `z_H` and current board latent `z_L`.
+      2. `Arc3HRMRecurrentCore` + `SlowFastTriadCascade`: Dual-timescale HRM/TRM (`L_module`,
+         `H_module`, `MagicNorm`, `ACT Q_halt/Q_continue`) paired with exact `0.000e+00`
+         spherical norm-conserving slow-fast recurrent coupling (`d_reasoner=512, d_shell=8`).
       3. `SkewSymmetricTriadOperator`: Pointwise orthogonal (`<v, B_W(u, v)> <= 1e-8`)
          `so(8)` action-type triad tie-breaker.
-      4. Online State-Transition Graph, Local Patch Invariance for Inert Clicks, and
+      4. Non-Local Causal Operator Factorization (`G_act` Active Generators vs. `Omega_reg`
+         Driven Passive State Register) + Dihedral `D_4` Rotation-Invariant Shape Transfer +
          Online Spatial Contingency Posterior (Choi et al., arXiv:1811.01483; Lamb et al.,
          arXiv:2207.08229).
     """
@@ -1208,6 +1636,15 @@ class DarkSnailArc3WorldModel(nn.Module):
             unroll_steps=unroll_steps,
         )
         self.action_triad = SkewSymmetricTriadOperator(c_u=self.d_shell, m_dim=8, init_zero=False)
+        with torch.random.fork_rng():
+            torch.manual_seed(2026)
+            self.hrm_core = Arc3HRMRecurrentCore(
+                d_model=self.d_reasoner,
+                n_heads=8,
+                d_ffn=1024,
+                L_cycles=2,
+                M_max=8,
+            )
         self.splitter = TemporalClockContentSplitter()
 
         gen = torch.zeros(1, 8192, dtype=torch.float32)
@@ -1217,10 +1654,51 @@ class DarkSnailArc3WorldModel(nn.Module):
 
         self.reset_level(clear_morphology_priors=True)
 
+    @staticmethod
+    def _extract_bbox_hw(cand_info: Dict[str, Any]) -> Tuple[int, int]:
+        bbox_val = cand_info.get("bbox", (1, 1))
+        if isinstance(bbox_val, (tuple, list)) and len(bbox_val) == 4:
+            bh = abs(int(bbox_val[2]) - int(bbox_val[0])) + 1
+            bw = abs(int(bbox_val[3]) - int(bbox_val[1])) + 1
+            return max(1, bh), max(1, bw)
+        if isinstance(bbox_val, (tuple, list)) and len(bbox_val) >= 2:
+            return max(1, int(bbox_val[0])), max(1, int(bbox_val[1]))
+        return 1, 1
+
+    @staticmethod
+    def _make_d4_shape_key(
+        kind: str,
+        bh: int,
+        bw: int,
+        area: int,
+    ) -> Tuple[str, int, int, int]:
+        return (
+            str(kind),
+            min(int(bh), int(bw)),
+            max(int(bh), int(bw)),
+            int(round(math.log2(max(1, int(area))))),
+        )
+
+    def get_d4_shape_prior(self, candidate_info: Dict[str, Any]) -> float:
+        """
+        Returns the empirical Dihedral `D_4` rotation-invariant contingency rate in `[0, 1]`
+        for `candidate_info` under `(kind, min(bh, bw), max(bh, bw), round(log2(area)))`.
+        """
+        bh, bw = self._extract_bbox_hw(candidate_info)
+        k_str = str(candidate_info.get("kind", "cc_object"))
+        area = int(candidate_info.get("area", bh * bw))
+        d4_key = self._make_d4_shape_key(k_str, bh, bw, area)
+        trials, succs = self.d4_shape_stats.get(d4_key, [0.0, 0.0])
+        if trials <= 0.0:
+            return 0.0
+        return float(succs / trials)
+
     def reset_level(self, clear_morphology_priors: bool = False) -> None:
         """Resets the current level's state graph while optionally retaining learned game mechanics."""
-        self.splitter.reset()
+        if clear_morphology_priors:
+            self.splitter.reset()
         self.state_frames: Dict[str, np.ndarray] = {}
+        self.state_candidates: Dict[str, List[Dict[str, Any]]] = {}
         self.state_visit_counts: Dict[str, int] = Counter()
         self.state_first_step: Dict[str, int] = {}
         self.state_entry_action: Dict[str, ActionKey] = {}
@@ -1232,34 +1710,127 @@ class DarkSnailArc3WorldModel(nn.Module):
             Tuple[np.ndarray, np.ndarray, ActionKey, int, bool, bool, bool, Optional[Dict[str, Any]]]
         ] = []
         self.initial_state_hash: Optional[str] = None
+        self.z_H: Optional[torch.Tensor] = None
+        self.z_L: Optional[torch.Tensor] = None
 
-        # Level-specific Online Spatial Contingency Posterior & Local Patch Invariance state
+        # Level-specific Online Spatial Contingency Posterior, Local Patch Invariance,
+        # and Non-Local Causal Operator Factorization (`G_act` vs. `Omega_reg`)
         self.inert_click_patches: Dict[Tuple[int, int], Set[bytes]] = {}
         self.inert_patch_fail_counts: Dict[Tuple[int, int, bytes], int] = Counter()
         self.interactive_loci: Set[Tuple[int, int]] = set()
+        self.remote_actuators: Set[Tuple[int, int]] = set()
+        self.driven_register_counts: Optional[np.ndarray] = None
+        self.coord_nonlocal_ratio: Dict[Tuple[int, int], float] = {}
         self.coord_click_counts: Dict[Tuple[int, int], int] = Counter()
         self.coord_success_counts: Dict[Tuple[int, int], int] = Counter()
         self.coord_last_delta: Dict[Tuple[int, int], int] = {}
         self.state_topo_potential: Dict[str, float] = {}
+        self.gemma4_action_priors: Dict[Tuple[str, ActionKey], float] = {}
 
         if clear_morphology_priors or not hasattr(self, "action_type_stats"):
             self.action_type_stats: Dict[int, List[float]] = {i: [0.0, 0.0] for i in range(8)}
             self.morphology_stats: Dict[Tuple[str, int, int, int], List[float]] = {}
             self.shape_stats: Dict[Tuple[str, int, int], List[float]] = {}
+            self.d4_shape_stats: Dict[Tuple[str, int, int, int], List[float]] = {}
             self.medoid_weights = np.array(
                 [0.0, 0.15, 0.25, 0.20, 0.0, 0.0, 0.0, 0.0, 0.35, 0.20, 0.40, 0.50],
                 dtype=np.float32,
             )
 
         self._base_action_type_stats: Dict[int, List[float]] = {
-            k: [ float(v[0]), float(v[1]) ] for k, v in self.action_type_stats.items()
+            k: [float(v[0]), float(v[1])] for k, v in self.action_type_stats.items()
         }
         self._base_morphology_stats: Dict[Tuple[str, int, int, int], List[float]] = {
-            k: [ float(v[0]), float(v[1]) ] for k, v in self.morphology_stats.items()
+            k: [float(v[0]), float(v[1])] for k, v in self.morphology_stats.items()
         }
         self._base_shape_stats: Dict[Tuple[str, int, int], List[float]] = {
-            k: [ float(v[0]), float(v[1]) ] for k, v in self.shape_stats.items()
+            k: [float(v[0]), float(v[1])] for k, v in self.shape_stats.items()
         }
+        self._base_d4_shape_stats: Dict[Tuple[str, int, int, int], List[float]] = {
+            k: [float(v[0]), float(v[1])] for k, v in self.d4_shape_stats.items()
+        }
+
+    def _update_nonlocal_operator_factorization(
+        self,
+        nope_prev: np.ndarray,
+        nope_next: np.ndarray,
+        cx: int,
+        cy: int,
+        nope_d: int,
+    ) -> float:
+        """
+        Computes the Non-Local Causal Displacement Ratio:
+            eta_nonlocal(x_c, y_c) = |{(x, y) in Omega(Delta F_nope) : max(|x - x_c|, |y - y_c|) > 4}|
+                                     / |Omega(Delta F_nope)|
+        When `eta_nonlocal >= 0.50` and `nope_d >= 6`, classifies `(cx, cy) in G_act`
+        (`remote_actuators`) and accumulates the distant changed pixels into the Driven Passive
+        State Register `Omega_reg(y, x)` (`driven_register_counts`).
+        """
+        if nope_d <= 0:
+            return 0.0
+        diff_rs, diff_cs = np.nonzero(nope_prev != nope_next)
+        if diff_rs.size == 0:
+            return 0.0
+        far_mask = np.maximum(np.abs(diff_cs - int(cx)), np.abs(diff_rs - int(cy))) > 4
+        eta_nonlocal = float(np.sum(far_mask)) / float(diff_rs.size)
+        prev_best = self.coord_nonlocal_ratio.get((int(cx), int(cy)), 0.0)
+        if eta_nonlocal > prev_best:
+            self.coord_nonlocal_ratio[(int(cx), int(cy))] = eta_nonlocal
+
+        if eta_nonlocal >= 0.50 and nope_d >= 6:
+            self.remote_actuators.add((int(cx), int(cy)))
+            if self.driven_register_counts is None or self.driven_register_counts.shape != nope_prev.shape:
+                self.driven_register_counts = np.zeros(nope_prev.shape, dtype=np.int32)
+            self.driven_register_counts[diff_rs[far_mask], diff_cs[far_mask]] += 1
+        return eta_nonlocal
+
+    def is_driven_passive_register(
+        self,
+        cx: int,
+        cy: int,
+        candidate_info: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Returns True if the level has confirmed remote actuators (`G_act != empty`), `(cx, cy)`
+        is NOT a confirmed interactive locus, and either:
+          (a) `(cx, cy)` (or `>= 50%` of its bounding box) lies inside the Driven Passive
+              Register `Omega_reg(y, x) > 0` while its shape has 0 confirmed actuator successes, or
+          (b) `(cx, cy)` belongs to a Dihedral `D_4` shape class with `>= 3` trials and `0` successes.
+        """
+        if (int(cx), int(cy)) in self.interactive_loci:
+            return False
+
+        if not self.remote_actuators or self.driven_register_counts is None:
+            return False
+
+        s_succs = 0.0
+        d4_succs = 0.0
+        if candidate_info is not None:
+            bh, bw = self._extract_bbox_hw(candidate_info)
+            k_str = str(candidate_info.get("kind", "cc_object"))
+            area = int(candidate_info.get("area", int(bh) * int(bw)))
+            _, s_succs = self.shape_stats.get((k_str, int(bh), int(bw)), [0.0, 0.0])
+            d4_key = self._make_d4_shape_key(k_str, int(bh), int(bw), area)
+            _, d4_succs = self.d4_shape_stats.get(d4_key, [0.0, 0.0])
+
+        # Never prune a candidate whose D_4 shape matches a confirmed actuator!
+        if s_succs > 0.0 or d4_succs > 0.0:
+            return False
+
+        H, W = self.driven_register_counts.shape
+        if 0 <= int(cy) < H and 0 <= int(cx) < W and int(self.driven_register_counts[int(cy), int(cx)]) > 0:
+            return True
+
+        if candidate_info is not None:
+            r0 = int(candidate_info.get("r0", cy))
+            r1 = int(candidate_info.get("r1", cy + 1))
+            c0 = int(candidate_info.get("c0", cx))
+            c1 = int(candidate_info.get("c1", cx + 1))
+            if r1 > r0 and c1 > c0:
+                sub_reg = self.driven_register_counts[max(0, r0) : min(H, r1), max(0, c0) : min(W, c1)]
+                if sub_reg.size > 0 and float(np.mean(sub_reg > 0)) >= 0.50:
+                    return True
+        return False
 
     def canonicalize_click_xy(
         self,
@@ -1358,8 +1929,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         """
         When `TemporalClockContentSplitter` identifies a new exogenous clock component `H_clock`,
         retroactively re-projects stored frames onto `H_nope` and recomputes transition edges
-        plus `action_type_stats`, `interactive_loci`, `morphology_stats`, and `shape_stats` so
-        earlier clock-only no-ops do not leave false positive contingency counts.
+        plus `action_type_stats`, `interactive_loci`, `remote_actuators`, `driven_register_counts`,
+        `morphology_stats`, `shape_stats`, and `d4_shape_stats` so earlier clock-only no-ops do
+        not leave false positive contingency counts.
         """
         self.state_frames.clear()
         self.state_visit_counts.clear()
@@ -1372,6 +1944,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.inert_click_patches.clear()
         self.inert_patch_fail_counts.clear()
         self.interactive_loci.clear()
+        self.remote_actuators.clear()
+        self.driven_register_counts = None
+        self.coord_nonlocal_ratio.clear()
         self.coord_click_counts.clear()
         self.coord_success_counts.clear()
         self.coord_last_delta.clear()
@@ -1385,6 +1960,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         }
         self.shape_stats = {
             k: [float(v[0]), float(v[1])] for k, v in self._base_shape_stats.items()
+        }
+        self.d4_shape_stats = {
+            k: [float(v[0]), float(v[1])] for k, v in self._base_d4_shape_stats.items()
         }
 
         if self.splitter.initial_frame is not None:
@@ -1463,9 +2041,11 @@ class DarkSnailArc3WorldModel(nn.Module):
                 if meaningful:
                     self.coord_success_counts[(cx, cy)] += 1
                     self.interactive_loci.add((cx, cy))
+                    self._update_nonlocal_operator_factorization(nope_prev, nope_next, cx, cy, nope_d)
                 if cand_info is not None:
-                    bh, bw = cand_info.get("bbox", (1, 1))
+                    bh, bw = self._extract_bbox_hw(cand_info)
                     k_str = str(cand_info.get("kind", "cc_object"))
+                    area = int(cand_info.get("area", int(bh) * int(bw)))
                     fam = (k_str, int(cand_info.get("color", 0)), int(bh), int(bw))
                     st = self.morphology_stats.setdefault(fam, [0.0, 0.0])
                     st[0] += 1.0
@@ -1476,6 +2056,11 @@ class DarkSnailArc3WorldModel(nn.Module):
                     sst[0] += 1.0
                     if meaningful:
                         sst[1] += 1.0
+                    d4_fam = self._make_d4_shape_key(k_str, int(bh), int(bw), area)
+                    d4st = self.d4_shape_stats.setdefault(d4_fam, [0.0, 0.0])
+                    d4st[0] += 1.0
+                    if meaningful:
+                        d4st[1] += 1.0
 
     def record_transition(
         self,
@@ -1486,7 +2071,10 @@ class DarkSnailArc3WorldModel(nn.Module):
         level_up: bool = False,
         is_game_over: bool = False,
         candidate_info: Optional[Dict[str, Any]] = None,
+        candidate_meta: Optional[Dict[str, Any]] = None,
     ) -> TransitionRecord:
+        if candidate_info is None and candidate_meta is not None:
+            candidate_info = candidate_meta
         f_prev = _frame_to_2d_numpy(prev_frame)
         f_next = _frame_to_2d_numpy(next_frame)
         sf_count = len(subframes) if subframes is not None else 1
@@ -1528,6 +2116,7 @@ class DarkSnailArc3WorldModel(nn.Module):
 
         raw_d = int(np.sum(f_prev != f_next))
         nope_prev = self.splitter.project_nope(f_prev)
+        nope_next = self.splitter.project_nope(f_next)
         max_sf_nope_d = int(nope_d)
         if subframes is not None and len(subframes) > 1:
             for sf in subframes:
@@ -1591,10 +2180,12 @@ class DarkSnailArc3WorldModel(nn.Module):
             if meaningful:
                 self.coord_success_counts[(cx, cy)] += 1
                 self.interactive_loci.add((cx, cy))
+                self._update_nonlocal_operator_factorization(nope_prev, nope_next, cx, cy, nope_d)
 
             if candidate_info is not None:
-                bh, bw = candidate_info.get("bbox", (1, 1))
+                bh, bw = self._extract_bbox_hw(candidate_info)
                 k_str = str(candidate_info.get("kind", "cc_object"))
+                area = int(candidate_info.get("area", int(bh) * int(bw)))
                 fam = (
                     k_str,
                     int(candidate_info.get("color", 0)),
@@ -1612,6 +2203,12 @@ class DarkSnailArc3WorldModel(nn.Module):
                 if meaningful:
                     sst[1] += 1.0
 
+                d4_fam = self._make_d4_shape_key(k_str, int(bh), int(bw), area)
+                d4st = self.d4_shape_stats.setdefault(d4_fam, [0.0, 0.0])
+                d4st[0] += 1.0
+                if meaningful:
+                    d4st[1] += 1.0
+
                 fv = candidate_info.get("feature_vec")
                 if isinstance(fv, np.ndarray) and fv.shape == self.medoid_weights.shape:
                     pred = float(np.dot(self.medoid_weights, fv))
@@ -1625,16 +2222,25 @@ class DarkSnailArc3WorldModel(nn.Module):
         z_H_super: torch.Tensor,
         z_L_token: torch.Tensor,
         unroll_steps: int = 4,
+        hrm_steps: Optional[int] = None,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Couples slow episodic callosal shell `z_H_super` `(1, 32, 512)` with fast board state
-        `z_L_token` `(1, 1, 512)` via `SlowFastTriadCascade` (`0.000e+00` radial norm drift)
-        and evaluates `SkewSymmetricTriadOperator` in `so(8)` to produce orthogonal action-type
-        tie-breaking priors in `R^8`.
+        `z_L_token` `(1, 1, 512)` via `Arc3HRMRecurrentCore` (Sapient HRM/TRM `L_module`,
+        `H_module`, `MagicNorm`, `ACT Q_halt/Q_continue`) followed by `SlowFastTriadCascade`
+        (`0.000e+00` radial norm drift) and `SkewSymmetricTriadOperator` in `so(8)` (`<= 1e-8`
+        pointwise orthogonality) to produce orthogonal action-type tie-breaking priors in `R^8`.
         """
         with torch.no_grad():
-            z_H_mean = z_H_super.mean(dim=1, keepdim=True).float()
+            z_H_in = z_H_super.float()
             z_L_in = z_L_token.view(1, 1, self.d_reasoner).float()
+            self.z_H = z_H_in.detach()
+            self.z_L = z_L_in.detach()
+            h_steps = int(hrm_steps) if hrm_steps is not None else int(unroll_steps)
+            _, _, hrm_diag = self.hrm_core(
+                z_H_in, z_L_in, max_steps=max(1, min(8, h_steps))
+            )
+            z_H_mean = z_H_in.mean(dim=1, keepdim=True).float()
             z_L_coupled, cas_diag = self.cascade(
                 z_H_mean,
                 z_L_in,
@@ -1654,6 +2260,7 @@ class DarkSnailArc3WorldModel(nn.Module):
                 .item()
             )
             cas_diag["action_triad_orthogonality_error"] = ortho_res
+            cas_diag.update(hrm_diag)
             priors = torch.tanh(triad_shift).cpu().numpy()
         return priors, cas_diag
 
@@ -1664,16 +2271,19 @@ class DarkSnailArc3WorldModel(nn.Module):
         triad_priors: np.ndarray,
         candidate_info: Optional[Dict[str, Any]] = None,
         last_action_key: Optional[ActionKey] = None,
+        consecutive_same_action: int = 0,
     ) -> float:
         """
         Scores an untried candidate action `action_key` at `state_hash` by combining:
           1. Online empirical action-type transition rate (with UCB exploration bonus),
           2. Spanning-tree entry-action ordering (`state_entry_action[state_hash]`) with
              Geodesic Corridor Momentum along active translation generators,
-          3. Online morphological `(kind, color, h, w)` + shape-invariant `(kind, h, w)`
-             posterior + Online Spatial Contingency Posterior,
-          4. Global Stepper Continuation vs. Local `Z_2` Toggle Anti-Oscillation,
-          5. `SlowFastTriadCascade` + `SkewSymmetricTriadOperator` `so(8)` tie-breaking prior.
+          3. Online morphological `(kind, color, h, w)` + shape `(kind, h, w)` + Dihedral `D_4`
+             rotation-invariant `(kind, min(h,w), max(h,w), area_bucket)` posterior +
+             Driven Passive Register (`Omega_reg`) pruning,
+          4. Non-Local Actuator (`G_act`) continuation vs. Local `Z_2` Toggle Anti-Oscillation,
+          5. Left-Hemisphere Gemma 4 Symbolic Candidate Prior (`gemma4_action_priors`) +
+             `SlowFastTriadCascade` / `SkewSymmetricTriadOperator` `so(8)` tie-breaking prior.
         """
         if action_key in self.game_over_actions.get(state_hash, set()):
             return -1e6
@@ -1690,12 +2300,13 @@ class DarkSnailArc3WorldModel(nn.Module):
             type_score = emp_rate + ucb
 
         triad_val = float(triad_priors[act_id % 8]) * 0.15
+        g4_prior = float(self.gemma4_action_priors.get((state_hash, action_key), 0.0))
 
         if not isinstance(action_key, tuple):
             if act_id == 7:
-                return -2.0 + triad_val
+                return -2.0 + triad_val + g4_prior
 
-            base = 2.15 * type_score + triad_val
+            base = 2.15 * type_score + triad_val + g4_prior
             inverse_map = {1: 2, 2: 1, 3: 4, 4: 3}
             entry_act = self.state_entry_action.get(state_hash)
             if isinstance(entry_act, int):
@@ -1713,12 +2324,16 @@ class DarkSnailArc3WorldModel(nn.Module):
         if frame_2d is not None and self.is_click_locally_inert(frame_2d, cx, cy, tier=1):
             return -50.0
 
+        if self.is_driven_passive_register(cx, cy, candidate_info=candidate_info):
+            return -35.0
+
         if candidate_info is None:
-            return float(0.50 * type_score + triad_val)
+            return float(0.50 * type_score + triad_val + g4_prior)
 
         sal = float(candidate_info.get("salience", 1.0))
-        bh, bw = candidate_info.get("bbox", (1, 1))
+        bh, bw = self._extract_bbox_hw(candidate_info)
         k_str = str(candidate_info.get("kind", "cc_object"))
+        area = int(candidate_info.get("area", int(bh) * int(bw)))
         fam = (
             k_str,
             int(candidate_info.get("color", 0)),
@@ -1726,15 +2341,23 @@ class DarkSnailArc3WorldModel(nn.Module):
             int(bw),
         )
         sh_fam = (k_str, int(bh), int(bw))
+        d4_fam = self._make_d4_shape_key(k_str, int(bh), int(bw), area)
+
         f_trials, f_succs = self.morphology_stats.get(fam, [0.0, 0.0])
         s_trials, s_succs = self.shape_stats.get(sh_fam, [0.0, 0.0])
+        base_d4_trials, base_d4_succs = self._base_d4_shape_stats.get(d4_fam, [0.0, 0.0])
+        has_nonlocal_actuators = len(self.remote_actuators) > 0
 
         if f_trials == 0.0:
             if s_trials > 0.0 and s_succs > 0.0:
                 # Shape-invariant contingency transfer (e.g. twin control buttons of different colors)
-                morph_bonus = 1.65 * (s_succs / s_trials)
-            elif s_trials >= 3.0 and s_succs == 0.0:
+                morph_coeff = 1.65 if has_nonlocal_actuators else 1.75
+                morph_bonus = morph_coeff * (s_succs / s_trials)
+            elif has_nonlocal_actuators and s_trials >= 3.0 and s_succs == 0.0:
                 morph_bonus = -0.90
+            elif base_d4_trials > 0.0 and base_d4_succs > 0.0 and int(bh) != int(bw):
+                # Cross-level Dihedral D_4 rotation-invariant shape transfer (`(bh, bw)` <-> `(bw, bh)`)
+                morph_bonus = 0.85 * (base_d4_succs / base_d4_trials)
             else:
                 morph_bonus = 0.40
         else:
@@ -1749,12 +2372,15 @@ class DarkSnailArc3WorldModel(nn.Module):
         # (e.g. symmetric left/right control buttons at the same row `|cy - ly| <= 2`).
         contingency_bonus = 0.0
         if self.interactive_loci:
-            min_dist = min(max(abs(cx - lx), abs(cy - ly)) for (lx, ly) in self.interactive_loci)
+            min_dist = min(
+                max(abs(cx - lx), abs(cy - ly)) for (lx, ly) in self.interactive_loci
+            )
             aligned_axis = any(
                 abs(cy - ly) <= 2 or abs(cx - lx) <= 2 for (lx, ly) in self.interactive_loci
             )
             if min_dist <= 24:
-                contingency_bonus += 1.35 * (1.0 - float(min_dist) / 32.0)
+                c_coeff = 1.35 if has_nonlocal_actuators else 1.15
+                contingency_bonus += c_coeff * (1.0 - float(min_dist) / 32.0)
             elif aligned_axis and s_succs > 0:
                 contingency_bonus += 0.85
             else:
@@ -1769,17 +2395,17 @@ class DarkSnailArc3WorldModel(nn.Module):
         )
 
         if prev_clicks_here == 0:
-            novel_coord_bonus = 0.85
+            novel_coord_bonus = 0.85 if has_nonlocal_actuators else 0.90
         elif is_global_stepper:
             # Global Stepper / Actuator Continuation: clicking this button produced a large
             # non-local board evolution (`nope_d >= 36`) into a brand-new state; continue stepping
             # along its orbit until the state repeats or all novel states are reached!
-            novel_coord_bonus = 0.95
+            novel_coord_bonus = 0.95 if has_nonlocal_actuators else 0.85
         else:
             novel_coord_bonus = -0.55 * float(prev_clicks_here)
 
         # Immediate repeat-click anti-oscillation guard for local Z_2 toggles (`s_0 -> s_1 -> s_0`)
-        if last_action_key == action_key and not is_global_stepper:
+        if has_nonlocal_actuators and last_action_key == action_key and not is_global_stepper:
             if len(self.interactive_loci) > 1 or last_delta_here < 36:
                 novel_coord_bonus -= 2.25
 
@@ -1798,6 +2424,7 @@ class DarkSnailArc3WorldModel(nn.Module):
             + novel_coord_bonus
             + 0.35 * ridge_val
             + triad_val
+            + g4_prior
         )
 
     def find_shortest_path_to_frontier(
@@ -1843,7 +2470,7 @@ class DarkSnailArc3WorldModel(nn.Module):
 
 class DarkSnailArc3Agent:
     """
-    Bi-Hemispheric DarkSnail V2 + Gemma 4 31B Agent for ARC-AGI-3.
+    Bi-Hemispheric DarkSnail V2 + HRM/TRM + 3D Affective Amygdala + Gemma 4 31B Agent for ARC-AGI-3.
 
     Supports both:
       - Direct `arc_agi` environment execution via `play_game(env, max_actions=...)`, and
@@ -1858,11 +2485,13 @@ class DarkSnailArc3Agent:
         expanded_medoid_budget: int = 64,
         seed: int = 0,
         use_gemma4_shell: bool = False,
+        max_gemma4_calls_per_level: int = 6,
     ):
         self.max_actions = int(max_actions)
         self.initial_medoid_budget = int(initial_medoid_budget)
         self.expanded_medoid_budget = int(expanded_medoid_budget)
         self.seed = int(seed)
+        self.max_gemma4_calls_per_level = int(max_gemma4_calls_per_level)
         self.rng = np.random.RandomState(self.seed)
         torch.manual_seed(1 + self.seed)
 
@@ -1873,12 +2502,20 @@ class DarkSnailArc3Agent:
             use_gemma4_shell=use_gemma4_shell,
         )
         self.world_model = DarkSnailArc3WorldModel(d_reasoner=512, d_shell=8, unroll_steps=4)
+        with torch.random.fork_rng():
+            torch.manual_seed(3037 + self.seed)
+            self.amygdala_router = Arc3AffectiveAmygdalaRouter(hidden_dim=512, mlp_dim=256)
 
         self.lh_model: Optional[nn.Module] = None
         self.lh_tokenizer: Optional[Any] = None
         self.gemma4_shell: Optional[Gemma4BeltramiCallosalShell] = None
+        self._gemma4_down_fallback: Optional[torch.Tensor] = None
 
         self.reset_agent_state()
+
+    @property
+    def gemma4_deliberations(self) -> int:
+        return int(self.gemma4_calls_made)
 
     def attach_gemma4_system2(
         self,
@@ -1888,7 +2525,8 @@ class DarkSnailArc3Agent:
     ) -> Gemma4BeltramiCallosalShell:
         """
         Attaches a live `google/gemma-4-31B-it` model for Left-Hemisphere Callosal Shell
-        deliberation at Global Layer 29 when `ZenoAmygdalaController` enters high turbulence.
+        deliberation at Global Layer 29 when `ZenoAmygdalaController` / `Arc3AffectiveAmygdalaRouter`
+        escalates to System 2.
         """
         from .gemma4 import attach_gemma4_beltrami_hook
 
@@ -1906,7 +2544,203 @@ class DarkSnailArc3Agent:
                 hook_layer=hook_layer,
                 bridge_to_callosal_cond=True,
             )
+        if not hasattr(self.episodic_shell, "gemma4_down"):
+            self._gemma4_down_fallback = Arc3EpisodicBeltramiShell._build_orthogonal_encoder(
+                4096, self.episodic_shell.d_model
+            )
         return self.gemma4_shell
+
+    def _project_callosal_4096_to_512(self, bridged_4096: torch.Tensor) -> torch.Tensor:
+        if hasattr(self.episodic_shell, "gemma4_down"):
+            proj_mat = self.episodic_shell.gemma4_down
+        else:
+            if self._gemma4_down_fallback is None:
+                self._gemma4_down_fallback = Arc3EpisodicBeltramiShell._build_orthogonal_encoder(
+                    4096, self.episodic_shell.d_model
+                )
+            proj_mat = self._gemma4_down_fallback
+        return F.linear(bridged_4096.to(proj_mat.device, dtype=proj_mat.dtype), proj_mat)
+
+    def deliberate_with_gemma4_system2(
+        self,
+        z_H_super: Optional[torch.Tensor] = None,
+        cur_hash: str = "",
+        frame_2d: Optional[np.ndarray] = None,
+        avail: Optional[Sequence[int]] = None,
+        candidate_actions: Optional[Sequence[Tuple[float, ActionKey, Optional[Dict[str, Any]]]]] = None,
+        amygdala_state: Optional[Dict[str, Any]] = None,
+        avail_set: Optional[ Iterable[int]] = None,
+        candidates: Optional[Sequence[Dict[str, Any]]] = None,
+        amygdala_diag: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """
+        Dual-Pathway Event-Triggered Left-Hemisphere Gemma 4 31B Callosal Deliberator:
+          - Builds a structured Callosal World-Model Brief summarizing current level,
+            topological symmetry potential `Phi_topo(F_t)`, 3D affective state `(V, U, Omega)`,
+            discovered causal operators (`remote_actuators` vs. local toggles), and up to
+            `K <= 10` numbered candidate actions `[0]..[K-1]`.
+          - Runs a single forward pass `out = self.lh_model(**enc, output_hidden_states=True)`:
+            * Pathway A (Layer-29 Continuous Callosal Shell): Extracts `out.hidden_states[hook_layer + 1]`,
+              condenses `(1, T, 5376) -> (1, 32, 4096) -> (1, 32, 512)` via `Gemma4BeltramiCallosalShell`,
+              and modulates `z_H_super` scaled by the Amygdala Callosal gain ratio `gamma_E / (gamma_E + gamma_I)`.
+            * Pathway B (Symbolic Candidate Action Logit Prior): Extracts next-token logits
+              `out.logits[0, -1, :]` over digit tokens `"0".."9"`, computes temperature-scaled
+              softmax `p_LH(k)`, and stores `self.world_model.gemma4_action_priors[(cur_hash, act_key)] = 1.50 * p_LH(k)`.
+        """
+        return_dict_mode = z_H_super is None
+        if z_H_super is None:
+            if self.world_model.z_H is not None:
+                z_H_super = self.world_model.z_H
+            elif self.episodic_shell.last_super_tokens is not None:
+                z_H_super = self.episodic_shell.last_super_tokens
+            else:
+                z_H_super = torch.zeros(1, 32, self.episodic_shell.d_model, dtype=torch.float32)
+
+        if amygdala_state is None and amygdala_diag is not None:
+            amygdala_state = amygdala_diag
+        if avail is None and avail_set is not None:
+            avail = sorted(int(a) for a in avail_set)
+        if avail is None:
+            avail = [1, 2, 3, 4, 5, 6]
+        if frame_2d is None:
+            frame_2d = self.world_model.state_frames.get(cur_hash, np.zeros((64, 64), dtype=np.int32))
+
+        if (
+            self.lh_model is None
+            or self.lh_tokenizer is None
+            or self.gemma4_shell is None
+            or cur_hash in self.gemma4_deliberated_states
+            or self.gemma4_calls_this_level >= self.max_gemma4_calls_per_level
+        ):
+            if return_dict_mode:
+                return {"called": False, "pathway_a_injected": False, "pathway_b_priors": 0}
+            return z_H_super
+
+        self.gemma4_deliberated_states.add(cur_hash)
+        self.gemma4_calls_made += 1
+        self.gemma4_calls_this_level += 1
+        pathway_a_injected = False
+        pathway_b_count = 0
+
+        try:
+            phi_topo = self.world_model.get_topo_potential(cur_hash)
+            act_summary: List[str] = []
+            for a_id in range(1, 6):
+                tr, su = self.world_model.action_type_stats.get(a_id, [0.0, 0.0])
+                if tr > 0:
+                    act_summary.append(f"A{a_id}:{int(su)}/{int(tr)}")
+            for lx, ly in sorted(self.world_model.interactive_loci)[:8]:
+                nd = self.world_model.coord_last_delta.get((lx, ly), 0)
+                eta = self.world_model.coord_nonlocal_ratio.get((lx, ly), 0.0)
+                role = "remote_actuator" if (lx, ly) in self.world_model.remote_actuators else "local_toggle"
+                act_summary.append(f"C6({lx},{ly})[{role},d={nd},eta={eta:.2f}]")
+
+            cands_list: List[Tuple[float, ActionKey, Optional[Dict[str, Any]]]] = (
+                list(candidate_actions)[:10] if candidate_actions is not None else []
+            )
+            if not cands_list:
+                for a_id in sorted(int(a) for a in avail if int(a) not in (0, 6, 7)):
+                    cands_list.append((1.0, a_id, None))
+                med_source = (
+                    list(candidates)
+                    if candidates is not None
+                    else list(self._get_state_medoids(cur_hash, frame_2d, expand=False).values())
+                )
+                for m in med_source[: max(0, 10 - len(cands_list))]:
+                    cands_list.append((float(m.get("salience", 1.0)), (6, int(m["x"]), int(m["y"])), m))
+
+            cand_lines: List[str] = []
+            for idx_k, (sc_k, ak_k, info_k) in enumerate(cands_list[:10]):
+                if isinstance(ak_k, tuple) and len(ak_k) == 3:
+                    k_kind = info_k.get("kind", "cc") if info_k else "cc"
+                    k_bbox = info_k.get("bbox", (1, 1)) if info_k else (1, 1)
+                    cand_lines.append(
+                        f"[{idx_k}] ACTION6({ak_k[1]},{ak_k[2]}) kind={k_kind} bbox={k_bbox} prior={sc_k:.2f}"
+                    )
+                else:
+                    cand_lines.append(f"[{idx_k}] ACTION{ak_k} prior={sc_k:.2f}")
+
+            v_a = amygdala_state.get("valence", 0.0) if amygdala_state else 0.0
+            u_a = amygdala_state.get("uncertainty", 0.5) if amygdala_state else 0.5
+            om_a = amygdala_state.get("urgency", 0.5) if amygdala_state else 0.5
+
+            prompt = (
+                f"ARC-AGI-3 Callosal World-Model Brief | State={cur_hash[:8]} | Level={self.current_level} | "
+                f"Phi_topo={phi_topo:.3f} | Amygdala(V={v_a:.2f},U={u_a:.2f},Omega={om_a:.2f})\n"
+                f"Confirmed Causal Operators: {', '.join(act_summary) if act_summary else 'none_yet'}\n"
+                f"Candidate Actions:\n" + "\n".join(cand_lines) + "\n"
+                f"Best candidate index (0-9): "
+            )
+
+            try:
+                dev = next(self.lh_model.parameters()).device
+            except StopIteration:
+                dev = z_H_super.device
+
+            enc = self.lh_tokenizer(prompt, return_tensors="pt")
+            if hasattr(enc, "to"):
+                enc = enc.to(dev)
+            elif isinstance(enc, dict):
+                enc = {k: (v.to(dev) if hasattr(v, "to") else v) for k, v in enc.items()}
+
+            with torch.no_grad():
+                out = self.lh_model(**enc, output_hidden_states=True)
+
+                # Pathway A: Layer-29 Continuous Callosal Shell `(1, T, 5376) -> (1, 32, 4096) -> (1, 32, 512)`
+                hidden_states = getattr(out, "hidden_states", None)
+                if hidden_states is not None and len(hidden_states) > 0:
+                    idx_l = min(self.gemma4_shell.hook_layer + 1, len(hidden_states) - 1)
+                    h_layer = hidden_states[idx_l].float()
+                    if h_layer.shape[-1] == self.gemma4_shell.d_model:
+                        bridged_4096 = self.gemma4_shell(h_layer, return_diagnostics=False)
+                        g4_proj = self._project_callosal_4096_to_512(bridged_4096).to(
+                            z_H_super.device, dtype=z_H_super.dtype
+                        )
+                        g_e = float(amygdala_state.get("gamma_E", 1.0)) if amygdala_state else 1.0
+                        g_i = float(amygdala_state.get("gamma_I", 0.5)) if amygdala_state else 0.5
+                        alpha_callosal = 0.25 * (g_e / max(1e-6, g_e + g_i))
+                        z_H_super = F.normalize(
+                            z_H_super + alpha_callosal * g4_proj, p=2, dim=-1
+                        ) * math.sqrt(float(z_H_super.shape[-1]))
+                        self.world_model.z_H = z_H_super.detach()
+                        pathway_a_injected = True
+
+                # Pathway B: Next-Token Symbolic Candidate Logit Prior over digit tokens `"0".."9"`
+                logits = getattr(out, "logits", None)
+                if logits is not None and logits.ndim == 3 and len(cands_list) > 0:
+                    last_logits = logits[0, -1, :].float()
+                    vocab_n = int(last_logits.shape[-1])
+                    digit_scores: List[float] = []
+                    valid_k = min(10, len(cands_list))
+                    for k_idx in range(valid_k):
+                        tok_id: Optional[int] = None
+                        if hasattr(self.lh_tokenizer, "encode"):
+                            tok_ids = self.lh_tokenizer.encode(str(k_idx), add_special_tokens=False)
+                            if tok_ids:
+                                tok_id = int(tok_ids[-1])
+                        if tok_id is None or not (0 <= tok_id < vocab_n):
+                            tok_id = k_idx % max(1, vocab_n)
+                        digit_scores.append(float(last_logits[tok_id].item()))
+
+                    temp_g = float(amygdala_state.get("temperature", 0.5)) if amygdala_state else 0.5
+                    t_tensor = torch.tensor(digit_scores, dtype=torch.float32) / max(0.05, temp_g)
+                    probs_k = F.softmax(t_tensor, dim=-1).cpu().numpy()
+                    for k_idx in range(valid_k):
+                        ak_k = cands_list[k_idx][1]
+                        self.world_model.gemma4_action_priors[(cur_hash, ak_k)] = 1.50 * float(
+                            probs_k[k_idx]
+                        )
+                    pathway_b_count = valid_k
+        except Exception:
+            pass
+        if return_dict_mode:
+            return {
+                "called": True,
+                "pathway_a_injected": pathway_a_injected,
+                "pathway_b_priors": pathway_b_count,
+                "z_H": z_H_super,
+            }
+        return z_H_super
 
     def _modulate_with_gemma4_system2(
         self,
@@ -1915,48 +2749,15 @@ class DarkSnailArc3Agent:
         frame_2d: np.ndarray,
         avail: Sequence[int],
     ) -> torch.Tensor:
-        """
-        Queries the attached Left-Hemisphere `google/gemma-4-31B-it` Global Layer-29 hook
-        at most once per unique state during `high_turbulence_compositional` regimes,
-        bridging `(1, 32, 5376) -> (1, 32, 4096) -> (1, 32, 512)` into `z_H_super`.
-        """
-        if (
-            self.lh_model is None
-            or self.lh_tokenizer is None
-            or self.gemma4_shell is None
-            or cur_hash in self.gemma4_deliberated_states
-        ):
-            return z_H_super
-
-        self.gemma4_deliberated_states.add(cur_hash)
-        try:
-            medoids = list(self._get_state_medoids(cur_hash, frame_2d, expand=False).values())[:8]
-            med_desc = ", ".join(
-                f"({m['x']},{m['y']}:c={m['color']},k={m['kind']})" for m in medoids
-            )
-            prompt = (
-                f"ARC-AGI-3 Interactive State {cur_hash[:8]} | Level {self.current_level} | "
-                f"Actions={list(avail)} | Medoids=[{med_desc}]. "
-                f"Select highest-empowerment controllable transition:"
-            )
-            dev = next(self.lh_model.parameters()).device
-            enc = self.lh_tokenizer(prompt, return_tensors="pt").to(dev)
-            with torch.no_grad():
-                out = self.lh_model(**enc, output_hidden_states=True)
-                if getattr(out, "hidden_states", None) is not None and len(out.hidden_states) > 0:
-                    idx = min(self.gemma4_shell.hook_layer + 1, len(out.hidden_states) - 1)
-                    h_layer = out.hidden_states[idx].float()
-                    if h_layer.shape[-1] == self.gemma4_shell.d_model:
-                        bridged_4096 = self.gemma4_shell(h_layer, return_diagnostics=False)
-                        g4_proj = self.episodic_shell.gemma4_down(
-                            bridged_4096.to(z_H_super.device, dtype=z_H_super.dtype)
-                        )
-                        z_H_super = F.normalize(z_H_super + 0.25 * g4_proj, p=2, dim=-1) * math.sqrt(
-                            float(z_H_super.shape[-1])
-                        )
-        except Exception:
-            pass
-        return z_H_super
+        """Backward-compatible wrapper around `deliberate_with_gemma4_system2`."""
+        return self.deliberate_with_gemma4_system2(
+            z_H_super,
+            cur_hash=cur_hash,
+            frame_2d=frame_2d,
+            avail=avail,
+            candidate_actions=None,
+            amygdala_state=self.last_amygdala_state,
+        )
 
     def reset_agent_state(self, current_game_id: Optional[str] = None) -> None:
         self.current_game_id = current_game_id
@@ -1968,32 +2769,44 @@ class DarkSnailArc3Agent:
         self.prev_state_hash: Optional[str] = None
         self.prev_action_key: Optional[ActionKey] = None
         self.prev_candidate_info: Optional[Dict[str, Any]] = None
+        self.consecutive_same_action: int = 0
         self.planned_bfs_queue: deque = deque()
         self.state_medoid_cache: Dict[str, Dict[Tuple[int, int], Dict[str, Any]]] = {}
         self.state_expanded: Set[str] = set()
         self.gemma4_deliberated_states: Set[str] = set()
+        self.gemma4_calls_made: int = 0
+        self.gemma4_calls_this_level: int = 0
         self.consecutive_no_progress: int = 0
         self.last_schedule: Optional[DarkSnailSchedule] = None
+        self.last_amygdala_state: Optional[Dict[str, Any]] = None
         self.last_cascade_diagnostics: Optional[Dict[str, Any]] = None
 
         self.episodic_shell.reset_episode()
         self.world_model.reset_level(clear_morphology_priors=True)
 
     def _on_level_advance(self, new_level: int, frame_2d: np.ndarray) -> None:
-        """Resets the level graph while preserving learned game-wide morphological priors."""
+        """
+        Resets the level graph while preserving learned game-wide morphological/D_4 priors
+        AND preserving the discovered exogenous `clock_mask` (`H_clock`) on keyboard-navigation
+        levels where thin HUD timers (`<= 128` px) remain stationary across levels.
+        """
+        c6_tr, _ = self.world_model.action_type_stats.get(6, [0.0, 0.0])
+        preserve_clk = (c6_tr == 0.0) and (0 < self.world_model.splitter.num_clock_pixels <= 128)
         self.current_level = int(new_level)
         self.level_step_count = 0
         self.prev_frame_2d = frame_2d.copy()
         self.prev_state_hash = None
         self.prev_action_key = None
         self.prev_candidate_info = None
+        self.consecutive_same_action = 0
         self.planned_bfs_queue.clear()
         self.state_medoid_cache.clear()
         self.state_expanded.clear()
+        self.gemma4_calls_this_level = 0
         self.consecutive_no_progress = 0
         self.episodic_shell.reset_episode()
         self.world_model.reset_level(clear_morphology_priors=False)
-        self.world_model.splitter.initialize_level(frame_2d)
+        self.world_model.splitter.initialize_level(frame_2d, preserve_clock_mask=preserve_clk)
 
     def is_done(self, frames: Sequence[Any], latest_frame: Any) -> bool:
         from arcengine import GameState
@@ -2062,6 +2875,10 @@ class DarkSnailArc3Agent:
 
         scored: List[Tuple[float, ActionKey, Optional[Dict[str, Any]]]] = []
 
+        simple_trials = sum(self.world_model.action_type_stats[a][0] for a in simple_non_undo)
+        simple_succs = sum(self.world_model.action_type_stats[a][1] for a in simple_non_undo)
+        c6_trials, c6_succs = self.world_model.action_type_stats.get(6, [0.0, 0.0])
+
         untried_simple_count = 0
         active_simple_at_state = 0
         for a_id in simple_non_undo:
@@ -2076,14 +2893,11 @@ class DarkSnailArc3Agent:
                 triad_priors,
                 candidate_info=None,
                 last_action_key=self.prev_action_key,
+                consecutive_same_action=self.consecutive_same_action,
             )
             scored.append((sc, a_id, None))
 
         if 6 in avail_set:
-            c6_trials, c6_succs = self.world_model.action_type_stats.get(6, [0.0, 0.0])
-            simple_trials = sum(self.world_model.action_type_stats[a][0] for a in simple_non_undo)
-            simple_succs = sum(self.world_model.action_type_stats[a][1] for a in simple_non_undo)
-
             click_only_game = len(simple_non_undo) == 0
             simple_all_failed_here = (
                 (len(simple_non_undo) > 0)
@@ -2124,20 +2938,43 @@ class DarkSnailArc3Agent:
                         continue
                     if self.world_model.is_click_locally_inert(frame_2d, cx, cy, tier=tier):
                         continue
+                    if tier == 1 and self.world_model.is_driven_passive_register(
+                        cx, cy, candidate_info=cand
+                    ):
+                        continue
                     sc = self.world_model.score_action_candidate(
                         state_hash,
                         act_key,
                         triad_priors,
                         candidate_info=cand,
                         last_action_key=self.prev_action_key,
+                        consecutive_same_action=self.consecutive_same_action,
                     )
-                    if tier >= 2 and sc <= -40.0:
+                    if tier >= 2 and sc <= -30.0:
                         # In Tier 2, allow probing once-inert targets (e.g. tool-activated targets)
                         sc = 0.25 * float(cand.get("salience", 1.0))
                     scored.append((sc, act_key, cand))
 
         scored.sort(key=lambda item: item[0], reverse=True)
         return scored
+
+    def _record_chosen_action(
+        self,
+        frame_2d: np.ndarray,
+        cur_hash: str,
+        chosen_act: ActionKey,
+        chosen_info: Optional[Dict[str, Any]],
+    ) -> None:
+        if chosen_act == self.prev_action_key:
+            self.consecutive_same_action += 1
+        else:
+            self.consecutive_same_action = 1
+        self.prev_frame_2d = frame_2d.copy()
+        self.prev_state_hash = cur_hash
+        self.prev_action_key = chosen_act
+        self.prev_candidate_info = chosen_info
+        self.step_count += 1
+        self.level_step_count += 1
 
     def _build_game_action(
         self,
@@ -2154,6 +2991,8 @@ class DarkSnailArc3Agent:
             act_id = int(action_key[0]) if isinstance(action_key, tuple) else int(action_key)
             act = GameAction.from_id(act_id)
 
+        amyg = self.last_amygdala_state or {}
+        cas = self.last_cascade_diagnostics or {}
         act.reasoning = {
             "agent": "darksnail_v2_arc3",
             "mode": mode_desc,
@@ -2166,6 +3005,14 @@ class DarkSnailArc3Agent:
                 if self.world_model.splitter.clock_mask is not None
                 else 0
             ),
+            "remote_actuators_count": len(self.world_model.remote_actuators),
+            "amygdala_valence": amyg.get("valence", 0.0),
+            "amygdala_uncertainty": amyg.get("uncertainty", 0.0),
+            "amygdala_urgency": amyg.get("urgency", 0.0),
+            "callosal_gamma_E": amyg.get("gamma_E", 1.0),
+            "callosal_gamma_I": amyg.get("gamma_I", 0.5),
+            "hrm_steps_taken": cas.get("hrm_steps_taken", 1),
+            "gemma4_calls_made": self.gemma4_calls_made,
         }
         return act
 
@@ -2221,6 +3068,7 @@ class DarkSnailArc3Agent:
             self.prev_state_hash = None
             self.prev_action_key = None
             self.prev_candidate_info = None
+            self.consecutive_same_action = 0
             self.planned_bfs_queue.clear()
             act = GameAction.RESET
             act.reasoning = {"agent": "darksnail_v2_arc3", "mode": "game_over_recovery_reset"}
@@ -2281,9 +3129,45 @@ class DarkSnailArc3Agent:
         z_L_tok = self.episodic_shell._history_tokens[-1]
 
         visit_cnt = self.world_model.state_visit_counts.get(cur_hash, 1)
-        stagnation_loss = min(
-            6.0, 1.5 + 0.65 * float(visit_cnt - 1) + 0.40 * float(self.consecutive_no_progress)
+        init_hash = self.world_model.initial_state_hash
+        init_topo = self.world_model.get_topo_potential(init_hash) if init_hash is not None else 0.0
+        cur_topo = self.world_model.get_topo_potential(cur_hash)
+        topo_delta = cur_topo - init_topo
+
+        splitter = self.world_model.splitter
+        clock_depletion = 0.0
+        if (
+            splitter.clock_mask is not None
+            and splitter.initial_frame is not None
+            and int(splitter.clock_mask.sum()) > 0
+        ):
+            clk_total = float(splitter.clock_mask.sum())
+            clk_depleted = float(
+                np.sum((frame_2d != splitter.initial_frame) & splitter.clock_mask)
+            )
+            clock_depletion = clk_depleted / clk_total
+
+        has_hazard_here = bool(self.world_model.game_over_actions.get(cur_hash))
+        cached_meds = self.state_medoid_cache.get(cur_hash)
+        prelim_scores = (
+            [float(c.get("salience", 1.0)) for c in cached_meds.values()]
+            if cached_meds
+            else None
         )
+
+        amygdala_state = self.amygdala_router(
+            z_L_tok,
+            candidate_scores=prelim_scores,
+            topo_delta=topo_delta,
+            consecutive_no_progress=self.consecutive_no_progress,
+            visit_count=visit_cnt,
+            has_game_over_hazard=has_hazard_here,
+            clock_depletion_ratio=clock_depletion,
+            planned_bfs_active=bool(self.planned_bfs_queue),
+        )
+        self.last_amygdala_state = amygdala_state
+
+        stagnation_loss = min(5.0, 1.5 + 0.65 * float(visit_cnt - 1))
         s1_fit = max(0.05, 1.0 / float(visit_cnt))
         schedule = self.controller(
             zeno_flux=float(shell_diag["zeno_flux"]),
@@ -2296,13 +3180,45 @@ class DarkSnailArc3Agent:
             has_occlusion_tie=(visit_cnt > 1),
         )
         self.last_schedule = schedule
-        if schedule.regime == "high_turbulence_compositional":
-            z_H_super = self._modulate_with_gemma4_system2(z_H_super, cur_hash, frame_2d, avail)
 
+        # Event-Triggered Left-Hemisphere Gemma 4 Callosal Deliberation:
+        # Fires at epistemic bottlenecks (high turbulence, stagnation >= 6, or multi-candidate
+        # branching after step 4 when not in Reflex Bypass), up to `max_gemma4_calls_per_level`.
+        should_deliberate_gemma4 = (
+            self.lh_model is not None
+            and self.level_step_count >= 4
+            and not bool(amygdala_state.get("bypass_active", False))
+            and (
+                schedule.regime == "high_turbulence_compositional"
+                or self.consecutive_no_progress >= 6
+                or bool(amygdala_state.get("should_call_gemma4_system2", False))
+            )
+        )
+        if should_deliberate_gemma4:
+            prelim_cands = self._get_untried_actions_for_state(
+                cur_hash, avail, np.zeros(8, dtype=np.float32), tier=1
+            )
+            z_H_super = self.deliberate_with_gemma4_system2(
+                z_H_super,
+                cur_hash=cur_hash,
+                frame_2d=frame_2d,
+                avail=avail,
+                candidate_actions=prelim_cands,
+                amygdala_state=amygdala_state,
+            )
+
+        hrm_unroll = max(
+            1,
+            min(
+                8,
+                int(amygdala_state.get("reasoning_steps", schedule.unroll_steps)),
+            ),
+        )
         triad_priors, cas_diag = self.world_model.compute_triad_action_priors(
             z_H_super,
             z_L_tok,
-            unroll_steps=int(schedule.unroll_steps),
+            unroll_steps=schedule.unroll_steps,
+            hrm_steps=hrm_unroll,
         )
         self.last_cascade_diagnostics = cas_diag
 
@@ -2310,12 +3226,7 @@ class DarkSnailArc3Agent:
         if self.planned_bfs_queue:
             expected_state, next_bfs_act = self.planned_bfs_queue.popleft()
             if cur_hash == expected_state:
-                self.prev_frame_2d = frame_2d.copy()
-                self.prev_state_hash = cur_hash
-                self.prev_action_key = next_bfs_act
-                self.prev_candidate_info = None
-                self.step_count += 1
-                self.level_step_count += 1
+                self._record_chosen_action(frame_2d, cur_hash, next_bfs_act, None)
                 return self._build_game_action(
                     next_bfs_act, schedule, mode_desc="bfs_frontier_navigation"
                 )
@@ -2326,23 +3237,16 @@ class DarkSnailArc3Agent:
         untried_here = self._get_untried_actions_for_state(cur_hash, avail, triad_priors, tier=1)
         if untried_here:
             _, chosen_act, chosen_info = untried_here[0]
-            self.prev_frame_2d = frame_2d.copy()
-            self.prev_state_hash = cur_hash
-            self.prev_action_key = chosen_act
-            self.prev_candidate_info = chosen_info
-            self.step_count += 1
-            self.level_step_count += 1
+            self._record_chosen_action(frame_2d, cur_hash, chosen_act, chosen_info)
             return self._build_game_action(chosen_act, schedule, mode_desc="tier1_frontier_explore")
 
         # Case 2: Shortest-path BFS over `G = (V, E)` to a frontier state `s*` with untried Tier-1 actions
         frontier_scores: Dict[str, float] = {}
-        init_hash = self.world_model.initial_state_hash
         init_frame = (
             self.world_model.splitter.project_nope(self.world_model.state_frames[init_hash])
             if (init_hash is not None and init_hash in self.world_model.state_frames)
             else None
         )
-        init_topo = self.world_model.get_topo_potential(init_hash) if init_hash is not None else 0.0
         for sh, sf_arr in self.world_model.state_frames.items():
             if sh == cur_hash:
                 continue
@@ -2374,12 +3278,7 @@ class DarkSnailArc3Agent:
                     break
                 cur_sim = nxt_sim
 
-            self.prev_frame_2d = frame_2d.copy()
-            self.prev_state_hash = cur_hash
-            self.prev_action_key = first_act
-            self.prev_candidate_info = None
-            self.step_count += 1
-            self.level_step_count += 1
+            self._record_chosen_action(frame_2d, cur_hash, first_act, None)
             return self._build_game_action(first_act, schedule, mode_desc="bfs_shortest_path_start")
 
         # Case 3: Tier-1 Frontier Exhausted -> Expand Tier-2 Medoids!
@@ -2388,12 +3287,7 @@ class DarkSnailArc3Agent:
         )
         if untried_tier2_here:
             _, chosen_act, chosen_info = untried_tier2_here[0]
-            self.prev_frame_2d = frame_2d.copy()
-            self.prev_state_hash = cur_hash
-            self.prev_action_key = chosen_act
-            self.prev_candidate_info = chosen_info
-            self.step_count += 1
-            self.level_step_count += 1
+            self._record_chosen_action(frame_2d, cur_hash, chosen_act, chosen_info)
             return self._build_game_action(chosen_act, schedule, mode_desc="tier2_medoid_expansion")
 
         tier2_frontier: Dict[str, float] = {}
@@ -2416,12 +3310,7 @@ class DarkSnailArc3Agent:
                 if nxt_sim is None:
                     break
                 cur_sim = nxt_sim
-            self.prev_frame_2d = frame_2d.copy()
-            self.prev_state_hash = cur_hash
-            self.prev_action_key = first_act
-            self.prev_candidate_info = None
-            self.step_count += 1
-            self.level_step_count += 1
+            self._record_chosen_action(frame_2d, cur_hash, first_act, None)
             return self._build_game_action(first_act, schedule, mode_desc="bfs_tier2_frontier")
 
         # Dead-End Sink Escape:
@@ -2445,12 +3334,7 @@ class DarkSnailArc3Agent:
             and init_can_reach_frontier
         ):
             if 7 in avail and 7 not in self.world_model.self_loops.get(cur_hash, set()):
-                self.prev_frame_2d = frame_2d.copy()
-                self.prev_state_hash = cur_hash
-                self.prev_action_key = 7
-                self.prev_candidate_info = None
-                self.step_count += 1
-                self.level_step_count += 1
+                self._record_chosen_action(frame_2d, cur_hash, 7, None)
                 return self._build_game_action(7, schedule, mode_desc="dead_end_undo_escape")
 
             if self.prev_state_hash is not None and self.prev_action_key is not None:
@@ -2464,6 +3348,7 @@ class DarkSnailArc3Agent:
             self.prev_state_hash = None
             self.prev_action_key = None
             self.prev_candidate_info = None
+            self.consecutive_same_action = 0
             self.planned_bfs_queue.clear()
             self.step_count += 1
             self.level_step_count += 1
@@ -2501,12 +3386,7 @@ class DarkSnailArc3Agent:
             non_zero = [int(a) for a in avail if int(a) != 0] or [1]
             chosen = non_zero[int(self.rng.randint(0, len(non_zero)))]
 
-        self.prev_frame_2d = frame_2d.copy()
-        self.prev_state_hash = cur_hash
-        self.prev_action_key = chosen
-        self.prev_candidate_info = None
-        self.step_count += 1
-        self.level_step_count += 1
+        self._record_chosen_action(frame_2d, cur_hash, chosen, None)
         return self._build_game_action(chosen, schedule, mode_desc="least_visited_continuation")
 
     def play_game(
@@ -2591,6 +3471,9 @@ class DarkSnailArc3Agent:
                 if self.world_model.splitter.clock_mask is not None
                 else 0
             ),
+            "remote_actuators_discovered": len(self.world_model.remote_actuators),
+            "gemma4_calls_made": self.gemma4_calls_made,
+            "last_amygdala_state": self.last_amygdala_state,
         }
 
 
@@ -2599,8 +3482,13 @@ __all__ = [
     "extract_arc3_beltrami_medoids",
     "compute_topological_symmetry_potential",
     "Arc3EpisodicBeltramiShell",
+    "MagicNorm",
+    "HRMRecurrentBlock",
+    "Arc3HRMRecurrentCore",
+    "Arc3AffectiveAmygdalaRouter",
     "TransitionRecord",
     "DarkSnailArc3WorldModel",
     "DarkSnailArc3Agent",
 ]
+
 

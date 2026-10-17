@@ -273,6 +273,8 @@ def evaluate_condition(
     game_ids: List[str],
     max_actions: int,
     seed: int,
+    lh_model: Any | None = None,
+    tokenizer: Any | None = None,
 ) -> Dict[str, Any]:
     arc = Arcade(operation_mode=OperationMode.OFFLINE, environments_dir=str(env_dir))
     scorecard_id = arc.create_scorecard()
@@ -288,6 +290,8 @@ def evaluate_condition(
             res = run_unshielded_greedy_episode(env, max_actions=max_actions, seed=seed + idx)
         elif condition_name == "darksnail_v2_arc3":
             agent = DarkSnailArc3Agent(max_actions=max_actions, seed=seed)
+            if lh_model is not None:
+                agent.attach_gemma4_system2(lh_model, tokenizer=tokenizer, hook_layer=29)
             res = agent.play_game(env, max_actions=max_actions)
         else:
             raise ValueError(f"Unknown condition: {condition_name}")
