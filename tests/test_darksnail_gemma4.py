@@ -261,6 +261,7 @@ class _MockGemma4Model(nn.Module):
     def __init__(self, cfg: _MockGemma4Config):
         super().__init__()
         self.config = cfg
+        self.embed_tokens = None
         self.layers = nn.ModuleList(
             [
                 _MockGemma4DecoderLayer(
@@ -276,7 +277,11 @@ class _MockGemma4Model(nn.Module):
             ]
         )
 
-    def forward(self, hidden_states: torch.Tensor, **kwargs) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor = None, input_ids: torch.Tensor = None, **kwargs) -> torch.Tensor:
+        if hidden_states is None and input_ids is not None:
+            if self.embed_tokens is None:
+                self.embed_tokens = nn.Embedding(256, self.config.hidden_size).to(input_ids.device)
+            hidden_states = self.embed_tokens(input_ids)
         h = hidden_states
         for layer in self.layers:
             h = layer(h, **kwargs)[0]
@@ -293,6 +298,7 @@ def test_patch_60_layer_gemma4_model_and_audit_fixes():
         enable_global_hook=True,
         attach_callosal_shell_hook=True,
         hook_layer=16,
+        router_init_mode="haar_dct",
     )
 
     patched_indices = [
@@ -371,6 +377,21 @@ def test_patch_60_layer_gemma4_model_and_audit_fixes():
         eos_token_id = [1, 106]
 
     assert _resolve_pad_token_id(_DummyGemma4Tokenizer()) == 1
+
+    # Audit Fix #8: Verify Colab Cell 7 `warmup_gemma4_routers_kl` signature and KL teacher distillation
+    from darksnail.gemma4 import warmup_gemma4_routers_kl
+
+    cal_ids = [torch.randint(0, 256, (1, 32), dtype=torch.long)]
+    warmup_stats = warmup_gemma4_routers_kl(
+        model,
+        calibration_input_ids=cal_ids,
+        steps=2,
+        lr=2e-3,
+        target_density=0.25,
+    )
+    assert "final_mean_block_density" in warmup_stats
+    assert 0.0 < warmup_stats["final_mean_block_density"] <= 1.0
+    assert warmup_stats["num_steps"] == 2
 
 
 if __name__ == "__main__":

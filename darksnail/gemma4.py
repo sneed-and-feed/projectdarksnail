@@ -462,10 +462,10 @@ class DarkSnailGemma4GlobalHook(nn.Module):
         self.last_beltrami_flux = jump_flux.detach()
 
         e_z = (spectral_energy - spectral_energy.mean(dim=-1, keepdim=True)) / (
-            spectral_energy.std(dim=-1, keepdim=True) + 1e-6
+            spectral_energy.std(dim=-1, keepdim=True, correction=0) + 1e-6
         )
         f_z = (jump_flux - jump_flux.mean(dim=-1, keepdim=True)) / (
-            jump_flux.std(dim=-1, keepdim=True) + 1e-6
+            jump_flux.std(dim=-1, keepdim=True, correction=0) + 1e-6
         )
         salience = spectral_energy * (1.0 + 0.35 * torch.sigmoid(f_z + 0.5 * e_z))
 
@@ -477,7 +477,9 @@ class DarkSnailGemma4GlobalHook(nn.Module):
                 groups = max(1, q_tail.shape[1] // max(1, k_full.shape[1]))
                 k_full = k_full.repeat_interleave(groups, dim=1)
             res = torch.matmul(q_tail, k_full.transpose(-2, -1)).amax(dim=(1, 2))
-            res_z = (res - res.mean(dim=-1, keepdim=True)) / (res.std(dim=-1, keepdim=True) + 1e-6)
+            res_z = (res - res.mean(dim=-1, keepdim=True)) / (
+                res.std(dim=-1, keepdim=True, correction=0) + 1e-6
+            )
             salience = salience + 0.25 * spectral_energy.mean(dim=-1, keepdim=True) * torch.sigmoid(res_z)
 
         return salience
@@ -527,7 +529,7 @@ class DarkSnailGemma4GlobalHook(nn.Module):
 
         if sal_f.requires_grad:
             mu = sal_f.mean(dim=-1, keepdim=True)
-            std = sal_f.std(dim=-1, keepdim=True).clamp(min=1e-6)
+            std = sal_f.std(dim=-1, keepdim=True, correction=0).clamp(min=1e-6)
             soft_gate = torch.sigmoid((sal_f - mu) / (0.5 * std))
             mask_out = hard_mask.detach() - soft_gate.detach() + soft_gate
         else:
@@ -1140,22 +1142,27 @@ class SurgicalGemma4Attention(nn.Module):
         Computes `O(NB^2 * D)` block-level KL divergence between teacher QK scores (`scale = 1.0`)
         and differentiable ultrametric cophenetic distances + Dual Lagrangian density penalty.
         """
-        RB = max(1, int(getattr(self.config, "surgical_route_block", 128)))
-        q_blk = self._pool_tensor_blocks(q, RB)
-        k_blk = self._pool_tensor_blocks(k, RB)
-        if block_assignments is None:
-            block_assignments = assignments[:, :, : q_blk.shape[2]]
+        if block_assignments is not None and q.shape[2] == block_assignments.shape[2]:
+            q_blk = q
+            k_blk = k
+        else:
+            RB = max(1, int(getattr(self.config, "surgical_route_block", 128)))
+            q_blk = self._pool_tensor_blocks(q, RB)
+            k_blk = self._pool_tensor_blocks(k, RB)
+            if block_assignments is None:
+                block_assignments = assignments[:, :, : q_blk.shape[2]]
 
         NB = block_assignments.shape[2]
         levels = block_assignments.shape[-2]
         surgical_req_depth = getattr(self.config, "surgical_req_depth", None)
-        max_dist = getattr(
-            self.config,
-            "surgical_max_dist",
-            (levels - surgical_req_depth) if surgical_req_depth is not None else max(levels // 2, 1),
+        eff_req_depth = (
+            int(surgical_req_depth)
+            if (surgical_req_depth is not None and int(surgical_req_depth) > 0)
+            else max(levels // 2, 1)
         )
+        max_dist = getattr(self.config, "surgical_max_dist", None)
         if max_dist is None:
-            max_dist = max(levels // 2, 1)
+            max_dist = max(levels - eff_req_depth, 1)
         tau = max(float(getattr(self.config, "surgical_tau", 1.0)), 1e-4)
 
         idx_b = torch.arange(NB, device=q.device)
@@ -1183,7 +1190,7 @@ class SurgicalGemma4Attention(nn.Module):
         lambda_val = self.density_lambda.detach().clone().to(measured_density.dtype)
         lagrangian_penalty = lambda_val * (F.relu(measured_density - target_density) ** 2)
 
-        if self.training:
+        if self.training or self.router.training:
             with torch.no_grad():
                 lambda_lr = float(getattr(self.config, "surgical_lambda_lr", 0.05))
                 self.density_lambda.add_(lambda_lr * (measured_density.detach() - target_density)).clamp_(0.0, 100.0)
@@ -1385,7 +1392,6 @@ class SurgicalGemma4Attention(nn.Module):
 
         if (
             getattr(self.config, "surgical_darksnail_mode", False)
-            and (not self.training or not torch.is_grad_enabled())
             and getattr(self.config, "surgical_mask_override", None) is None
         ):
             bl = self._apply_darksnail_block_bridge(bl, RB=RB, S=S, local_blocks=local_blocks)
@@ -1572,12 +1578,7 @@ class SurgicalGemma4Attention(nn.Module):
             )
             self.current_penalty = load_balance_loss
 
-        if (
-            darksnail_mode
-            and seq_len > 1
-            and (not self.training or not torch.is_grad_enabled())
-            and mask_override is None
-        ):
+        if darksnail_mode and seq_len > 1 and mask_override is None:
             self._update_darksnail_shield(q, k_exp)
 
         if use_block_list:
@@ -1603,12 +1604,16 @@ class SurgicalGemma4Attention(nn.Module):
         scores = torch.matmul(q.to(torch.float32), k_exp.to(torch.float32).transpose(-2, -1)) * self.scale
         L_kv = k_exp.shape[-2]
 
-        if attention_mask is not None:
-            mask_slice = attention_mask[..., :seq_len, :L_kv]
-            if mask_slice.dtype == torch.bool:
-                scores = scores.masked_fill(~mask_slice, float("-inf"))
-            else:
-                scores = scores + mask_slice
+        if isinstance(attention_mask, torch.Tensor):
+            if attention_mask.dim() == 2:
+                pad_mask = (attention_mask[:, :L_kv] == 0).unsqueeze(1).unsqueeze(2)
+                scores = scores.masked_fill(pad_mask, float("-inf"))
+            elif attention_mask.dim() >= 4:
+                mask_slice = attention_mask[..., :seq_len, :L_kv]
+                if mask_slice.dtype == torch.bool:
+                    scores = scores.masked_fill(~mask_slice, float("-inf"))
+                else:
+                    scores = scores + mask_slice
         if seq_len == L_kv and seq_len > 1:
             causal_mask = torch.triu(
                 torch.ones(seq_len, L_kv, dtype=torch.bool, device=hidden_states.device), diagonal=1
@@ -1693,43 +1698,49 @@ class SurgicalGemma4Attention(nn.Module):
                 after_causal = (um_mask_bool & causal_all).sum(dim=(-2, -1))
                 added = (after_causal - before_causal).clamp(min=0)
 
-                # Measure-preserving donor pruning on preceding filler query rows
+                # Measure-preserving donor pruning on preceding filler query rows (batched on CPU to avoid CUDA syncs)
                 donor_end = tail_start
-                donor_start = max(1 + local_window, donor_end - 64)
-                if int(added.max().item()) > 0:
+                donor_start = max(1 + local_window, donor_end - 96)
+                added_cpu = added.cpu()
+                if int(added_cpu.max().item()) > 0:
+                    win_slice = um_mask_bool[:, :, donor_start:seq_len, :].cpu()
+                    tail_bak_cpu = tail_backup.cpu()
+                    n_donor = max(0, donor_end - donor_start)
                     for b_i in range(batch_size):
                         for h_i in range(self.num_heads):
-                            rem = int(added[b_i, h_i].item()) + max(1, int(round(0.20 * float(added[b_i, h_i].item())))) if int(added[b_i, h_i].item()) > 0 else 0
-                            if rem <= 0:
+                            add_bh = int(added_cpu[b_i, h_i].item())
+                            if add_bh <= 0:
                                 continue
-                            for r_d in range(donor_end - 1, donor_start - 1, -1):
+                            rem = add_bh + max(8, int(round(0.55 * float(add_bh))))
+                            for d_rel in range(n_donor - 1, -1, -1):
                                 if rem <= 0:
                                     break
+                                r_d = donor_start + d_rel
                                 k_lim = max(1, (L_kv - seq_len + r_d) - local_window)
                                 if k_lim <= 1:
                                     continue
-                                row_d = um_mask_bool[b_i, h_i, r_d, 1:k_lim]
+                                row_d = win_slice[b_i, h_i, d_rel, 1:k_lim]
                                 true_pos = torch.nonzero(row_d, as_tuple=False).reshape(-1)
                                 if true_pos.numel() > 0:
                                     take = min(rem, int(true_pos.numel()))
-                                    um_mask_bool[b_i, h_i, r_d, 1 + true_pos[:take]] = False
+                                    win_slice[b_i, h_i, d_rel, 1 + true_pos[:take]] = False
                                     rem -= take
-                            # If short sequence had insufficient donor capacity, roll back excess tail additions
+                            # If short sequence had insufficient donor capacity, prune excess from non-final tail rows
                             if rem > 0:
-                                for r_t in range(w_q):
+                                for r_t in range(max(1, w_q - 1)):
                                     if rem <= 0:
                                         break
                                     q_abs = L_kv - seq_len + tail_start + r_t
                                     k_lim_t = max(1, q_abs - local_window)
-                                    diff_row = (
-                                        um_mask_bool[b_i, h_i, tail_start + r_t, 1:k_lim_t]
-                                        & (~tail_backup[b_i, h_i, r_t, 1:k_lim_t])
-                                    )
-                                    added_pos = torch.nonzero(diff_row, as_tuple=False).reshape(-1)
-                                    if added_pos.numel() > 0:
-                                        take_t = min(rem, int(added_pos.numel()))
-                                        um_mask_bool[b_i, h_i, tail_start + r_t, 1 + added_pos[:take_t]] = False
+                                    if k_lim_t <= 1:
+                                        continue
+                                    row_t = win_slice[b_i, h_i, n_donor + r_t, 1:k_lim_t]
+                                    true_pos_t = torch.nonzero(row_t, as_tuple=False).reshape(-1)
+                                    if true_pos_t.numel() > 0:
+                                        take_t = min(rem, int(true_pos_t.numel()))
+                                        win_slice[b_i, h_i, n_donor + r_t, 1 + true_pos_t[:take_t]] = False
                                         rem -= take_t
+                    um_mask_bool[:, :, donor_start:seq_len, :] = win_slice.to(um_mask_bool.device)
 
         # Audit Fix #4c: Support matched-budget `window@r` and `oracle@r` overrides
         if mask_override == "window":
@@ -2050,23 +2061,91 @@ def load_gemma4_router_sidecar(model: nn.Module, path: Union[str, Path], strict:
 
 def warmup_gemma4_routers_kl(
     model: nn.Module,
-    tokenizer: Any,
+    tokenizer: Any = None,
     calibration_texts: Optional[Sequence[str]] = None,
+    *,
+    calibration_input_ids: Optional[Sequence[torch.Tensor]] = None,
+    steps: Optional[int] = None,
     num_steps: int = 40,
     lr: float = 2e-3,
+    target_density: float = 0.25,
     max_seq_len: int = 2048,
     save_sidecar_path: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
     """
     Self-supervised Block-KL + Dual Lagrangian warmup for the 10 Global `DynamicTopologyRouter`
     modules on `google/gemma-4-31B` (`O(NB^2 * D)` block distillation, zero backbone gradients).
+
+    Supports both pre-tokenized `calibration_input_ids` (Colab Cell 7 contract) and raw
+    `calibration_texts` + `tokenizer`, as well as both `steps` and `num_steps` kwargs.
     """
+    total_steps = int(steps if steps is not None else num_steps)
     layers = discover_gemma4_decoder_layers(model)
     global_attns: List[SurgicalGemma4Attention] = [
         layer.self_attn for layer in layers if isinstance(getattr(layer, "self_attn", None), SurgicalGemma4Attention)
     ]
     if not global_attns:
         raise RuntimeError("No SurgicalGemma4Attention layers found on model.")
+
+    tcfg = getattr(model.config, "text_config", model.config)
+    configs = [model.config] if tcfg is model.config else [model.config, tcfg]
+    prev_cfg_state = [
+        (
+            cfg,
+            getattr(cfg, "surgical_req_depth", None),
+            getattr(cfg, "surgical_route_stride", 2),
+            getattr(cfg, "surgical_target_density", 0.25),
+            getattr(cfg, "surgical_attention_backend", "eager"),
+        )
+        for cfg in configs
+    ]
+    for cfg in configs:
+        cfg.surgical_req_depth = 0
+        cfg.surgical_route_stride = 1
+        cfg.surgical_target_density = float(target_density)
+        cfg.surgical_attention_backend = "eager"
+    for attn in global_attns:
+        attn.target_density = float(target_density)
+        attn.config.surgical_target_density = float(target_density)
+
+    dev = next(model.parameters()).device
+
+    # Build list of calibration input_ids tensors
+    cal_batches: List[torch.Tensor] = []
+    if calibration_input_ids is not None and len(calibration_input_ids) > 0:
+        for item in calibration_input_ids:
+            t_ids = item if isinstance(item, torch.Tensor) else torch.tensor(item, dtype=torch.long)
+            if t_ids.dim() == 1:
+                t_ids = t_ids.unsqueeze(0)
+            cal_batches.append(t_ids[:, :max_seq_len].to(dev))
+    else:
+        if not calibration_texts:
+            from darksnail.longbench import HAYSTACK_BASE
+
+            calibration_texts = [HAYSTACK_BASE * 24]
+        if tokenizer is None:
+            raise ValueError("Either `calibration_input_ids` or `tokenizer` must be provided to warmup_gemma4_routers_kl.")
+        for txt in calibration_texts:
+            enc = tokenizer(txt, return_tensors="pt", truncation=True, max_length=max_seq_len)
+            t_ids = enc["input_ids"] if isinstance(enc, dict) or hasattr(enc, "__getitem__") else enc
+            cal_batches.append(t_ids.to(dev))
+
+    # Cache exact dense teacher (q_blk, k_blk) per Global layer across calibration sequences (1 pass per unique sequence)
+    cached_teacher_qk: List[List[Tuple[torch.Tensor, torch.Tensor]]] = []
+    with torch.no_grad():
+        for ids in cal_batches:
+            if hasattr(model, "_surgical_route_cache") and isinstance(model._surgical_route_cache, dict):
+                model._surgical_route_cache.clear()
+            try:
+                model(input_ids=ids, use_cache=False)
+            except TypeError:
+                model(ids)
+            sample_qk: List[Tuple[torch.Tensor, torch.Tensor]] = []
+            for attn in global_attns:
+                if attn._cached_q_blk is not None and attn._cached_k_blk is not None:
+                    sample_qk.append((attn._cached_q_blk.detach().clone(), attn._cached_k_blk.detach().clone()))
+            if len(sample_qk) == len(global_attns):
+                cached_teacher_qk.append(sample_qk)
 
     router_params: List[nn.Parameter] = []
     for attn in global_attns:
@@ -2076,46 +2155,65 @@ def warmup_gemma4_routers_kl(
             router_params.append(p)
 
     optimizer = torch.optim.AdamW(router_params, lr=lr, weight_decay=0.01)
-    dev = next(model.parameters()).device
-
-    if not calibration_texts:
-        from darksnail.longbench import HAYSTACK_BASE
-
-        calibration_texts = [HAYSTACK_BASE * 24]
 
     losses: List[float] = []
-    for step in range(num_steps):
-        txt = calibration_texts[step % len(calibration_texts)]
-        ids = tokenizer(txt, return_tensors="pt", truncation=True, max_length=max_seq_len)["input_ids"].to(dev)
+    for step in range(total_steps):
         optimizer.zero_grad()
-        with torch.no_grad():
-            model(input_ids=ids, use_cache=False)
-
+        tau = max(0.35, 1.5 - 1.15 * (step / max(1, total_steps - 1)))
         step_loss = torch.zeros((), dtype=torch.float32, device=dev)
-        for attn in global_attns:
-            if attn._cached_q_blk is not None and attn._cached_k_blk is not None:
-                q_b = attn._cached_q_blk.detach()
-                k_b = attn._cached_k_blk.detach()
+
+        if cached_teacher_qk:
+            sample_qk = cached_teacher_qk[step % len(cached_teacher_qk)]
+            for attn, (q_b, k_b) in zip(global_attns, sample_qk):
                 qk_desc = torch.cat([q_b, k_b], dim=-1)
-                tau = max(0.35, 1.5 - 1.15 * (step / max(1, num_steps - 1)))
                 blk_assign, lb_loss = attn.router(qk_desc, tau_override=tau)
                 kl_loss = attn._compute_block_kl_lagrangian_loss(q_b, k_b, blk_assign, block_assignments=blk_assign)
                 step_loss = step_loss + kl_loss + 0.01 * lb_loss
+        else:
+            ids = cal_batches[step % len(cal_batches)]
+            with torch.no_grad():
+                try:
+                    model(input_ids=ids, use_cache=False)
+                except TypeError:
+                    model(ids)
+            for attn in global_attns:
+                if attn._cached_q_blk is not None and attn._cached_k_blk is not None:
+                    q_b = attn._cached_q_blk.detach()
+                    k_b = attn._cached_k_blk.detach()
+                    qk_desc = torch.cat([q_b, k_b], dim=-1)
+                    blk_assign, lb_loss = attn.router(qk_desc, tau_override=tau)
+                    kl_loss = attn._compute_block_kl_lagrangian_loss(q_b, k_b, blk_assign, block_assignments=blk_assign)
+                    step_loss = step_loss + kl_loss + 0.01 * lb_loss
 
         if step_loss.requires_grad:
             step_loss.backward()
             optimizer.step()
             losses.append(float(step_loss.detach().item()))
 
+    densities = [float(attn.last_block_density) for attn in global_attns if attn.last_block_density is not None]
+    mean_density = sum(densities) / len(densities) if densities else float(target_density)
+
     for attn in global_attns:
         attn.router.eval()
         for p in attn.router.parameters():
             p.requires_grad_(False)
 
+    for cfg, prev_depth, prev_stride, prev_td, prev_backend in prev_cfg_state:
+        cfg.surgical_req_depth = prev_depth
+        cfg.surgical_route_stride = prev_stride
+        cfg.surgical_target_density = prev_td
+        cfg.surgical_attention_backend = prev_backend
+
     if save_sidecar_path is not None:
         save_gemma4_router_sidecar(model, save_sidecar_path)
 
-    return {"steps": num_steps, "initial_loss": losses[0] if losses else None, "final_loss": losses[-1] if losses else None}
+    return {
+        "steps": total_steps,
+        "num_steps": total_steps,
+        "initial_loss": losses[0] if losses else 0.0,
+        "final_loss": losses[-1] if losses else 0.0,
+        "final_mean_block_density": mean_density,
+    }
 
 
 def prepare_darksnail_gemma4_model(
@@ -2125,6 +2223,8 @@ def prepare_darksnail_gemma4_model(
     enable_global_hook: bool = False,
     attach_callosal_shell_hook: bool = True,
     hook_layer: int = 29,
+    router_init_mode: Optional[str] = None,
+    **kwargs: Any,
 ) -> nn.Module:
     """
     Drop-in Gemma 4 31B equivalent of `prepare_darksnail_llama_model`:
@@ -2134,7 +2234,10 @@ def prepare_darksnail_gemma4_model(
       3. Attaches the Global Layer-29 `Gemma4BeltramiCallosalShell` (`5376 -> 4096`) hook.
     """
     has_sidecar = sidecar_path is not None and Path(sidecar_path).exists()
-    init_mode = "collapse" if has_sidecar else "haar_dct"
+    if router_init_mode is not None:
+        init_mode = "collapse" if has_sidecar else str(router_init_mode)
+    else:
+        init_mode = "collapse" if has_sidecar else "haar_dct"
 
     layers = discover_gemma4_decoder_layers(model)
     already_patched = any(isinstance(getattr(l, "self_attn", None), SurgicalGemma4Attention) for l in layers)
@@ -2151,6 +2254,7 @@ def prepare_darksnail_gemma4_model(
             enable_global_hook=enable_global_hook,
             prope_nope_routing=True,
             only_global_layers=True,
+            **kwargs,
         )
 
     if has_sidecar:
@@ -2167,6 +2271,8 @@ def prepare_darksnail_gemma4_model(
     for cfg in ([model.config] if tcfg is model.config else [model.config, tcfg]):
         cfg.use_cache = True
         cfg.surgical_attention_backend = attention_backend
+        if hasattr(cfg, "_attn_implementation"):
+            cfg._attn_implementation = "eager"
 
     if attach_callosal_shell_hook:
         attach_gemma4_beltrami_hook(model, layer_idx=hook_layer, bridge_to_callosal_4096=True)

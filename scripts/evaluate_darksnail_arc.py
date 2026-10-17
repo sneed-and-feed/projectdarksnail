@@ -311,7 +311,7 @@ def run_darksnail_tta_on_task(
         opt_sp = torch.optim.Adam([dz_sp], lr=0.05)
         sp_best_loss = 1e9
         sp_best_dz = dz_sp.data.clone()
-        for step in range(30):
+        for step in range(35):
             actual_steps += 1
             opt_sp.zero_grad()
             logits = readout(
@@ -455,6 +455,10 @@ def resolve_baseline_dir() -> Path:
 
 def main() -> None:
     t0 = time.time()
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = False
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.allow_tf32 = False
     device = "cuda" if torch.cuda.is_available() else "cpu"
     eval_dir = resolve_arc_eval_dir()
     base_dir = resolve_baseline_dir()
