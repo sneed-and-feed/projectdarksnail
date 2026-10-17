@@ -245,6 +245,10 @@ def build_qasper_prompt_ids(tokenizer, sample: Dict[str, Any], max_ctx: int = 60
             ids_out = ids_out["input_ids"]
     else:
         ids_out = tokenizer(prompt, return_tensors="pt")["input_ids"]
+    if ids_out.shape[1] > max_ctx:
+        truncated = True
+        half = max_ctx // 2
+        ids_out = torch.cat([ids_out[:, :half], ids_out[:, -(max_ctx - half) :]], dim=1)
     return ids_out, truncated
 
 
@@ -418,6 +422,8 @@ def set_long_context_condition(
         m._darksnail_token_salience = None
         m._cached_assignments = None
         m._cached_block_assignments = None
+        m._cached_branch_id = None
+        m._cached_branch_r = None
         m._cached_q_blk = None
         m._cached_k_blk = None
 
@@ -482,8 +488,16 @@ def evaluate_banal_niah_comparison(
         import sys
         main_mod = sys.modules.get("__main__")
         existing_mem = getattr(main_mod, "niah_summary", None) if main_mod is not None else None
-        cache_path = Path("results/darksnail_banal_niah_cache.json")
-        for cand in (existing_mem, json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else None):
+        cwd_cache = Path("results/darksnail_banal_niah_cache.json")
+        repo_cache = Path(__file__).resolve().parent.parent / "results" / "darksnail_banal_niah_cache.json"
+        cands = [existing_mem]
+        for cp in (cwd_cache, repo_cache):
+            if cp.exists():
+                try:
+                    cands.append(json.loads(cp.read_text(encoding="utf-8")))
+                except Exception:
+                    pass
+        for cand in cands:
             if (
                 isinstance(cand, dict)
                 and cand.get("context_len") == context_len
@@ -721,6 +735,9 @@ def evaluate_qasper_comparison(
                     gen_ids = input_ids[0, self.p_len :]
                     if gen_ids.numel() < 2:
                         return False
+                    last_tok = self.tok.decode(gen_ids[-1:], skip_special_tokens=False)
+                    if "\n" not in last_tok:
+                        return False
                     raw_txt = self.tok.decode(gen_ids, skip_special_tokens=False)
                     if ("<|channel>thought" in raw_txt and "<channel|>" not in raw_txt) or (
                         "<think>" in raw_txt and "</think>" not in raw_txt
@@ -803,6 +820,15 @@ def evaluate_qasper_comparison(
                 out = model.generate(**gen_kwargs)
                 decoded = tokenizer.decode(out[0, prompt_len:], skip_special_tokens=True).strip()
                 del out
+                if hasattr(model, "_surgical_route_cache") and isinstance(model._surgical_route_cache, dict):
+                    model._surgical_route_cache.clear()
+                for m in attn_modules(model):
+                    m._cached_assignments = None
+                    m._cached_block_assignments = None
+                    m._cached_branch_id = None
+                    m._cached_branch_r = None
+                    m._darksnail_shield_tokens = None
+                    m._darksnail_token_salience = None
                 return decoded
 
             sample_preds: Dict[str, Any] = {}

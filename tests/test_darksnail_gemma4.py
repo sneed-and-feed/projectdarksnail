@@ -393,8 +393,12 @@ def test_patch_60_layer_gemma4_model_and_audit_fixes():
     assert 0.0 < warmup_stats["final_mean_block_density"] <= 1.0
     assert warmup_stats["num_steps"] == 2
 
-    # Audit Fix #9: Verify head-chunked long-context prefill (`seq_len > 64`) matches exact full-matrix attention
-    x_long = torch.randn(1, 96, cfg.hidden_size, dtype=torch.float32)
+    # Audit Fix #9: Verify head-chunked long-context prefill (`seq_len > 64`) and long decode (`L_kv > 128`) match exact full-matrix attention
+    x_long = torch.randn(1, 136, cfg.hidden_size, dtype=torch.float32)
+    k_long_past = torch.randn(1, cfg.num_global_key_value_heads, 136, cfg.global_head_dim)
+    v_long_past = torch.randn(1, cfg.num_global_key_value_heads, 136, cfg.global_head_dim)
+    x_long_dec = torch.randn(1, 1, cfg.hidden_size, dtype=torch.float32)
+
     for req_d, ds_mode, mask_ov in ((0, False, None), (3, False, None), (3, True, None), (3, False, "window")):
         model.config.surgical_req_depth = req_d
         model.config.surgical_darksnail_mode = ds_mode
@@ -408,6 +412,28 @@ def test_patch_60_layer_gemma4_model_and_audit_fixes():
             f"Mismatch in chunked prefill for req_depth={req_d}, darksnail={ds_mode}, override={mask_ov}"
         )
 
+        # Also test long decode step (`seq_len == 1, L_kv == 137 > 128`)
+        _ = attn5(x_long, output_attentions=False)
+        out_dec_fast, w_dec_none = attn5(x_long_dec, past_key_value=(k_long_past, v_long_past), output_attentions=False)
+        _ = attn5(x_long, output_attentions=False)
+        out_dec_eager, w_dec_full = attn5(x_long_dec, past_key_value=(k_long_past, v_long_past), output_attentions=True)
+        assert w_dec_none is None
+        assert w_dec_full is not None
+        assert torch.allclose(out_dec_fast, out_dec_eager, atol=1e-5), (
+            f"Mismatch in long decode for req_depth={req_d}, darksnail={ds_mode}, override={mask_ov}"
+        )
+
+    # Audit Fix #10: Verify 50-position Banal NIAH disk cache resumes instantaneously
+    from darksnail.longbench import evaluate_banal_niah_comparison
+
+    cached_niah = evaluate_banal_niah_comparison(
+        model, None, context_len=4096, num_positions=50, depths=(2, 3, 4, 5)
+    )
+    assert cached_niah["conditions"]["darksnail@2"]["recall_pct"] == 100.0
+    assert cached_niah["conditions"]["darksnail@3"]["recall_pct"] == 94.0
+    assert cached_niah["conditions"]["darksnail@4"]["recall_pct"] == 84.0
+    assert cached_niah["conditions"]["darksnail@5"]["recall_pct"] == 68.0
+
 
 if __name__ == "__main__":
     test_gemma4_31b_topology_constants()
@@ -420,4 +446,4 @@ if __name__ == "__main__":
     print("[PASS] test_gemma4_beltrami_callosal_shell_layer29_and_4096_bridge")
     test_patch_60_layer_gemma4_model_and_audit_fixes()
     print("[PASS] test_patch_60_layer_gemma4_model_and_audit_fixes")
-    print("\nAll 5 Gemma 4 31B DarkSnail V2 + 7 Deep Audit verification suites passed!")
+    print("\nAll 5 Gemma 4 31B DarkSnail V2 + 10 Deep Audit verification suites passed!")

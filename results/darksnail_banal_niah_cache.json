@@ -1,0 +1,196 @@
+{
+  "context_len": 4096,
+  "num_positions": 50,
+  "needle_type": "banal",
+  "depths": [
+    2,
+    3,
+    4,
+    5
+  ],
+  "backbone_model": "google/gemma-4-31B-it",
+  "quant_regime": "bfloat16",
+  "router_regime": "kl_warmed_sidecar_40steps",
+  "conditions": {
+    "window@2": {
+      "r": 2,
+      "condition": "window",
+      "recall_pct": 62.0,
+      "recall_ci95_wilson": [
+        48.15,
+        74.14
+      ],
+      "successes": 31,
+      "total": 50,
+      "measured_budget_pct": 82.5,
+      "measured_allowed_keys": 1689.9,
+      "mean_zeno_flux": null
+    },
+    "v4_triad@2": {
+      "r": 2,
+      "condition": "v4_triad",
+      "recall_pct": 92.0,
+      "recall_ci95_wilson": [
+        81.16,
+        96.85
+      ],
+      "successes": 46,
+      "total": 50,
+      "measured_budget_pct": 82.5,
+      "measured_allowed_keys": 1689.9,
+      "mean_zeno_flux": null
+    },
+    "darksnail@2": {
+      "r": 2,
+      "condition": "darksnail",
+      "recall_pct": 100.0,
+      "recall_ci95_wilson": [
+        92.87,
+        100.0
+      ],
+      "successes": 50,
+      "total": 50,
+      "measured_budget_pct": 82.5,
+      "measured_allowed_keys": 1689.9,
+      "mean_zeno_flux": 0.9984,
+      "wins_vs_v4_triad": 4,
+      "losses_vs_v4_triad": 0,
+      "mcnemar_pvalue_vs_v4_triad": 0.125
+    },
+    "window@3": {
+      "r": 3,
+      "condition": "window",
+      "recall_pct": 46.0,
+      "recall_ci95_wilson": [
+        32.98,
+        59.6
+      ],
+      "successes": 23,
+      "total": 50,
+      "measured_budget_pct": 70.2,
+      "measured_allowed_keys": 1438.0,
+      "mean_zeno_flux": null
+    },
+    "v4_triad@3": {
+      "r": 3,
+      "condition": "v4_triad",
+      "recall_pct": 42.0,
+      "recall_ci95_wilson": [
+        29.38,
+        55.77
+      ],
+      "successes": 21,
+      "total": 50,
+      "measured_budget_pct": 70.2,
+      "measured_allowed_keys": 1438.0,
+      "mean_zeno_flux": null
+    },
+    "darksnail@3": {
+      "r": 3,
+      "condition": "darksnail",
+      "recall_pct": 94.0,
+      "recall_ci95_wilson": [
+        83.78,
+        97.94
+      ],
+      "successes": 47,
+      "total": 50,
+      "measured_budget_pct": 70.2,
+      "measured_allowed_keys": 1438.0,
+      "mean_zeno_flux": 0.9984,
+      "wins_vs_v4_triad": 26,
+      "losses_vs_v4_triad": 0,
+      "mcnemar_pvalue_vs_v4_triad": 0.0
+    },
+    "window@4": {
+      "r": 4,
+      "condition": "window",
+      "recall_pct": 32.0,
+      "recall_ci95_wilson": [
+        20.76,
+        45.81
+      ],
+      "successes": 16,
+      "total": 50,
+      "measured_budget_pct": 59.9,
+      "measured_allowed_keys": 1227.1,
+      "mean_zeno_flux": null
+    },
+    "v4_triad@4": {
+      "r": 4,
+      "condition": "v4_triad",
+      "recall_pct": 16.0,
+      "recall_ci95_wilson": [
+        8.34,
+        28.51
+      ],
+      "successes": 8,
+      "total": 50,
+      "measured_budget_pct": 59.9,
+      "measured_allowed_keys": 1227.1,
+      "mean_zeno_flux": null
+    },
+    "darksnail@4": {
+      "r": 4,
+      "condition": "darksnail",
+      "recall_pct": 84.0,
+      "recall_ci95_wilson": [
+        71.49,
+        91.66
+      ],
+      "successes": 42,
+      "total": 50,
+      "measured_budget_pct": 59.9,
+      "measured_allowed_keys": 1227.1,
+      "mean_zeno_flux": 0.9984,
+      "wins_vs_v4_triad": 34,
+      "losses_vs_v4_triad": 0,
+      "mcnemar_pvalue_vs_v4_triad": 0.0
+    },
+    "window@5": {
+      "r": 5,
+      "condition": "window",
+      "recall_pct": 24.0,
+      "recall_ci95_wilson": [
+        14.29,
+        37.41
+      ],
+      "successes": 12,
+      "total": 50,
+      "measured_budget_pct": 52.3,
+      "measured_allowed_keys": 1071.4,
+      "mean_zeno_flux": null
+    },
+    "v4_triad@5": {
+      "r": 5,
+      "condition": "v4_triad",
+      "recall_pct": 6.0,
+      "recall_ci95_wilson": [
+        2.06,
+        16.22
+      ],
+      "successes": 3,
+      "total": 50,
+      "measured_budget_pct": 52.3,
+      "measured_allowed_keys": 1071.4,
+      "mean_zeno_flux": null
+    },
+    "darksnail@5": {
+      "r": 5,
+      "condition": "darksnail",
+      "recall_pct": 68.0,
+      "recall_ci95_wilson": [
+        54.19,
+        79.24
+      ],
+      "successes": 34,
+      "total": 50,
+      "measured_budget_pct": 52.3,
+      "measured_allowed_keys": 1071.4,
+      "mean_zeno_flux": 0.9984,
+      "wins_vs_v4_triad": 31,
+      "losses_vs_v4_triad": 0,
+      "mcnemar_pvalue_vs_v4_triad": 0.0
+    }
+  }
+}
