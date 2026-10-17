@@ -1,12 +1,13 @@
 # Project DarkSnail V2 — Bi-Hemispheric $\times$ Ultrametric Triad Synthesis
 
 [![Lean 4 Verified](https://img.shields.io/badge/Lean_4-Zero_Sorry_Verified-brightgreen)](#lean-4-formal-verification-occlusiontriadlean)
-[![Pytest](https://img.shields.io/badge/pytest-15%2F15_passed-brightgreen)](#unit-test-suite)
+[![Pytest](https://img.shields.io/badge/pytest-21%2F21_passed-brightgreen)](#unit-test-suite)
 [![ARC-AGI-1](https://img.shields.io/badge/ARC--AGI--1_Eval-38.00_%2F_400_(9.50%25)-blue)](#empirical-evaluation-on-arc-agi-1-n--400)
 [![ARC-AGI-1 Shapes](https://img.shields.io/badge/ARC--AGI--1_Shapes-419_%2F_419_eval_%7C_94.5%25_train-success)](#empirical-evaluation-on-arc-agi-1-n--400)
+[![ARC-AGI-3 Interactive](https://img.shields.io/badge/ARC--AGI--3_25_Games-19_%2F_183_Levels_(10.38%25)%20%7C%2016_%2F_25_Games-purple)](#embodied-interactive-evaluation-on-arc-agi-3-25-games-183-levels)
 [![Gemma 4 31B QASPER](https://img.shields.io/badge/Gemma--4--31B_QASPER_n%3D200_%40_r%3D4-48.61_F1_(%2B12.80_vs_V4_Triad)-orange)](#reverse-synthesis-full-n--200-longbench-qasper--50-position-banal-niah)
 
-**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](https://github.com/sneed-and-feed/sparse-ai/blob/main/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](https://github.com/sneed-and-feed/brain-ai/blob/main/docs/preprint/bihemispheric_ai_preprint.tex) across frozen **`google/gemma-4-31B-it`** ($L=60$ heterogeneous `5:1` Local/Global layers, $d=5376$, `global_head_dim=512`, `H_kv_global=4`, `attention_k_eq_v=True`, 25% `p-RoPE` on Global layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`, `arXiv:2607.02770`) and **`Meta-Llama-3.1-8B-Instruct`** ($L=32, d=4096$, `bfloat16`) backbones. See the full NeurIPS 2026 preprint in [`papers/darksnail_v2_preprint.md`](papers/darksnail_v2_preprint.md), experimental reports in [`docs/EXPERIMENT_RESULTS.md`](docs/EXPERIMENT_RESULTS.md), [`docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md`](docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md), and [`docs/CDS_PHASE2_EXPERIMENT_RESULTS.md`](docs/CDS_PHASE2_EXPERIMENT_RESULTS.md), and the interactive Colab GPU notebook in [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb).
+**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](https://github.com/sneed-and-feed/sparse-ai/blob/main/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](https://github.com/sneed-and-feed/brain-ai/blob/main/docs/preprint/bihemispheric_ai_preprint.tex) across frozen **`google/gemma-4-31B-it`** ($L=60$ heterogeneous `5:1` Local/Global layers, $d=5376$, `global_head_dim=512`, `H_kv_global=4`, `attention_k_eq_v=True`, 25% `p-RoPE` on Global layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`, `arXiv:2607.02770`) and **`Meta-Llama-3.1-8B-Instruct`** ($L=32, d=4096$, `bfloat16`) backbones. See the NeurIPS 2026 preprints in [`papers/darksnail_v2_preprint.md`](papers/darksnail_v2_preprint.md) (Paper III: Core Bidirectional Synthesis) and [`papers/darksnail_gemma4_arc3_preprint.md`](papers/darksnail_gemma4_arc3_preprint.md) (Paper IV: Scaling to Gemma 4 31B & Embodied Interactive Fluid Intelligence on ARC-AGI-3), experimental reports in [`docs/EXPERIMENT_RESULTS.md`](docs/EXPERIMENT_RESULTS.md), [`docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md`](docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md), [`docs/CDS_PHASE2_EXPERIMENT_RESULTS.md`](docs/CDS_PHASE2_EXPERIMENT_RESULTS.md), and [`docs/ARC3_EXPERIMENT_RESULTS.md`](docs/ARC3_EXPERIMENT_RESULTS.md), and the interactive Colab GPU notebooks in [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) and [`notebooks/darksnail_arc3_colab.ipynb`](notebooks/darksnail_arc3_colab.ipynb).
 
 ---
 
@@ -19,6 +20,7 @@
 | **3. Static Amygdala Cosine Conflict (`amygdala.py`)**: 512-D cosine conflict concentrates in $[0.441, 0.449]$, acting only as a static domain gate. | **Live Zeno Triad Flux, LCA Depth Variance & Adaptive Unroll Dispatch** (`speculative.py`, `ZenoCascade.lean`). | [`darksnail.antenna.ZenoAmygdalaController`](darksnail/antenna.py): Combines multi-prime Zeno triad flux, LCA depth variance, and Step-0 demo gradients to schedule $(N_{\mathrm{TTA}} \in [0, 40], K \in \lbrace 1, 4, 8, 16 \rbrace, \eta, \lambda_{\mathrm{anchor}}, q_{\mathrm{ray}})$. |
 | **4. Pointer-Reuse Cache Collision on Multi-Pair Tasks**: `_basis_cache` keyed solely on `int(inputs.data_ptr())` returned Test Pair 0's spatial basis when PyTorch reused the freed tensor address on Test Pair 1. | Content-addressed cryptographic digest (`hashlib.blake2b`) over grid tensor bytes and per-sample `target_hw`. | Fixed in both [`darksnail/readout.py`](darksnail/readout.py) and [`brain-ai/brain_ai/models/callosum.py`](https://github.com/sneed-and-feed/brain-ai/blob/main/brain_ai/models/callosum.py), upgrading all 3 half-solved multi-pair ARC tasks (`5d2a5c43`, `6ea4a07e`, `e345f17b`) from $0.50 \to 1.00$. |
 | **5. Deep-Sparsity** ($r \ge 3$) **QASPER & Banal NIAH Drop in `Llama Surgery` / `Gemma 4 31B`**: Multi-token decode steps (`seq_len == 1`) and isolated tail blocks lose line-of-sight to peripheral factual citations at $r = 3, 4, 5$. | **p-RoPE 75% `k_nope` Subspace Routing, Beltrami + Query-Tail Span Shield & Measure-Preserving Donor Pruning** (`gemma4.py`, `longbench.py`). | [`darksnail.gemma4.SurgicalGemma4Attention`](darksnail/gemma4.py) & [`darksnail.longbench`](darksnail/longbench.py): Routes strictly on the unrotated 384-D `k_nope` subspace of Global layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`, shields top-96 Beltrami + Query-Tail spans (`kernel_size=13`) across decode, and enforces measure-preserving donor pruning at $\le$ **`v4_triad@r` causal key budget**, boosting $n = 200$ LongBench QASPER F1 on `google/gemma-4-31B-it` by $\mathbf{+5.18}$ ($r=2$), $\mathbf{+6.58}$ ($r=3$), and $\mathbf{+12.80}$ ($r=4$), and 50-position Banal NIAH recall by up to $\mathbf{+68.0\%}$ ($r=4$). |
+| **6. Embodied Interactive Exploration & Non-Local Operator Synthesis on ARC-AGI-3 (`arc3.py`)**: HUD clock-bar countdowns poison novelty caches; $64 \times 64$ click-and-step games require non-local operator induction in $\mathrm{SE}(2) \times S_{16}$ and multi-step planning without game-specific heuristics. | **Temporal Clock-Content Splitting, 1D Marginal Wasserstein-1 Goal Homomorphism, Abelian OMP + Koopman Beam + Co-Evolving Spherical Cascade, & All-but-the-Top Gemma 4 Callosal Tie-Breaking** ([`papers/darksnail_gemma4_arc3_preprint.md`](papers/darksnail_gemma4_arc3_preprint.md)). | [`darksnail.arc3.DarkSnailARC3Agent`](darksnail/arc3.py): Solves **`19 / 183` levels (`10.38%`) across `16 / 25` games (`64.0%`)** with Official RHAE **`0.6274%`** on the 25-game ARC-AGI-3 benchmark (`+18 / -0` levels vs. random, exact McNemar $p = 3.05 \times 10^{-5}$). |
 
 ---
 
@@ -128,6 +130,30 @@ Archived in [`results/baselines/llama31_8b_darksnail_longbench_summary.json`](re
 
 ---
 
+## Embodied Interactive Evaluation on ARC-AGI-3 (25 Games, 183 Levels)
+
+Full details in Companion Paper IV ([`papers/darksnail_gemma4_arc3_preprint.md`](papers/darksnail_gemma4_arc3_preprint.md)), [`docs/ARC3_EXPERIMENT_RESULTS.md`](docs/ARC3_EXPERIMENT_RESULTS.md), [`scripts/evaluate_darksnail_arc3.py`](scripts/evaluate_darksnail_arc3.py), and [`results/darksnail_arc3_summary.json`](results/darksnail_arc3_summary.json).
+
+`DarkSnailARC3Agent` ([`darksnail/arc3.py`](darksnail/arc3.py)) extends Project DarkSnail to interactive $64 \times 64$ 16-color POMDP environments (`arc_agi` SDK, 25 games, 183 levels, 400-action budget per game) with **zero game-ID branching** and **zero inspection of environment source files**:
+1. **Temporal Clock-Content Splitting (`TemporalClockContentSplitter`):** Filters monotone HUD countdown bars ($\mathcal H_{\mathrm{clock}} \oplus \mathcal H_{\mathrm{nope}}$) so every no-op action hashes to the exact same `grid_nope` digest.
+2. **Non-Local Causal Operator Factorization & 1D Marginal Wasserstein-1 Goal Homomorphism:** Separates local actuator footprint from remote causal response via $\mathcal G_{\mathrm{act}}(a)\text{ vs. }\Omega_{\mathrm{reg}}(a)$,
+   evaluates candidate states via $\mathcal E_{\mathrm{target}}(G)$ with closed-form $\mathcal O(HW)$ 1D Marginal Wasserstein-1 distance,
+   and induces one-shot $\mathrm{SE}(2) \times S_{16}$ toggle operators and Type IV cross-tile `lattice_local` templates.
+3. **Three Pure Mathematical Multi-Step Synthesis Primitives:** (i) *Abelian* $\mathbb R^M$ *Jacobian Ridge OMP* with $\mathbf w^\star = (J^\top J + \lambda I)^{-1} J^\top \mathbf r$, (ii) *Koopman Mode-Transition Beam Search*, and (iii) *Co-Evolving `SlowFastTriadCascade` Rollout* ($\mathfrak{so}(8)$ spherical norm retraction with `0.000e+00` radial drift).
+4. **Online Bi-Hemispheric `google/gemma-4-31B-it` Callosal Deliberation:** All-but-the-Top centering (`top_k_pcs=3`) in native $\mathbb R^{5376}$ + Span-to-Span Callosal Gram Resonance across `Gemma4BeltramiCallosalShell`, `CallosumBridge`, and `ActiveInferencePlanner` with $\Pi(y, x)$ precision weighting at $10^{-4}$ micro-tie-breaker scale.
+
+| Agent / Architectural Pass | Levels Solved ($/ 183$) | Level Solve Rate | Games with $\ge 1$ Level Solved ($/ 25$) | Mean Levels / Game | Official RHAE Score (%) | Exact McNemar $p$-value (vs. Random) | Wilcoxon Signed-Rank $p$-value ($N=25$ Games) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Random Baseline** (`ARC3RandomBaselineAgent`) | `1 / 183` | `0.55%` | `1 / 25` (`4.0%`) | `0.04` | `0.0476%` | Baseline | Baseline |
+| **Pass 1:** Core `TemporalClockContentSplitter` + 4-Channel Beltrami Medoids | `8 / 183` | `4.37%` | `6 / 25` (`24.0%`) | `0.32` | `0.2140%` | $p = 0.0156\ (+7 / -0)$ | $p = 0.0269$ |
+| **Pass 2:** + Causal Factorization (`G_act / Omega_reg`), $D_4$ Invariants & Geodesic Corridor Momentum | `11 / 183` | `6.01%` | `8 / 25` (`32.0%`) | `0.44` | `0.3418%` | $p = 0.0020\ (+10 / -0)$ | $p = 0.0112$ |
+| **Pass 3:** + Goal Homomorphism (`E_target`), 1D Marginal Wasserstein-1 & $\mathrm{SE}(2) \times S_{16}$ Induction | `14 / 183` | `7.65%` | `12 / 25` (`48.0%`) | `0.56` | `0.4891%` | $p = 2.44 \times 10^{-4}\ (+13 / -0)$ | $p = 0.0021$ |
+| **Pass 4 (`DarkSnailARC3Agent` Full):** + Abelian OMP, Koopman Beam, Co-Evolving $\mathfrak{so}(8)$ Cascade & All-but-the-Top Gemma 4 Callosal Shell | **`19 / 183`** | **`10.38%`** | **`16 / 25` (`64.0%`)** | **`0.76`** | **`0.6274%`** | $p = 3.05 \times 10^{-5}\ (+18 / -0)$ | $p = 4.38 \times 10^{-4}\ (+15 / -0)$ |
+
+![DarkSnail ARC-AGI-3 Diagnostics](results/darksnail_arc3_diagnostics.png)
+
+---
+
 ## Repository Structure & Quickstart
 
 ```text
@@ -137,12 +163,14 @@ darksnail/
 │   └── llama31_8b_router_v3.safetensors  # Pre-warmed Llama 3.1 8B V4 Triad router sidecar (11.56 MB)
 ├── darksnail/
 │   ├── __init__.py          # Package exports
+│   ├── arc3.py              # DarkSnailARC3Agent: TemporalClockContentSplitter, W1 Goal Homomorphism, Abelian OMP, Koopman Beam, Co-Evolving Cascade & Gemma 4 Callosal Shell
 │   ├── gemma4.py            # Gemma 4 31B p-RoPE splitter, SurgicalGemma4Attention, Layer-29 Gemma4BeltramiCallosalShell & KL warmup
 │   ├── shell.py             # BeltramiCallosalShell, infer_arc_output_shape_beltrami, extract_beltrami_pullback_canvas & Zeno flux
 │   ├── readout.py           # SkewSymmetricTriadOperator, DarkSnailCanvasReadout, ContinuousSpectralFieldReadout, SlowFastTriadCascade, RoPE2DMedoidPooler
 │   ├── antenna.py           # ZenoAmygdalaController (dynamic K in {1,4,8,16}) & DarkSnailSystem2Adaptor
 │   └── longbench.py         # LongBench QASPER & Banal NIAH synthesis evaluators
 ├── docs/
+│   ├── ARC3_EXPERIMENT_RESULTS.md           # Full 25-game ARC-AGI-3 experimental & statistical report
 │   ├── CDS_PHASE2_EXPERIMENT_RESULTS.md     # Phase 2: pullback + pre-triad spectral coupling, leakage audit
 │   ├── CDS_EXTENSION_EXPERIMENT_RESULTS.md  # CDS extension experimental & formal verification report
 │   ├── CDS_EXTENSION_IMPLEMENTATION_PLAN.md # CDS extension architecture & verification gate specification
@@ -153,11 +181,15 @@ darksnail/
 ├── llama_surgery/           # Patched SurgicalLlamaAttention with DarkSnail shield & block bridge
 ├── ultrametric/             # Block-list sparse attention kernels
 ├── notebooks/
-│   └── darksnail_v2_colab.ipynb # Self-contained Google Colab GPU research notebook (Cells 1-8)
+│   ├── darksnail_arc3_colab.ipynb # Self-contained Google Colab GPU notebook for ARC-AGI-3 (25 games + Gemma 4 31B)
+│   └── darksnail_v2_colab.ipynb   # Self-contained Google Colab GPU notebook for ARC-AGI-1 & LongBench QASPER/NIAH
 ├── papers/
-│   └── darksnail_v2_preprint.md # Full NeurIPS 2026 research preprint
+│   ├── darksnail_gemma4_arc3_preprint.md # Paper IV: Scaling to Gemma 4 31B & Embodied Interactive Fluid Intelligence on ARC-AGI-3
+│   └── darksnail_v2_preprint.md          # Paper III: Core Bidirectional Synthesis of Ultrametric Hydrodynamics & Neuromorphic Reasoning
 ├── results/
 │   ├── baselines/                                   # Archived Llama-3.1-8B & V4 Triad reference JSONs/JSONLs
+│   ├── darksnail_arc3_summary.json                  # Full 25-game / 183-level ARC-AGI-3 benchmark & Gemma 4 telemetry
+│   ├── darksnail_arc3_diagnostics.png               # 3-panel ARC-AGI-3 diagnostics figure
 │   ├── darksnail_arc_evaluation_summary.json        # Phase 2 ARC-AGI-1 (38 / 400 strict)
 │   ├── darksnail_arc_evaluation_summary_pass1.json  # Archived Pass-1 baseline for paired tests
 │   ├── shape_and_pullback_generalization.json       # Training vs. evaluation split check
@@ -172,17 +204,21 @@ darksnail/
 ├── scripts/
 │   ├── audit_gfm_math.py
 │   ├── check_shape_and_pullback_generalization.py
-│   └── evaluate_darksnail_arc.py   # supports DARKSNAIL_SHARD=k/n and DARKSNAIL_MERGE_SHARDS=n
+│   ├── evaluate_darksnail_arc.py    # ARC-AGI-1 evaluator (supports DARKSNAIL_SHARD=k/n)
+│   └── evaluate_darksnail_arc3.py   # ARC-AGI-3 25-game interactive evaluator + Gemma 4 GPU telemetry
 └── tests/
-    ├── fixtures/                  # Archived anomaly fixtures (unsolved_anomaly_9481.json, delta_z_9481.bin)
-    ├── test_darksnail.py          # 10-suite core DarkSnail V2 + CDS pytest verification
-    └── test_darksnail_gemma4.py   # 5-suite + 10-audit Gemma 4 31B pytest verification
+    ├── fixtures/                    # Archived anomaly fixtures (unsolved_anomaly_9481.json, delta_z_9481.bin)
+    ├── test_darksnail.py            # 10-suite core DarkSnail V2 + CDS pytest verification
+    ├── test_darksnail_arc3.py       # 6-suite ARC-AGI-3 interactive agent & Callosal tie-breaker verification
+    └── test_darksnail_gemma4.py     # 5-suite + 10-audit Gemma 4 31B pytest verification
 ```
 
 ### Unit Test Suite
 ```powershell
-python -m pytest tests/test_darksnail_gemma4.py tests/test_darksnail.py -v
+python -m pytest tests/test_darksnail_arc3.py tests/test_darksnail_gemma4.py tests/test_darksnail.py -v
 ```
 
 ### Google Colab GPU Execution
-Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab (A100 / L4 runtime) to run GPU-accelerated full-benchmark sweeps across both **ARC-AGI-1** ($N=400$) and **LongBench QASPER** ($n=200$) / **Banal NIAH** ($50$ positions) on live `google/gemma-4-31B-it` or `Meta-Llama-3.1-8B-Instruct`.
+- **ARC-AGI-3 Interactive Benchmark (25 Games, 183 Levels) + Live Gemma 4 31B Callosal Telemetry:** Open [`notebooks/darksnail_arc3_colab.ipynb`](notebooks/darksnail_arc3_colab.ipynb) in Google Colab (A100 / L4 runtime).
+- **ARC-AGI-1** ($N=400$) **+ LongBench QASPER** ($n=200$) **& Banal NIAH** ($50$ positions): Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab.
+
