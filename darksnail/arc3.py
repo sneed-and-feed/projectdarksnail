@@ -1390,7 +1390,11 @@ def compute_canvas_target_alignment(
                 for k_i in range(n_cmp):
                     pt, rt = p_sorted[k_i], r_sorted[k_i]
                     px, py = int(pt["medoid_x"]), int(pt["medoid_y"])
-                    w_k = float(prec_map[py, px]) if prec_map is not None else 1.0
+                    w_k = (
+                        1.0 + 1e-4 * (float(prec_map[py, px]) - 1.0)
+                        if prec_map is not None
+                        else 1.0
+                    )
                     w_total += w_k
                     if int(pt["color"]) != int(rt["color"]):
                         mismatches += w_k
@@ -3378,13 +3382,14 @@ class DarkSnailArc3WorldModel(nn.Module):
 
         if not isinstance(action_key, tuple):
             if act_id == 7:
-                return -2.0 + triad_val + g4_prior
+                return -2.0 + triad_val + 1e-4 * g4_prior
 
             # Spanning-Tree Anti-Backtracking Guard:
-            # On first visit to a keyboard state, cap callosal prior so it never overrides
-            # spanning-tree parent-return avoidance (`-0.60`) or corridor continuation (`+0.32`).
+            # Scale callosal prior to a non-destructive micro-tie-breaker (`1e-4`) so it never
+            # overrides spanning-tree parent-return avoidance (`-0.60`), corridor continuation (`+0.32`),
+            # or online empirical contingency / triad ordering.
             vis_cnt = self.state_visit_counts.get(state_hash, 1)
-            eff_g4 = min(0.18, 0.25 * g4_prior) if vis_cnt <= 1 else g4_prior
+            eff_g4 = 1e-4 * g4_prior
             base = 2.15 * type_score + triad_val + eff_g4
             inverse_map = {1: 2, 2: 1, 3: 4, 4: 3}
             entry_act = self.state_entry_action.get(state_hash)
@@ -3407,7 +3412,7 @@ class DarkSnailArc3WorldModel(nn.Module):
             return -35.0
 
         if candidate_info is None:
-            return float(0.50 * type_score + triad_val + g4_prior)
+            return float(0.50 * type_score + triad_val + 1e-4 * g4_prior)
 
         sal = float(candidate_info.get("salience", 1.0))
         bh, bw = self._extract_bbox_hw(candidate_info)
@@ -3489,12 +3494,12 @@ class DarkSnailArc3WorldModel(nn.Module):
             if len(self.interactive_loci) > 1 or last_delta_here < 36:
                 novel_coord_bonus -= 2.25
 
-        # Top-Down Spatial Precision Tie-Breaker (when Gemma 4 System 2 precision map is active)
+        # Top-Down Spatial Precision Micro-Tie-Breaker (when Gemma 4 System 2 precision map is active)
         hom_bonus = 0.0
         if self.spatial_precision_map is not None:
             H_pm, W_pm = self.spatial_precision_map.shape
             if 0 <= cy < H_pm and 0 <= cx < W_pm:
-                hom_bonus += 0.20 * float(self.spatial_precision_map[cy, cx] - 1.0)
+                hom_bonus += 1e-4 * float(self.spatial_precision_map[cy, cx] - 1.0)
 
         fv = candidate_info.get("feature_vec")
         ridge_val = (
@@ -3512,7 +3517,7 @@ class DarkSnailArc3WorldModel(nn.Module):
             + hom_bonus
             + 0.35 * ridge_val
             + triad_val
-            + g4_prior
+            + 1e-4 * g4_prior
         )
 
 
@@ -4381,7 +4386,7 @@ class DarkSnailArc3Agent:
             prelim_cands = self._get_untried_actions_for_state(
                 cur_hash, avail, np.zeros(8, dtype=np.float32), tier=1
             )
-            z_H_super = self.deliberate_with_gemma4_system2(
+            z_H_callosal = self.deliberate_with_gemma4_system2(
                 z_H_super,
                 cur_hash=cur_hash,
                 frame_2d=frame_2d,
@@ -4389,6 +4394,8 @@ class DarkSnailArc3Agent:
                 candidate_actions=prelim_cands,
                 amygdala_state=amygdala_state,
             )
+        else:
+            z_H_callosal = None
 
         hrm_unroll = max(
             1,
@@ -4403,6 +4410,8 @@ class DarkSnailArc3Agent:
             unroll_steps=schedule.unroll_steps,
             hrm_steps=hrm_unroll,
         )
+        if z_H_callosal is not None:
+            self.world_model.z_H = z_H_callosal.detach()
         self.last_cascade_diagnostics = cas_diag
 
         # Execute planned BFS path if still aligned with expected state
