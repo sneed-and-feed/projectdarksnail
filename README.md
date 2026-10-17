@@ -1,12 +1,12 @@
 # Project DarkSnail V2 — Bi-Hemispheric $\times$ Ultrametric Triad Synthesis
 
 [![Lean 4 Verified](https://img.shields.io/badge/Lean_4-Zero_Sorry_Verified-brightgreen)](#lean-4-formal-verification-occlusiontriadlean)
-[![Pytest](https://img.shields.io/badge/pytest-10%2F10_passed-brightgreen)](#unit-test-suite)
+[![Pytest](https://img.shields.io/badge/pytest-15%2F15_passed-brightgreen)](#unit-test-suite)
 [![ARC-AGI-1](https://img.shields.io/badge/ARC--AGI--1_Eval-38.00_%2F_400_(9.50%25)-blue)](#empirical-evaluation-on-arc-agi-1-n--400)
 [![ARC-AGI-1 Shapes](https://img.shields.io/badge/ARC--AGI--1_Shapes-419_%2F_419_eval_%7C_94.5%25_train-success)](#empirical-evaluation-on-arc-agi-1-n--400)
-[![LongBench QASPER](https://img.shields.io/badge/LongBench_QASPER_n%3D200_%40_r%3D4-41.51_F1_(%2B11.78_vs_V4_Triad)-orange)](#reverse-synthesis-full-n--200-longbench-qasper--banal-niah-darksnail-to-llama-surgery)
+[![Gemma 4 31B QASPER](https://img.shields.io/badge/Gemma--4--31B_QASPER_n%3D200_%40_r%3D4-48.61_F1_(%2B12.80_vs_V4_Triad)-orange)](#reverse-synthesis-full-n--200-longbench-qasper--50-position-banal-niah)
 
-**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](https://github.com/sneed-and-feed/sparse-ai/blob/main/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](https://github.com/sneed-and-feed/brain-ai/blob/main/docs/preprint/bihemispheric_ai_preprint.tex) onto a single frozen `Meta-Llama-3.1-8B-Instruct` ($L=32, d=4096$, `bfloat16`) backbone. See the full NeurIPS 2026 preprint in [`papers/darksnail_v2_preprint.md`](papers/darksnail_v2_preprint.md), experimental reports in [`docs/EXPERIMENT_RESULTS.md`](docs/EXPERIMENT_RESULTS.md), [`docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md`](docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md), and [`docs/CDS_PHASE2_EXPERIMENT_RESULTS.md`](docs/CDS_PHASE2_EXPERIMENT_RESULTS.md), and the interactive Colab GPU notebook in [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb).
+**Project DarkSnail** unifies the surgical ultrametric attention topology of [`sparse-ai` (`Llama Surgery`)](https://github.com/sneed-and-feed/sparse-ai/blob/main/papers/llama_surgery.md) and the heterogeneous transcallosal System 1 / System 2 architecture of [`brain-ai` (`BiHemisphericBrain`)](https://github.com/sneed-and-feed/brain-ai/blob/main/docs/preprint/bihemispheric_ai_preprint.tex) across frozen **`google/gemma-4-31B-it`** ($L=60$ heterogeneous `5:1` Local/Global layers, $d=5376$, `global_head_dim=512`, `H_kv_global=4`, `attention_k_eq_v=True`, 25% `p-RoPE` on Global layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`, `arXiv:2607.02770`) and **`Meta-Llama-3.1-8B-Instruct`** ($L=32, d=4096$, `bfloat16`) backbones. See the full NeurIPS 2026 preprint in [`papers/darksnail_v2_preprint.md`](papers/darksnail_v2_preprint.md), experimental reports in [`docs/EXPERIMENT_RESULTS.md`](docs/EXPERIMENT_RESULTS.md), [`docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md`](docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md), and [`docs/CDS_PHASE2_EXPERIMENT_RESULTS.md`](docs/CDS_PHASE2_EXPERIMENT_RESULTS.md), and the interactive Colab GPU notebook in [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb).
 
 ---
 
@@ -14,11 +14,11 @@
 
 | Bottleneck in `brain-ai` / `sparse-ai` | Mathematical / Systems Primitive | DarkSnail V2 + CDS Extension Module |
 | :--- | :--- | :--- |
-| **1. Uniform Sequence Dilution & Dynamic Shape Ceiling (`lh_cache.py`)**: `adaptive_avg_pool1d(raw_latents, 32)` dilutes rule tokens (`0.0306` cosine); 7-rule geometry misses `51 / 419` dynamic-shape pairs. | **Beltrami Triad-Flux Outlier Shielding, Adelic Medoids & Topological Enclosure Descriptors** (`adelic_cache.py`, `RoPECoherence.lean`). | [`darksnail.shell.BeltramiCallosalShell`](darksnail/shell.py) & [`infer_arc_output_shape_beltrami`](darksnail/shell.py): Two-tier `(B, 32, 4096)` extraction (`1.0000` spike cosine, salience spike/island telemetry) + **`419 / 419` (`100.00%`)** exact ARC-AGI-1 evaluation shape prediction (`+51 / 51` dynamic shapes solved; in-sample — `393 / 416` = `94.47%` on the training split). |
+| **1. Uniform Sequence Dilution & Dynamic Shape Ceiling (`lh_cache.py`)**: `adaptive_avg_pool1d(raw_latents, 32)` dilutes rule tokens (`0.0306` cosine); 7-rule geometry misses `51 / 419` dynamic-shape pairs. | **Beltrami Triad-Flux Outlier Shielding, Adelic Medoids & Topological Enclosure Descriptors** (`adelic_cache.py`, `RoPECoherence.lean`). | [`darksnail.shell.BeltramiCallosalShell`](darksnail/shell.py), [`darksnail.gemma4.Gemma4BeltramiCallosalShell`](darksnail/gemma4.py), & [`infer_arc_output_shape_beltrami`](darksnail/shell.py): Two-tier `(B, 32, 4096)` extraction (`1.0000` spike cosine, Global Layer-29 `5376 -> 4096` row-orthonormal isometric bridge on Gemma 4 31B) + **`419 / 419` (`100.00%`)** exact ARC-AGI-1 evaluation shape prediction (`+51 / 51` dynamic shapes solved; in-sample — `393 / 416` = `94.47%` on the training split). |
 | **2. Symmetric Readout Tie & Idle `delta_z` Coordinates (`callosum.py`)**: Only $2,498 / 8,192$ coordinates of `delta_z` in $\mathbb{R}^{16 \times 512}$ are active; symmetric spatial bases tie on 2-color occlusions. | **Skew-Symmetric Bilinear Triad Operator, Multi-Step Spherical Cascade & 2D Spectral Field** (`OcclusionTriad.lean`). | [`DarkSnailCanvasReadout`](darksnail/readout.py), [`ContinuousSpectralFieldReadout`](darksnail/readout.py), & [`SlowFastTriadCascade`](darksnail/readout.py): Harvests all **`8,192 / 8,192` (`100.0%`)** coordinates of `delta_z` across $\mathfrak{so}(12)$ triad occlusion breaking, 201-channel 2D DCT-II/multi-bounce ray/Jordan-enclosure basis `Phi_spec`, and multi-step $K \in \lbrace 1, 4, 8, 16 \rbrace$ $\mathfrak{so}(8)$ spherical unrolling (`0.000e+00` radial drift). |
 | **3. Static Amygdala Cosine Conflict (`amygdala.py`)**: 512-D cosine conflict concentrates in $[0.441, 0.449]$, acting only as a static domain gate. | **Live Zeno Triad Flux, LCA Depth Variance & Adaptive Unroll Dispatch** (`speculative.py`, `ZenoCascade.lean`). | [`darksnail.antenna.ZenoAmygdalaController`](darksnail/antenna.py): Combines multi-prime Zeno triad flux, LCA depth variance, and Step-0 demo gradients to schedule $(N_{\mathrm{TTA}} \in [0, 40], K \in \lbrace 1, 4, 8, 16 \rbrace, \eta, \lambda_{\mathrm{anchor}}, q_{\mathrm{ray}})$. |
 | **4. Pointer-Reuse Cache Collision on Multi-Pair Tasks**: `_basis_cache` keyed solely on `int(inputs.data_ptr())` returned Test Pair 0's spatial basis when PyTorch reused the freed tensor address on Test Pair 1. | Content-addressed cryptographic digest (`hashlib.blake2b`) over grid tensor bytes and per-sample `target_hw`. | Fixed in both [`darksnail/readout.py`](darksnail/readout.py) and [`brain-ai/brain_ai/models/callosum.py`](https://github.com/sneed-and-feed/brain-ai/blob/main/brain_ai/models/callosum.py), upgrading all 3 half-solved multi-pair ARC tasks (`5d2a5c43`, `6ea4a07e`, `e345f17b`) from $0.50 \to 1.00$. |
-| **5. Deep-Sparsity** ($r \ge 3$) **QASPER & Banal NIAH Drop in `Llama Surgery`**: Multi-token decode steps (`seq_len == 1`) and isolated tail blocks lose line-of-sight to peripheral factual citations at $r = 3, 4, 5$. | **Beltrami + Query-Tail Span Shield & Measure-Preserving Block Bridge** (`surgery.py`, `longbench.py`). | [`darksnail.longbench`](darksnail/longbench.py): Shields top-96 Beltrami + Query-Tail spans (`kernel_size=13`) across decode and bridges the question tail block (`NB-1`) at $\le$ **`v4_triad@r` causal key budget**, boosting $n = 200$ LongBench QASPER F1 by $\mathbf{+6.50}$ ($r=2$), $\mathbf{+7.41}$ ($r=3$), and $\mathbf{+11.78}$ ($r=4$). |
+| **5. Deep-Sparsity** ($r \ge 3$) **QASPER & Banal NIAH Drop in `Llama Surgery` / `Gemma 4 31B`**: Multi-token decode steps (`seq_len == 1`) and isolated tail blocks lose line-of-sight to peripheral factual citations at $r = 3, 4, 5$. | **p-RoPE 75% `k_nope` Subspace Routing, Beltrami + Query-Tail Span Shield & Measure-Preserving Donor Pruning** (`gemma4.py`, `longbench.py`). | [`darksnail.gemma4.SurgicalGemma4Attention`](darksnail/gemma4.py) & [`darksnail.longbench`](darksnail/longbench.py): Routes strictly on the unrotated 384-D `k_nope` subspace of Global layers `[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`, shields top-96 Beltrami + Query-Tail spans (`kernel_size=13`) across decode, and enforces measure-preserving donor pruning at $\le$ **`v4_triad@r` causal key budget**, boosting $n = 200$ LongBench QASPER F1 on `google/gemma-4-31B-it` by $\mathbf{+5.18}$ ($r=2$), $\mathbf{+6.58}$ ($r=3$), and $\mathbf{+12.80}$ ($r=4$), and 50-position Banal NIAH recall by up to $\mathbf{+68.0\%}$ ($r=4$). |
 
 ---
 
@@ -87,11 +87,37 @@ For the Stage 2a tasks, the generic geometric rule already reproduces the demos 
 
 ---
 
-## Reverse Synthesis: Full $n = 200$ LongBench QASPER & Banal NIAH (`DarkSnail` $\to$ `Llama Surgery`)
+## Reverse Synthesis: Full $n = 200$ LongBench QASPER & 50-Position Banal NIAH
 
-Evaluating `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) patched with `SurgicalLlamaAttention` (`V4 TriadTopologyRouter` sidecar) + Layer-16 `BeltramiCallosalShell` telemetry hook + DarkSnail Query-Tail Outlier Shield & Measure-Preserving Block Bridge ([`results/darksnail_longbench_summary.json`](results/darksnail_longbench_summary.json), [`results/darksnail_qasper_predictions.jsonl`](results/darksnail_qasper_predictions.jsonl), [`docs/EXPERIMENT_RESULTS.md`](docs/EXPERIMENT_RESULTS.md), and [`docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md`](docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md)):
+### 1. `google/gemma-4-31B-it` (`bfloat16`, 10 Global Layers Patched + Layer-29 `Gemma4BeltramiCallosalShell`, `gemma4_31b_router_v4.safetensors`)
 
-### LongBench QASPER Scientific Paper QA ($n = 200$, `max_ctx = 6000`, Mean Layer-16 Zeno Flux $\Phi_{\mathrm{LH}} = 0.6039$)
+Evaluating `google/gemma-4-31B-it` (`bfloat16`, $L=60$ heterogeneous `5:1` Local/Global layers) with strictly the 10 Global Full-Attention layers (`[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`) patched with [`SurgicalGemma4Attention`](darksnail/gemma4.py) (post-`p-RoPE` 384-D `k_nope` routing + 40-step Block-KL & Dual Lagrangian sidecar [`gemma4_31b_router_v4.safetensors`](checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors) + Global Layer-29 `Gemma4BeltramiCallosalShell` + DarkSnail Query-Tail Outlier Shield & Measure-Preserving Donor Pruning; full raw outputs in [`results/darksnail_longbench_summary.json`](results/darksnail_longbench_summary.json) and [`results/darksnail_qasper_predictions.jsonl`](results/darksnail_qasper_predictions.jsonl)):
+
+#### LongBench QASPER Scientific Paper QA ($n = 200$, `max_ctx = 6000`)
+
+| Tree Depth $r$ | Sliding Window (`window@r`) F1 [Budget] | Standalone `V4 Triad` (`v4_triad@r`) F1 [Budget] | **Project DarkSnail V2 (`darksnail@r`) F1 [Budget]** | Paired $\Delta\text{F1}$ vs. `v4_triad@r` [95% CI] ($p$-value, W/L/T) | Paired $\Delta\text{F1}$ vs. `window@r` [95% CI] ($p$-value) | Paired $\Delta\text{F1}$ vs. `dense` ($49.92$) [95% CI] |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| $r = 0$ (`dense`) | — | $49.92\ [100.00\%]$ | $49.92\ [100.00\%]$ | — | — | $0.00$ |
+| $r = 2$ | $42.55\ [84.55\%]$ | $44.70\ [84.54\%]$ | $\mathbf{49.89\ [84.54\%]}$ | $\mathbf{+5.18\ [+2.40, +8.14]}\ (p = 0.0002,\ 70 / 37 / 93)$ | $\mathbf{+7.33\ [+3.37, +11.33]}\ (p = 0.0005)$ | $\mathbf{-0.04\ [-1.92, +1.80]}$ |
+| $r = 3$ | $37.75\ [72.13\%]$ | $42.04\ [72.11\%]$ | $\mathbf{48.62\ [72.11\%]}$ | $\mathbf{+6.58\ [+3.24, +9.96]}\ (p = 0.0002,\ 84 / 41 / 75)$ | $\mathbf{+10.87\ [+6.30, +15.42]}\ (p = 0.0001)$ | $\mathbf{-1.30\ [-2.79, +0.09]}$ |
+| $r = 4$ | $34.77\ [62.25\%]$ | $35.81\ [62.23\%]$ | $\mathbf{48.61\ [62.23\%]}$ | $\mathbf{+12.80\ [+8.98, +16.70]}\ (p = 0.0001,\ 103 / 34 / 63)$ | $\mathbf{+13.84\ [+8.52, +19.12]}\ (p = 0.0001)$ | $\mathbf{-1.31\ [-3.73, +1.07]}$ |
+
+#### Banal NIAH (`'spherical coordinates'`, $N = 4,096$, $50$ Uniform Needle Positions)
+
+| Tree Depth $r$ | Measured Causal Budget | `window@r` Recall [Wilson 95% CI] | `v4_triad@r` Recall [Wilson 95% CI] | **`darksnail@r` Recall [Wilson 95% CI]** | $\Delta(\text{darksnail} - \text{v4\_triad})$ | Exact McNemar $p$-value (Wins / Losses) |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| $r = 2$ | $82.5\%$ ($1,689.9$ keys) | $62.0\%\ [48.15\%, 74.14\%]$ ($31/50$) | $92.0\%\ [81.16\%, 96.85\%]$ ($46/50$) | $\mathbf{100.0\%\ [92.87\%, 100.0\%]}$ ($\mathbf{50/50}$) | $\mathbf{+8.0\%}$ | $p = 0.1250\ (+4 / -0)$ |
+| $r = 3$ | $70.2\%$ ($1,438.0$ keys) | $46.0\%\ [32.98\%, 59.60\%]$ ($23/50$) | $42.0\%\ [29.38\%, 55.77\%]$ ($21/50$) | $\mathbf{94.0\%\ [83.78\%, 97.94\%]}$ ($\mathbf{47/50}$) | $\mathbf{+52.0\%}$ | $\mathbf{p < 10^{-6}}\ (+26 / -0)$ |
+| $r = 4$ | $59.9\%$ ($1,227.1$ keys) | $32.0\%\ [20.76\%, 45.81\%]$ ($16/50$) | $16.0\%\ [8.34\%, 28.51\%]$ ($8/50$) | $\mathbf{84.0\%\ [71.49\%, 91.66\%]}$ ($\mathbf{42/50}$) | $\mathbf{+68.0\%}$ | $\mathbf{p < 10^{-9}}\ (+34 / -0)$ |
+| $r = 5$ | $52.3\%$ ($1,071.4$ keys) | $24.0\%\ [14.29\%, 37.41\%]$ ($12/50$) | $6.0\%\ [2.06\%, 16.22\%]$ ($3/50$) | $\mathbf{68.0\%\ [54.19\%, 79.24\%]}$ ($\mathbf{34/50}$) | $\mathbf{+62.0\%}$ | $\mathbf{p < 10^{-8}}\ (+31 / -0)$ |
+
+![DarkSnail V2 LongBench QASPER & Banal NIAH Curves](results/darksnail_longbench_curves.png)
+
+---
+
+### 2. Cross-Backbone Reference: `Meta-Llama-3.1-8B-Instruct` ($n = 200$ LongBench QASPER, `llama31_8b_router_v3.safetensors`)
+
+Archived in [`results/baselines/llama31_8b_darksnail_longbench_summary.json`](results/baselines/llama31_8b_darksnail_longbench_summary.json) and [`results/baselines/llama31_8b_darksnail_qasper_predictions.jsonl`](results/baselines/llama31_8b_darksnail_qasper_predictions.jsonl):
 
 | Tree Depth $r$ | Sliding Window (`window@r`) F1 [Budget] | Standalone `Llama Surgery` (`v4_triad@r`) F1 [Budget] | **Project DarkSnail V2 (`darksnail@r`) F1 [Budget]** | Paired $\Delta\text{F1}$ vs. `v4_triad@r` [95% CI] (W/L) | Paired $\Delta\text{F1}$ vs. `window@r` [95% CI] | Paired $\Delta\text{F1}$ vs. `dense` ($43.10$) [95% CI] |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -100,10 +126,6 @@ Evaluating `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) patched with `SurgicalLlama
 | $r = 3$ | $29.99\ [66.93\%]$ | $35.92\ [66.91\%]$ | $\mathbf{43.33\ [66.84\%]}$ | $\mathbf{+7.41\ [+3.39, +11.24]}\ (90 / 53)$ | $\mathbf{+13.34\ [+8.15, +18.59]}$ | $\mathbf{+0.23\ [-2.36, +2.81]}$ |
 | $r = 4$ | $27.45\ [58.74\%]$ | $29.73\ [58.71\%]$ | $\mathbf{41.51\ [58.65\%]}$ | $\mathbf{+11.78\ [+7.51, +15.95]}\ (101 / 45)$ | $\mathbf{+14.07\ [+8.47, +19.61]}$ | $\mathbf{-1.59\ [-4.40, +1.08]}$ |
 
-> **Key Finding (Triple Iso-Budget Precision & Strictly Positive Paired 95% CIs across** $n = 200$**):** At every tree depth $r \in \lbrace 2, 3, 4 \rbrace$, `darksnail@r` uses a slightly **lower measured causal key budget** than both `v4_triad@r` and `window@r` (`77.94%` vs `77.99%` / `78.01%`; `66.84%` vs `66.91%` / `66.93%`; `58.65%` vs `58.71%` / `58.74%`), yet achieves strictly positive paired within-question bootstrap 95% CIs over `v4_triad@r` (**`+6.50`**, **`+7.41`**, and **`+11.78 F1`** with $101$ wins vs. $45$ losses at $r = 4$), **exceeds the full `dense` ceiling (`43.10 F1`) at** $r = 2$ **(`44.20 F1`) and** $r = 3$ **(`43.33 F1`)**, and at $r = 4$ (`58.65%` budget, `41.51 F1`) beats both `window@2` (`78.01%` budget, `34.41 F1`) and `v4_triad@2` (`77.99%` budget, `37.70 F1`) while using $\mathbf{19.34\%}$ **fewer causal keys**.
-
-![DarkSnail V2 LongBench QASPER & Banal NIAH Curves](results/darksnail_longbench_curves.png)
-
 ---
 
 ## Repository Structure & Quickstart
@@ -111,9 +133,11 @@ Evaluating `Meta-Llama-3.1-8B-Instruct` (`bfloat16`) patched with `SurgicalLlama
 ```text
 darksnail/
 ├── checkpoints/router_sidecars/
-│   └── llama31_8b_router_v3.safetensors  # Pre-warmed V4 Triad router sidecar (11.56 MB)
+│   ├── gemma4_31b_router_v4.safetensors  # Pre-warmed Gemma 4 31B 10-Global-layer router sidecar (85.38 MB)
+│   └── llama31_8b_router_v3.safetensors  # Pre-warmed Llama 3.1 8B V4 Triad router sidecar (11.56 MB)
 ├── darksnail/
 │   ├── __init__.py          # Package exports
+│   ├── gemma4.py            # Gemma 4 31B p-RoPE splitter, SurgicalGemma4Attention, Layer-29 Gemma4BeltramiCallosalShell & KL warmup
 │   ├── shell.py             # BeltramiCallosalShell, infer_arc_output_shape_beltrami, extract_beltrami_pullback_canvas & Zeno flux
 │   ├── readout.py           # SkewSymmetricTriadOperator, DarkSnailCanvasReadout, ContinuousSpectralFieldReadout, SlowFastTriadCascade, RoPE2DMedoidPooler
 │   ├── antenna.py           # ZenoAmygdalaController (dynamic K in {1,4,8,16}) & DarkSnailSystem2Adaptor
@@ -129,15 +153,17 @@ darksnail/
 ├── llama_surgery/           # Patched SurgicalLlamaAttention with DarkSnail shield & block bridge
 ├── ultrametric/             # Block-list sparse attention kernels
 ├── notebooks/
-│   └── darksnail_v2_colab.ipynb # Self-contained Google Colab GPU research notebook (Cells 1-8; Cell 6 regenerates ARC figures)
+│   └── darksnail_v2_colab.ipynb # Self-contained Google Colab GPU research notebook (Cells 1-8)
 ├── papers/
 │   └── darksnail_v2_preprint.md # Full NeurIPS 2026 research preprint
 ├── results/
-│   ├── darksnail_arc_evaluation_summary.json        # Phase 2 (current)
+│   ├── baselines/                                   # Archived Llama-3.1-8B & V4 Triad reference JSONs/JSONLs
+│   ├── darksnail_arc_evaluation_summary.json        # Phase 2 ARC-AGI-1 (38 / 400 strict)
 │   ├── darksnail_arc_evaluation_summary_pass1.json  # Archived Pass-1 baseline for paired tests
 │   ├── shape_and_pullback_generalization.json       # Training vs. evaluation split check
-│   ├── darksnail_longbench_summary.json
-│   ├── darksnail_qasper_predictions.jsonl
+│   ├── darksnail_banal_niah_cache.json              # 50-position Banal NIAH on google/gemma-4-31B-it
+│   ├── darksnail_longbench_summary.json             # Full n=200 QASPER + 50-pos NIAH on google/gemma-4-31B-it
+│   ├── darksnail_qasper_predictions.jsonl           # Per-sample n=200 QASPER predictions on google/gemma-4-31B-it
 │   ├── darksnail_longbench_curves.png
 │   ├── darksnail_spectral_field_basis.png
 │   ├── darksnail_v2_showcase_gallery.png
@@ -148,15 +174,15 @@ darksnail/
 │   ├── check_shape_and_pullback_generalization.py
 │   └── evaluate_darksnail_arc.py   # supports DARKSNAIL_SHARD=k/n and DARKSNAIL_MERGE_SHARDS=n
 └── tests/
-    ├── fixtures/            # Archived anomaly fixtures (unsolved_anomaly_9481.json, delta_z_9481.bin)
-    └── test_darksnail.py    # 10-suite pytest verification
+    ├── fixtures/                  # Archived anomaly fixtures (unsolved_anomaly_9481.json, delta_z_9481.bin)
+    ├── test_darksnail.py          # 10-suite core DarkSnail V2 + CDS pytest verification
+    └── test_darksnail_gemma4.py   # 5-suite + 10-audit Gemma 4 31B pytest verification
 ```
 
 ### Unit Test Suite
 ```powershell
-$env:PYTHONPATH="c:\Users\x\Documents\antigravity\darksnail;c:\Users\x\Documents\antigravity\brain-ai"
-& "C:\Users\x\AppData\Local\Python\bin\python.exe" -m pytest tests/test_darksnail.py -v
+python -m pytest tests/test_darksnail_gemma4.py tests/test_darksnail.py -v
 ```
 
 ### Google Colab GPU Execution
-Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab (T4 / L4 / A100 runtime) to run GPU-accelerated full-benchmark sweeps across both **ARC-AGI-1** ($N=400$) and **LongBench QASPER / Banal NIAH** on live `Meta-Llama-3.1-8B-Instruct`.
+Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab (A100 / L4 runtime) to run GPU-accelerated full-benchmark sweeps across both **ARC-AGI-1** ($N=400$) and **LongBench QASPER ($n=200$) / Banal NIAH ($50$ positions)** on live `google/gemma-4-31B-it` or `Meta-Llama-3.1-8B-Instruct`.
