@@ -119,9 +119,9 @@ def audit_file(filepath: str) -> int:
         if re.search(r"\\(text|mathrm)\{[^}]*?[^\\]&.*?\}", line):
             issues.append((line_num, "Rule 20: Unescaped literal '&' inside \\text{...} or \\mathrm{...}"))
 
-        # Rule 21: Underscore inside \text or \mathrm
-        if re.search(r"\\(text|mathrm)\{[^}]*?_.*?\}", line):
-            issues.append((line_num, "Rule 21: Literal or escaped '_' inside \\text{...} or \\mathrm{...} (use \\textunderscore or code span outside math)"))
+        # Rule 21: Underscore or \textunderscore inside \text or \mathrm
+        if re.search(r"\\(text|mathrm)\{[^}]*?(_|\\textunderscore).*?\}", line):
+            issues.append((line_num, "Rule 21: '_' or '\\textunderscore' inside \\text{...} or \\mathrm{...} (use code span outside math or hyphens)"))
 
         if in_math_block:
             if re.search(r"<[a-zA-Z]", line):
