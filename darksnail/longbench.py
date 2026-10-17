@@ -750,7 +750,14 @@ def evaluate_qasper_comparison(
         except Exception:
             stop_criteria_cls = None
 
-    # Resume from existing completed rows in `predictions_path` if present
+    # Resume from existing completed rows in `predictions_path` if present for the SAME backbone model
+    current_backbone = str(
+        getattr(
+            model.config,
+            "_name_or_path",
+            getattr(getattr(model.config, "text_config", model.config), "_name_or_path", getattr(model.config, "model_type", "unknown")),
+        )
+    )
     resumed_rows: List[Dict[str, Any]] = []
     if predictions_path and os.path.exists(predictions_path) and os.environ.get("DARKSNAIL_QASPER_NO_RESUME", "0") != "1":
         try:
@@ -761,7 +768,11 @@ def evaluate_qasper_comparison(
                         continue
                     row = json.loads(line)
                     row_conds = row.get("conditions", {})
-                    if row.get("idx") == len(resumed_rows) and all(c in row_conds for c in conds):
+                    if (
+                        row.get("idx") == len(resumed_rows)
+                        and row.get("backbone_model") == current_backbone
+                        and all(c in row_conds for c in conds)
+                    ):
                         resumed_rows.append(row)
                     else:
                         break
@@ -927,6 +938,7 @@ def evaluate_qasper_comparison(
                         {
                             "idx": idx_s,
                             "_id": sample.get("_id"),
+                            "backbone_model": current_backbone,
                             "prompt_tokens": prompt_len,
                             "truncated": trunc,
                             "answers": sample["answers"],
