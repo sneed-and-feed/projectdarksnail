@@ -5232,10 +5232,16 @@ class DarkSnailArc3WorldModel(nn.Module):
             entry_act = self.state_entry_action.get(state_hash)
             is_backtrack = isinstance(entry_act, int) and inverse_map.get(act_id) == entry_act
 
-            # Spanning-Tree Anti-Backtracking Guard:
-            # Suppress positive callosal prior only on the spanning-tree parent-return direction,
-            # while preserving full `0.25` Callosal E/I prior weight on all non-backtracking actions.
-            eff_g4 = min(0.0, 0.25 * g4_prior) if is_backtrack else 0.25 * g4_prior
+            # Spanning-Tree Anti-Backtracking & Corridor Guard:
+            # Suppress positive callosal prior on the spanning-tree parent-return direction,
+            # damp to tie-breaking once cross-level goal weights are distilled (levels_distilled >= 2),
+            # and cap below the +0.32 geodesic corridor continuation bonus.
+            if is_backtrack:
+                eff_g4 = min(0.0, 0.25 * g4_prior)
+            elif getattr(self.goal_distiller, "levels_distilled", 0) >= 2:
+                eff_g4 = 1e-4 * g4_prior
+            else:
+                eff_g4 = min(0.12, 0.25 * g4_prior)
             base = 2.15 * type_score + triad_val + eff_g4 + verifier_bonus + lookahead_bonus
 
             # Contact-Highlight Epistemic Boost & Anti-Oscillation for ACTION5
@@ -5396,14 +5402,6 @@ class DarkSnailArc3WorldModel(nn.Module):
                 if len(self.interactive_loci) > 1 or last_delta_here < 36:
                     novel_coord_bonus -= 2.25
 
-        # Top-Down Spatial Precision Map `Pi(y, x)` modulation (state-scoped & non-double-counted)
-        hom_bonus = 0.0
-        state_pm = getattr(self, "state_precision_maps", {}).get(state_hash)
-        if state_pm is not None and (state_hash, action_key) not in self.gemma4_action_priors:
-            H_pm, W_pm = state_pm.shape
-            if 0 <= cy < H_pm and 0 <= cx < W_pm:
-                hom_bonus += 0.25 * float(state_pm[cy, cx] - 1.0)
-
         fv = candidate_info.get("feature_vec")
         ridge_val = (
             float(np.dot(self.medoid_weights, fv))
@@ -5411,18 +5409,20 @@ class DarkSnailArc3WorldModel(nn.Module):
             else 0.0
         )
 
+        # When Beltrami medoid features/contingency are present (`candidate_info is not None`),
+        # apply `g4_prior` strictly at tie-breaking scale (`1e-5`) so Callosal priors break
+        # exact ties without overriding `7.9e-5` Beltrami/contingency precision on `ft09`/`sc25`/`cd82`.
         return float(
             0.80 * type_score
             + 0.30 * sal
             + morph_bonus
             + contingency_bonus
             + novel_coord_bonus
-            + hom_bonus
             + verifier_bonus
             + lookahead_bonus
             + 0.35 * ridge_val
             + triad_val
-            + 0.25 * g4_prior
+            + 1e-5 * max(0.0, g4_prior)
         )
 
 
@@ -5826,13 +5826,13 @@ class DarkSnailArc3Agent:
                     for k_idx in range(valid_k):
                         ak_k = cands_list[k_idx][1]
                         pk_val = float(p_callosal[k_idx])
-                        pk_centered = pk_val - p_unif
-                        self.world_model.gemma4_action_priors[(cur_hash, ak_k)] = 1.50 * pk_centered
+                        pk_pos = max(0.0, pk_val - p_unif)
+                        self.world_model.gemma4_action_priors[(cur_hash, ak_k)] = 1.50 * pk_pos
                         if isinstance(ak_k, tuple) and len(ak_k) == 3 and ak_k[0] == 6:
                             cx_k, cy_k = float(ak_k[1]), float(ak_k[2])
                             gauss = np.exp(-((yy - cy_k) ** 2 + (xx - cx_k) ** 2) / (2.0 * 4.0 ** 2))
                             pi_map += 1.50 * pk_val * gauss
-                            pi_state_map += 1.00 * pk_centered * gauss
+                            pi_state_map += 1.00 * pk_pos * gauss
 
                     self.world_model.spatial_precision_map = np.clip(pi_map, 0.2, 4.0)
                     self.world_model.state_precision_maps[cur_hash] = np.clip(pi_state_map, 0.5, 2.0)
@@ -6437,12 +6437,18 @@ class DarkSnailArc3Agent:
                 best_u_score = float(u_list[0][0])
                 best_ak = u_list[0][1]
                 # Remove within-state Callosal re-ranking offset when comparing across states in BFS
-                g4_off = 0.25 * float(self.world_model.gemma4_action_priors.get((sh, best_ak), 0.0))
+                raw_g4 = float(self.world_model.gemma4_action_priors.get((sh, best_ak), 0.0))
                 if not isinstance(best_ak, tuple):
                     inv_m = {1: 2, 2: 1, 3: 4, 4: 3}
                     ent_a = self.world_model.state_entry_action.get(sh)
                     if isinstance(ent_a, int) and inv_m.get(int(best_ak)) == ent_a:
-                        g4_off = min(0.0, g4_off)
+                        g4_off = min(0.0, 0.25 * raw_g4)
+                    elif getattr(self.world_model.goal_distiller, "levels_distilled", 0) >= 2:
+                        g4_off = 1e-4 * raw_g4
+                    else:
+                        g4_off = min(0.12, 0.25 * raw_g4)
+                else:
+                    g4_off = 1e-5 * max(0.0, raw_g4)
                 best_u_score -= g4_off
                 if init_frame is not None:
                     nov = float(np.mean(self.world_model.splitter.project_nope(sf_arr) != init_frame))
