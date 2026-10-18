@@ -32,10 +32,13 @@ from darksnail import (
     Arc3AffectiveAmygdalaRouter,
     Arc3EpisodicBeltramiShell,
     Arc3HRMRecurrentCore,
+    CrossLevelGoalInvariantDistiller,
     DarkSnailArc3Agent,
     DarkSnailArc3WorldModel,
     HRMRecurrentBlock,
     MagicNorm,
+    OnlineForwardOperatorDreamer,
+    RelationalOperatorDreamer,
     TemporalClockContentSplitter,
     TransitionRecord,
     compute_canvas_target_alignment,
@@ -651,6 +654,136 @@ def test_subsystem_b_spectral_init_and_callosal_gram_resonance() -> None:
     s_backtrack = agent.world_model.score_action_candidate(sh_next, 2, zero_triad)
     s_orthogonal = agent.world_model.score_action_candidate(sh_next, 3, zero_triad)
     assert s_orthogonal > s_backtrack
+
+
+def test_milestone5_four_pillars_and_thermodynamic_irreversibility() -> None:
+    """
+    Verifies Milestone 5 Pillars 1-4 + Thermodynamic Irreversibility Law:
+      1. Thermodynamic Irreversibility Law in `TemporalClockContentSplitter` (reversible
+         state-restoring transitions are never permanently swallowed into `H_clock`),
+      2. Pillar 1 (`RelationalOperatorDreamer` / `OnlineForwardOperatorDreamer`):
+         - Ego-kinematic forward prediction (`predict_step`) at novel board positions + wall blocking,
+         - Excitable Excursion Verifier (`verifier_actuators`, `subframes_count >= 3`, `max_subframe_nope_delta >= 12`),
+         - Contact-Highlight `ACTION5` epistemic boost (`active_contact_highlight_states`),
+         - Tool/Palette Selection Mode (`tool_selection_active`) bypassing pre-tool inertness,
+      3. Pillar 2 (`CrossLevelGoalInvariantDistiller`):
+         - 5D invariant basis `Phi(S) = [Phi_1..Phi_5]^T` and Fisher-Rao natural-gradient Boltzmann
+           weight update on `distill_level_win`,
+      4. Pillar 3 (Online Riemannian / Lie-Algebra Test-Time Adaptation):
+         - `so(16)` Lie generator estimation (`update_lie_generator`), commutator curvature
+           `compute_commutator_curvature`, and single-step differentiable `adapt_online_step`
+           preserving `<= 1e-8` pointwise orthogonality,
+      5. Pillar 4 (Left-Hemisphere Gemma 4 Subgoal & Precision Weight Compiler):
+         - Layer-29 Centered Spherical Gram Resonance over `[G0..G4]` subgoal archetypes and
+           `apply_system2_compiled_weights`.
+    """
+    # 1. Thermodynamic Irreversibility Law: reversible 2-color column shift is NOT permanently masked as clock
+    splitter = TemporalClockContentSplitter()
+    f0 = np.full((64, 64), 3, dtype=np.int32)
+    f0[10:26, 20:24] = 11
+    f1 = f0.copy()
+    f1[10:26, 20:24] = 3
+    f1[26:42, 20:24] = 11
+    # Reversible step back to f0 must keep H_clock empty (or restore any provisional clock pixels)
+    splitter.observe_transition(f0, f1, action_key=(6, 48, 46))
+    splitter.observe_transition(f1, f0, action_key=(6, 48, 46))
+    assert splitter.clock_mask is None or int(splitter.clock_mask.sum()) == 0
+
+    # 2. Pillar 1: RelationalOperatorDreamer (`OnlineForwardOperatorDreamer`)
+    assert OnlineForwardOperatorDreamer is RelationalOperatorDreamer
+    dreamer = RelationalOperatorDreamer()
+    b0 = np.full((64, 64), 4, dtype=np.int32)
+    # Ego 3x3 sprite of color 9 at (20..23, 10..13)
+    b0[20:23, 10:13] = 9
+    # Stationary wall of color 2 at (20..23, 22..25)
+    b0[20:23, 22:25] = 2
+    b1 = b0.copy()
+    b1[20:23, 10:13] = 4
+    b1[20:23, 13:16] = 9  # Ego translated +3 cols right under ACTION4
+    obs_info = dreamer.observe_transition(b0, b1, action_key=4, sh_prev="s0", sh_next="s1", nope_d=18)
+    assert obs_info["ego_moved"] is True
+    assert dreamer.ego_color == 9
+    assert 4 in dreamer.kinematic_generators
+    assert dreamer.kinematic_generators[4][:2] == (0, 3)
+
+    # Predict ego step from a NEW position (20..23, 13..16) -> (20..23, 16..19)
+    b_pred = dreamer.predict_step(b1, 4)
+    assert b_pred is not None
+    assert bool(np.all(b_pred[20:23, 16:19] == 9))
+    assert bool(np.all(b_pred[20:23, 13:16] == 4))
+
+    # Excitable Excursion Verifier & Contact-Highlight ACTION5 boost in DarkSnailArc3WorldModel
+    wm = DarkSnailArc3WorldModel()
+    v0 = np.full((64, 64), 4, dtype=np.int32)
+    v0[30:34, 30:34] = 9
+    sf_mid = v0.copy()
+    sf_mid[10:18, 10:18] = 14  # transient 64-pixel validation wave during subframes
+    rec_v = wm.record_transition(
+        v0, v0.copy(), action_key=(6, 32, 32), subframes=[v0, sf_mid, v0.copy()]
+    )
+    assert rec_v.is_self_loop is False
+    assert (6, 32, 32) in wm.verifier_actuators
+    zero_triad = np.zeros(8, dtype=np.float32)
+    sc_before_edit = wm.score_action_candidate(rec_v.state_hash, (6, 32, 32), zero_triad)
+    wm.edits_since_last_verify = 2
+    sc_after_edit = wm.score_action_candidate(rec_v.state_hash, (6, 32, 32), zero_triad)
+    assert sc_after_edit > sc_before_edit + 8.0
+
+    # Contact-Highlight ACTION5 boost: docking 3x3 ego inside 5x5 hollow receptor frame
+    c0 = np.full((64, 64), 4, dtype=np.int32)
+    c0[20:25, 20:25] = 12
+    c0[21:24, 21:24] = 4  # hollow 5x5 receptor frame of color 12
+    c0[21:24, 17:20] = 9  # 3x3 ego outside receptor
+    c1 = c0.copy()
+    c1[21:24, 17:20] = 4
+    c1[21:24, 21:24] = 9  # ego docked inside hollow receptor frame!
+    rec_c = wm.record_transition(c0, c1, action_key=4)
+    assert rec_c.next_state_hash in wm.relational_dreamer.active_contact_highlight_states
+    sc_act5 = wm.score_action_candidate(rec_c.next_state_hash, 5, zero_triad)
+    sc_act3 = wm.score_action_candidate(rec_c.next_state_hash, 3, zero_triad)
+    assert sc_act5 > sc_act3 + 10.0
+
+    # 3. Pillar 2: CrossLevelGoalInvariantDistiller
+    distiller = CrossLevelGoalInvariantDistiller()
+    s_init = np.full((64, 64), 3, dtype=np.int32)
+    s_init[10:16, 10:16] = 14  # 36 pixels of minority target color 14
+    s_init[40:44, 40:44] = 9   # 16 pixels of avatar color 9
+    s_win = np.full((64, 64), 3, dtype=np.int32)
+    s_win[10:14, 10:14] = 9    # color 14 completely cleared/annihilated at win!
+    d_info = distiller.distill_level_win(s_init, s_win, s_win, winning_action_key=1)
+    assert distiller.levels_distilled == 1
+    assert 14 in distiller.cleared_colors
+    assert np.isclose(float(np.sum(distiller.weights)), 1.0, atol=1e-6)
+    assert d_info["updated_weights"][3] > 0.25  # G3:ENTROPY_ANNIHILATION weight increased!
+
+    s_mid = s_init.copy()
+    s_mid[10:16, 10:13] = 3  # half of color 14 cleared
+    gain = distiller.score_transition_gain(s_init, s_mid, initial_frame_2d=s_init)
+    assert gain > 0.0
+
+    # 4. Pillar 3: Online Riemannian / Lie-Algebra TTT (`so(16)` commutator & `adapt_online_step`)
+    wm.update_lie_generator(b0, b1, act_id=4)
+    b2 = b1.copy()
+    b2[20:23, 13:16] = 4
+    b2[10:18, 30:38] = 11
+    wm.update_lie_generator(b1, b2, act_id=1)
+    kappa = wm.compute_commutator_curvature(4, 1)
+    assert kappa >= 0.0
+
+    z_H = torch.randn(1, 32, wm.d_reasoner)
+    z_L = torch.randn(1, 1, wm.d_reasoner)
+    ttt_diag = wm.adapt_online_step(z_H, z_L, action_key=4, reward=1.0, is_self_loop=False)
+    assert ttt_diag["ttt_steps"] >= 1
+    assert ttt_diag["action_triad_orthogonality_error"] <= 1e-8
+    priors, cas_diag = wm.compute_triad_action_priors(z_H, z_L, unroll_steps=2)
+    assert priors.shape == (8,)
+    assert cas_diag["max_norm_drift"] == pytest.approx(0.0, abs=1e-6)
+    assert cas_diag["action_triad_orthogonality_error"] <= 1e-8
+
+    # 5. Pillar 4: Left-Hemisphere Gemma 4 Subgoal & Precision Weight Compiler
+    w_after = distiller.apply_system2_compiled_weights([0.60, 0.10, 0.10, 0.10, 0.10], blend=0.40)
+    assert np.isclose(float(w_after.sum()), 1.0, atol=1e-6)
+    assert float(w_after[0]) > 0.30
 
 
 

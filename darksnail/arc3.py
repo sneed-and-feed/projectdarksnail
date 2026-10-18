@@ -135,6 +135,9 @@ def _local_patch_digest(grid_2d: np.ndarray, x: int, y: int, radius: int = 2) ->
     return np.ascontiguousarray(grid_2d[r0:r1, c0:c1], dtype=np.int8).tobytes()
 
 
+_CC2D_CACHE: Dict[Tuple[str, int, bool, int], List[Dict[str, Any]]] = {}
+
+
 def _connected_components_2d(
     grid: np.ndarray,
     connectivity: int = 4,
@@ -142,10 +145,21 @@ def _connected_components_2d(
     ignore_val: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Fast vectorized-seed BFS connected component segmentation on a 2D integer grid.
+    Fast vectorized-seed BFS connected component segmentation on a 2D integer grid,
+    memoized per `(_blake2b_grid(grid), connectivity, same_color, ignore_val)`.
     Computes each component's exact 2D interior medoid `(medoid_x, medoid_y)`
     guaranteed to lie strictly inside the component.
     """
+    cache_key = (
+        _blake2b_grid(grid),
+        int(connectivity),
+        bool(same_color),
+        -999 if ignore_val is None else int(ignore_val),
+    )
+    cached = _CC2D_CACHE.get(cache_key)
+    if cached is not None:
+        return list(cached)
+
     H, W = grid.shape
     if ignore_val is not None:
         vis = grid == ignore_val
@@ -154,6 +168,9 @@ def _connected_components_2d(
 
     todo_r, todo_c = np.nonzero(~vis)
     if todo_r.size == 0:
+        if len(_CC2D_CACHE) >= 512:
+            _CC2D_CACHE.pop(next(iter(_CC2D_CACHE)), None)
+        _CC2D_CACHE[cache_key] = []
         return []
 
     if connectivity == 4:
@@ -219,7 +236,10 @@ def _connected_components_2d(
                 "cols": cs,
             }
         )
-    return comps
+    if len(_CC2D_CACHE) >= 512:
+        _CC2D_CACHE.pop(next(iter(_CC2D_CACHE)), None)
+    _CC2D_CACHE[cache_key] = comps
+    return list(comps)
 
 
 class TemporalClockContentSplitter:
@@ -262,6 +282,9 @@ class TemporalClockContentSplitter:
         self.comp_id_map: Optional[np.ndarray] = None
         self.comp_by_id: Dict[int, Dict[str, Any]] = {}
         self.clock_mask: Optional[np.ndarray] = None
+        self.reversible_mask: Optional[np.ndarray] = None
+        self.last_changed_from_color: Optional[np.ndarray] = None
+        self.prev_nonreset_color: Optional[np.ndarray] = None
         self.clock_comp_ids: Set[int] = set()
         self.depletion_history: Dict[int, List[Tuple[ActionKey, np.ndarray, np.ndarray, int, int]]] = {}
         self.max_nope_dist_from_init: int = 0
@@ -269,14 +292,23 @@ class TemporalClockContentSplitter:
 
     def initialize_level(self, frame_2d: np.ndarray, preserve_clock_mask: bool = False) -> None:
         prev_mask: Optional[np.ndarray] = None
+        prev_rev: Optional[np.ndarray] = None
         if preserve_clock_mask and self.clock_mask is not None:
             prev_mask = self.clock_mask.copy()
+            if self.reversible_mask is not None:
+                prev_rev = self.reversible_mask.copy()
         self.reset()
         f0 = np.asarray(frame_2d, dtype=np.int32).copy()
         H, W = f0.shape
         self.initial_frame = f0
+        self.prev_nonreset_color = f0.copy()
+        self.last_changed_from_color = np.full((H, W), -1, dtype=np.int32)
+        if prev_rev is not None and prev_rev.shape == (H, W):
+            self.reversible_mask = prev_rev
+        else:
+            self.reversible_mask = np.zeros((H, W), dtype=bool)
         if prev_mask is not None and prev_mask.shape == (H, W):
-            self.clock_mask = prev_mask
+            self.clock_mask = prev_mask & (~self.reversible_mask)
         else:
             self.clock_mask = np.zeros((H, W), dtype=bool)
         self.comp_id_map = np.full((H, W), -1, dtype=np.int32)
@@ -296,20 +328,47 @@ class TemporalClockContentSplitter:
 
     def _mark_component_as_clock(self, cid: int, rows: np.ndarray, cols: np.ndarray) -> bool:
         """
-        Marks observed dissipative clock pixels `(rows, cols)` and, if the parent initial
-        component `cid` is a 1D/thin phase bar (`min(h, w) <= 2` and `area <= 128`), masks
-        the entire component `cid` in `H_clock`.
+        Marks observed dissipative clock pixels `(rows, cols)` (excluding any pixel proven
+        action-reversible in `self.reversible_mask`) and, if the parent initial component `cid`
+        is an elongated or border-adjacent 1D/thin phase bar (`min(h, w) <= 2`, `area <= 128`,
+        and zero reversible pixels), masks the entire component `cid` in `H_clock`.
         """
         if self.clock_mask is None:
             return False
+        H, W = self.clock_mask.shape
         prev_sum = int(self.clock_mask.sum())
+        if self.reversible_mask is not None:
+            valid = ~self.reversible_mask[rows, cols]
+            rows = rows[valid]
+            cols = cols[valid]
+        if rows.size == 0:
+            return False
         self.clock_mask[rows, cols] = True
         if cid >= 0 and cid in self.comp_by_id:
             comp = self.comp_by_id[cid]
-            if comp["area"] <= 128 and min(comp["h"], comp["w"]) <= 2 and comp["fill_ratio"] >= 0.75:
-                self.clock_mask[comp["rows"], comp["cols"]] = True
+            c_rows, c_cols = comp["rows"], comp["cols"]
+            has_reversible = (
+                bool(np.any(self.reversible_mask[c_rows, c_cols]))
+                if self.reversible_mask is not None
+                else False
+            )
+            near_border_or_long_bar = (
+                int(comp["r0"]) <= 4
+                or int(comp["r1"]) >= H - 4
+                or int(comp["c0"]) <= 4
+                or int(comp["c1"]) >= W - 4
+                or max(int(comp["h"]), int(comp["w"])) >= 8
+            )
+            if (
+                not has_reversible
+                and near_border_or_long_bar
+                and comp["area"] <= 128
+                and min(comp["h"], comp["w"]) <= 2
+                and comp["fill_ratio"] >= 0.75
+            ):
+                self.clock_mask[c_rows, c_cols] = True
                 self.clock_comp_ids.add(cid)
-        return int(self.clock_mask.sum()) > prev_sum
+        return int(self.clock_mask.sum()) != prev_sum
 
     def observe_transition(
         self,
@@ -319,12 +378,25 @@ class TemporalClockContentSplitter:
     ) -> Tuple[bool, int, bool]:
         """
         Observes a transition `prev_frame -> next_frame` under `action_key`, updates `H_clock`
-        via the Continuity Equation + 4 dynamical clock laws, and returns:
-            `(clock_mask_expanded, nope_delta_l1, is_phase_reset)`
+        via the Continuity Equation + 4 dynamical clock laws + Thermodynamic Irreversibility Law,
+        and returns:
+            `(clock_mask_changed, nope_delta_l1, is_phase_reset)`
         """
-        if self.initial_frame is None or self.clock_mask is None or self.comp_id_map is None:
+        if (
+            self.initial_frame is None
+            or self.clock_mask is None
+            or self.comp_id_map is None
+            or self.reversible_mask is None
+            or self.last_changed_from_color is None
+        ):
             self.initialize_level(prev_frame)
-        assert self.initial_frame is not None and self.clock_mask is not None and self.comp_id_map is not None
+        assert (
+            self.initial_frame is not None
+            and self.clock_mask is not None
+            and self.comp_id_map is not None
+            and self.reversible_mask is not None
+            and self.last_changed_from_color is not None
+        )
 
         self.transitions_observed += 1
         diff_mask = prev_frame != next_frame
@@ -335,9 +407,6 @@ class TemporalClockContentSplitter:
         is_phase_reset = False
 
         # Law 4: Check for Periodic Phase-Reset / Respawn to `initial_frame`
-        # If the board was previously displaced from `initial_frame` in `H_nope` and suddenly
-        # returns to `initial_frame` everywhere except a small (`<= 16` px) dissipative life-counter
-        # cluster while `H_clock` refills, classify the residual cluster as slow-timescale `H_clock`!
         prev_dist_init = int(np.sum((prev_frame != self.initial_frame) & (~self.clock_mask)))
         if prev_dist_init > self.max_nope_dist_from_init:
             self.max_nope_dist_from_init = prev_dist_init
@@ -362,6 +431,8 @@ class TemporalClockContentSplitter:
             and 0 < cur_dist_init <= 8
         ):
             is_phase_reset = True
+            self.last_changed_from_color.fill(-1)
+            self.prev_nonreset_color = next_frame.copy()
             if cur_dist_init > 0:
                 res_rs, res_cs = np.nonzero(cur_diff_init)
                 cids = self.comp_id_map[res_rs, res_cs]
@@ -371,19 +442,64 @@ class TemporalClockContentSplitter:
             nope_diff = (prev_frame != next_frame) & (~self.clock_mask)
             return mask_expanded, int(nope_diff.sum()), True
 
+        # Thermodynamic Irreversibility Law:
+        # Exogenous clocks evolve monotonically until a global phase reset. Any interior pixel that
+        # reverses its color transition (`c_old -> c_new -> c_old`) on a non-reset step has positive
+        # action contingency and belongs permanently to `H_nope`.
+        ch_rs, ch_cs = np.nonzero(diff_mask)
+        H, W = next_frame.shape
+        interior_ch = (ch_rs >= 2) & (ch_rs < H - 2) & (ch_cs >= 2) & (ch_cs < W - 2)
+        reverted_mask = interior_ch & (
+            self.last_changed_from_color[ch_rs, ch_cs] == next_frame[ch_rs, ch_cs]
+        )
+        if np.any(reverted_mask):
+            rev_rs = ch_rs[reverted_mask]
+            rev_cs = ch_cs[reverted_mask]
+            self.reversible_mask[rev_rs, rev_cs] = True
+            if np.any(self.clock_mask[rev_rs, rev_cs]):
+                self.clock_mask[rev_rs, rev_cs] = False
+                mask_expanded = True
+            rev_cids = np.unique(self.comp_id_map[rev_rs, rev_cs])
+            for r_cid in rev_cids:
+                cid_i = int(r_cid)
+                if cid_i >= 0 and cid_i in self.clock_comp_ids:
+                    comp_c = self.comp_by_id[cid_i]
+                    if (
+                        comp_c["r0"] >= 2
+                        and comp_c["r1"] <= H - 2
+                        and comp_c["c0"] >= 2
+                        and comp_c["c1"] <= W - 2
+                    ):
+                        if np.any(self.clock_mask[comp_c["rows"], comp_c["cols"]]):
+                            self.clock_mask[comp_c["rows"], comp_c["cols"]] = False
+                            mask_expanded = True
+                        self.clock_comp_ids.discard(cid_i)
+                self.depletion_history.pop(cid_i, None)
+
+        self.last_changed_from_color[ch_rs, ch_cs] = prev_frame[ch_rs, ch_cs]
+        self.prev_nonreset_color = next_frame.copy()
+
         # Global color histogram counts for the Continuity Equation conservation check
         prev_counts = np.bincount(prev_frame.reshape(-1), minlength=16)
         next_counts = np.bincount(next_frame.reshape(-1), minlength=16)
+        bg_mode = int(np.argmax(prev_counts))
 
         clusters = _connected_components_2d(
             diff_mask.astype(np.int32), connectivity=8, same_color=True, ignore_val=0
         )
         total_diff_area = int(diff_mask.sum())
+        step_old_colors: Set[int] = set()
+        step_new_colors: Set[int] = set()
+        for cl_c in clusters:
+            step_old_colors.update(int(x) for x in np.unique(prev_frame[cl_c["rows"], cl_c["cols"]]))
+            step_new_colors.update(int(x) for x in np.unique(next_frame[cl_c["rows"], cl_c["cols"]]))
 
         for cl in clusters:
             rs, cs = cl["rows"], cl["cols"]
             area = cl["area"]
             if area > self.max_clock_tick_area or cl["h"] > 3 or cl["w"] > 3:
+                continue
+            if np.any(self.reversible_mask[rs, cs]):
                 continue
 
             old_vals = prev_frame[rs, cs]
@@ -392,6 +508,15 @@ class TemporalClockContentSplitter:
                 continue
             c_old = int(old_vals[0])
             c_new = int(new_vals[0])
+
+            # If a non-background color leaves one cluster and enters another cluster in the
+            # same transition (e.g. a crosshair stepping onto a colored segment),
+            # it is a spatial translation, never an exogenous clock tick.
+            if len(clusters) >= 2 and (
+                (c_old != bg_mode and c_old in step_new_colors)
+                or (c_new != bg_mode and c_new in step_old_colors)
+            ):
+                continue
 
             # Continuity Equation Check (`sigma_c != 0`):
             # Conservative sprite translations conserve global color mass (`Delta M_c == 0`).
@@ -454,6 +579,11 @@ class TemporalClockContentSplitter:
     def hash_nope(self, frame_2d: np.ndarray) -> str:
         """Computes the deterministic Blake2b state digest in `H_nope`."""
         return _blake2b_grid(self.project_nope(frame_2d))
+
+
+_DEFAULT_ROPE2D_MEDOID_POOLER = RoPE2DMedoidPooler(
+    patch_size=4, viscous_nu=0.05, viscous_p=2, shell_level=1
+)
 
 
 def extract_arc3_beltrami_medoids(
@@ -712,6 +842,7 @@ def extract_arc3_beltrami_medoids(
         hole_comps = _connected_components_2d(
             holes_mask.astype(np.int32), connectivity=4, same_color=True, ignore_val=0
         )
+        base_hole_sal = 1.85 if len(hole_comps) >= 16 else 2.60
         for hc in hole_comps:
             if hc["area"] > int(0.25 * H * W):
                 continue
@@ -720,7 +851,7 @@ def extract_arc3_beltrami_medoids(
                 continue
             log_area = math.log2(max(1.0, float(hc["area"])))
             sal = (
-                2.60
+                base_hole_sal
                 + 0.65 * float(hc["fill_ratio"])
                 + 0.50 * float(hc["aspect_ratio"])
                 - 0.10 * abs(log_area - 3.5)
@@ -841,7 +972,7 @@ def extract_arc3_beltrami_medoids(
 
     with torch.no_grad():
         k_t = torch.from_numpy(feat_2d)
-        pooler = RoPE2DMedoidPooler(patch_size=4, viscous_nu=0.05, viscous_p=2, shell_level=1)
+        pooler = _DEFAULT_ROPE2D_MEDOID_POOLER
         k_rot = RoPE2DMedoidPooler.apply_axial_rope2d(k_t, H=H, W=W)
         _, v_pooled, info = pooler(k_rot, k_t)
         med_y_grid = info["medoid_y"][0].cpu().numpy()
@@ -929,7 +1060,7 @@ def extract_arc3_beltrami_medoids(
                         for rr in range(hr):
                             for cc_i in range(wr):
                                 blk = play_sub[rr * ky : (rr + 1) * ky, cc_i * kx : (cc_i + 1) * kx]
-                                if int( np.sum(blk != int(ref_sub[rr, cc_i])) ) > (ky * kx) // 2:
+                                if int(np.sum(blk != int(ref_sub[rr, cc_i]))) > (ky * kx) // 2:
                                     dy = int(p_play["r0"] + rr * ky + ky // 2)
                                     dx = int(p_play["c0"] + cc_i * kx + kx // 2)
                                     if _is_clock_masked(dx, dy, deep_only=True):
@@ -1186,26 +1317,66 @@ def compute_marginal_wasserstein1_distance(
 
     color_w1_list: List[float] = []
     aligned_pairs = 0
+    min_dim = float(min(H, W))
+    adj_band = max(4.5, min_dim / 9.8)
+    marker_area_cap = max(8, (H * W) // 256)
+    sub_marker_cap = max(6, (H * W) // 400)
+    max_compact_area = max(16, (H * W) * 3 // 256)
+    max_compact_span = max(8, min(H, W) * 3 // 8)
+
     for col, c_list in by_color.items():
         compact = [
-            c for c in c_list if 2 <= int(c["area"]) <= 48 and max(int(c["h"]), int(c["w"])) <= 16
+            c
+            for c in c_list
+            if 1 <= int(c["area"]) <= max_compact_area
+            and max(int(c["h"]), int(c["w"])) <= max_compact_span
         ]
         if len(compact) == 2:
             c0, c1 = compact[0], compact[1]
             dx = abs(float(c0["centroid_x"]) - float(c1["centroid_x"]))
             dy = abs(float(c0["centroid_y"]) - float(c1["centroid_y"]))
-            # Adjacent-column vertical float + wall marker (e.g. `1.5 <= dx <= 6.0`)
-            if 1.0 <= dx <= 6.5 and int(c0["area"]) != int(c1["area"]):
+            # Scale-invariant adjacent-column/row float + wall marker
+            if (
+                1.0 <= dx <= adj_band
+                and int(c0["area"]) != int(c1["area"])
+                and min(int(c0["area"]), int(c1["area"])) <= marker_area_cap
+            ):
                 w1_y = _cdf_w1_1d(c0["rows"], c1["rows"], H)
                 color_w1_list.append(w1_y)
                 if w1_y <= 1.5 / float(H):
                     aligned_pairs += 1
                 continue
-            elif 1.0 <= dy <= 6.5 and int(c0["area"]) != int(c1["area"]):
+            elif (
+                1.0 <= dy <= adj_band
+                and int(c0["area"]) != int(c1["area"])
+                and min(int(c0["area"]), int(c1["area"])) <= marker_area_cap
+            ):
                 w1_x = _cdf_w1_1d(c0["cols"], c1["cols"], W)
                 color_w1_list.append(w1_x)
                 if w1_x <= 1.5 / float(W):
                     aligned_pairs += 1
+                continue
+        elif 3 <= len(compact) <= 6:
+            small_markers = [c for c in compact if int(c["area"]) <= sub_marker_cap]
+            large_floats = [c for c in compact if int(c["area"]) > sub_marker_cap]
+            if small_markers and large_floats:
+                for sc in small_markers:
+                    best_pair_w1 = 1.0
+                    for mc in large_floats:
+                        dx = abs(float(mc["centroid_x"]) - float(sc["centroid_x"]))
+                        dy = abs(float(mc["centroid_y"]) - float(sc["centroid_y"]))
+                        if 1.0 <= dx <= adj_band:
+                            w1 = _cdf_w1_1d(mc["rows"], sc["rows"], H)
+                        elif 1.0 <= dy <= adj_band:
+                            w1 = _cdf_w1_1d(mc["cols"], sc["cols"], W)
+                        else:
+                            continue
+                        if w1 < best_pair_w1:
+                            best_pair_w1 = w1
+                    if best_pair_w1 < 1.0:
+                        color_w1_list.append(best_pair_w1)
+                        if best_pair_w1 <= 1.5 / float(max(H, W)):
+                            aligned_pairs += 1
                 continue
 
         if init_arr is not None and init_arr.shape == arr.shape:
@@ -1213,7 +1384,7 @@ def compute_marginal_wasserstein1_distance(
             stat_mask = (arr == col) & (init_arr == col)
             mov_n = int(np.sum(mov_mask))
             stat_n = int(np.sum(stat_mask))
-            if 2 <= mov_n <= 64 and 2 <= stat_n <= 96:
+            if 2 <= mov_n <= max_compact_area and 2 <= stat_n <= max_compact_area:
                 mrs, mcs = np.where(mov_mask)
                 stat_comps = [
                     sc
@@ -1225,9 +1396,9 @@ def compute_marginal_wasserstein1_distance(
                     for sc in stat_comps:
                         dx = abs(float(mcs.mean()) - float(sc["centroid_x"]))
                         dy = abs(float(mrs.mean()) - float(sc["centroid_y"]))
-                        if dx <= 6.5 and dy >= 1.0:
+                        if dx <= adj_band and dy >= 1.0:
                             w1 = _cdf_w1_1d(mrs, sc["rows"], H)
-                        elif dy <= 6.5 and dx >= 1.0:
+                        elif dy <= adj_band and dx >= 1.0:
                             w1 = _cdf_w1_1d(mcs, sc["cols"], W)
                         else:
                             w1 = min(_cdf_w1_1d(mcs, sc["cols"], W), _cdf_w1_1d(mrs, sc["rows"], H))
@@ -1240,6 +1411,7 @@ def compute_marginal_wasserstein1_distance(
     # Corner-bracketed target slots (four 1x1 pixels of color `col` at rectangle corners)
     bracket_defects: List[float] = []
     bracket_slots_found = 0
+    max_bracket_span = max(3, min(H, W) // 10)
     for col, c_list in by_color.items():
         dots = [c for c in c_list if int(c["area"]) == 1]
         if 4 <= len(dots) <= 16:
@@ -1249,17 +1421,18 @@ def compute_marginal_wasserstein1_distance(
             non_dot_mask = (arr == col).copy()
             for r_d, c_d in dot_set:
                 non_dot_mask[r_d, c_d] = False
-            nd_rs, nd_cs = np.where(non_dot_mask)
 
+            col_slots: List[Tuple[int, int, int, int]] = []
             for i_r in range(len(rs_u)):
                 for j_r in range(i_r + 1, len(rs_u)):
                     r_top, r_bot = rs_u[i_r], rs_u[j_r]
-                    if not (2 <= r_bot - r_top <= 6):
+                    span_r = r_bot - r_top
+                    if not (2 <= span_r <= max_bracket_span):
                         continue
                     for i_c in range(len(cs_u)):
                         for j_c in range(i_c + 1, len(cs_u)):
                             c_left, c_right = cs_u[i_c], cs_u[j_c]
-                            if not (2 <= c_right - c_left <= 6):
+                            if c_right - c_left != span_r:
                                 continue
                             if (
                                 (r_top, c_left) in dot_set
@@ -1267,24 +1440,33 @@ def compute_marginal_wasserstein1_distance(
                                 and (r_bot, c_left) in dot_set
                                 and (r_bot, c_right) in dot_set
                             ):
-                                bracket_slots_found += 1
+                                col_slots.append((r_top, r_bot, c_left, c_right))
                                 interior = arr[r_top + 1 : r_bot, c_left + 1 : c_right]
-                                if interior.size > 0:
-                                    fill_err = float(np.mean(interior != col))
-                                    dist_err = 0.0
-                                    if fill_err > 0.0 and nd_rs.size > 0:
-                                        sy = 0.5 * float(r_top + r_bot)
-                                        sx = 0.5 * float(c_left + c_right)
-                                        d_man = np.abs(nd_rs - sy) + np.abs(nd_cs - sx)
-                                        k_near = min(interior.size, d_man.size)
-                                        dist_err = float(np.mean(np.sort(d_man)[:k_near])) / float(H + W)
-                                    bracket_defects.append(0.65 * fill_err + 0.35 * dist_err)
+                                if interior.size > 0 and bool(np.all(interior == col)):
+                                    # Mask out already-docked blocks so `nd_rs, nd_cs` tracks remaining free blocks
+                                    non_dot_mask[r_top + 1 : r_bot, c_left + 1 : c_right] = False
+
+            nd_rs, nd_cs = np.where(non_dot_mask)
+            for r_top, r_bot, c_left, c_right in col_slots:
+                bracket_slots_found += 1
+                interior = arr[r_top + 1 : r_bot, c_left + 1 : c_right]
+                if interior.size > 0:
+                    fill_err = float(np.mean(interior != col))
+                    dist_err = 0.0
+                    if fill_err > 0.0 and nd_rs.size > 0:
+                        sy = 0.5 * float(r_top + r_bot)
+                        sx = 0.5 * float(c_left + c_right)
+                        dy_v = np.abs(nd_rs - sy)
+                        dx_v = np.abs(nd_cs - sx)
+                        axis_aligned = (dy_v <= 1.0) | (dx_v <= 1.0)
+                        d_eff = np.where(axis_aligned, 0.55 * (dy_v + dx_v), dy_v + dx_v)
+                        k_near = min(interior.size, d_eff.size)
+                        dist_err = float(np.mean(np.sort(d_eff)[:k_near])) / float(H + W)
+                    bracket_defects.append(0.55 * fill_err + 0.45 * dist_err)
 
     w1_mean = float(np.mean(color_w1_list)) if color_w1_list else 0.0
     brk_mean = float(np.mean(bracket_defects)) if bracket_defects else 0.0
-    if color_w1_list and bracket_defects:
-        combined_w1 = 0.50 * w1_mean + 0.50 * brk_mean
-    elif bracket_defects:
+    if bracket_defects:
         combined_w1 = brk_mean
     else:
         combined_w1 = w1_mean
@@ -1299,32 +1481,52 @@ def compute_marginal_wasserstein1_distance(
     }
 
 
+_TARGET_ALIGNMENT_CACHE: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+
+
 def compute_canvas_target_alignment(
     frame_2d: np.ndarray,
     initial_frame_2d: Optional[np.ndarray] = None,
     clock_mask: Optional[np.ndarray] = None,
     spatial_precision_map: Optional[np.ndarray] = None,
+    potential_weights: Optional[Sequence[float]] = None,
+    distilled_weights: Optional[Sequence[float]] = None,
+    goal_invariants: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Evaluates the Unified Goal Homomorphism Energy `E_target(F_t; Pi)` and Alignment
-    Potential `Phi_target(F_t; Pi) = 1.0 - E_target(F_t; Pi)` across four invariant geometric families:
+    Evaluates the 5-Channel Unified Goal Homomorphism Energy `E_target(F_t; Pi, w)` and
+    Alignment Potential `Phi_target(F_t; Pi, w) = 1.0 - E_target(F_t; Pi, w)` across the
+    5D dimensionless invariant basis `Phi(S) = [Phi_1, Phi_2, Phi_3, Phi_4, Phi_5]^T in [0, 1]^5`:
 
-        E_target(F_t; Pi) = alpha_hom * E_hom(F_t; Pi)
-                          + alpha_marg * E_marginal(F_t; Pi)
-                          + alpha_nav * E_nav(F_t; Pi)
-                          + alpha_sym * (1.0 - Phi_topo(F_t))
-
-    where:
-      1. `E_hom`: Dual-Panel Kronecker Block-Scaling (`H_p = k_y M, W_p = k_x N`) & Spaced
-         `cc_lattice` Homomorphism + Lattice Cluster Assembly energy.
-      2. `E_marginal`: 1D Marginal Wasserstein-1 (`W_1^marg`) + Corner-Bracketed Slot Alignment energy.
-      3. `E_nav`: Avatar-to-Beacon / Cavity Manhattan + Dihedral `D_4` docking distance energy.
-      4. `1 - Phi_topo`: Topological `(beta_0, beta_1)` & Dihedral `D_4` reflection/panel defect.
+      1. `Phi_1 = E_hom`: Dual-Panel Kronecker Block-Scaling (`H_p = k_y M, W_p = k_x N`),
+         Spaced `cc_lattice` Homomorphism, and Factored Per-Slot Sub-Panel Template Matching.
+      2. `Phi_2 = E_marginal`: 1D Marginal Wasserstein-1 (`W_1^marg`) + Corner-Bracketed Slot Alignment.
+      3. `Phi_3 = 1 - Phi_topo`: Topological `(beta_0, beta_1)` & Dihedral `D_4` reflection/panel defect.
+      4. `Phi_4 = H_MDL`: SMiRL / Solomonoff minority-color mass annihilation & entropy reduction.
+      5. `Phi_5 = E_nav`: Avatar-to-Beacon + Same-Color Solid-Ego to Hollow-Receptor-Frame Docking.
     """
     arr = _frame_to_2d_numpy(frame_2d)
     H, W = arr.shape
     if clock_mask is not None and clock_mask.shape == arr.shape and np.any(clock_mask):
         arr = np.where(clock_mask, 0, arr)
+
+    eff_w = potential_weights if potential_weights is not None else distilled_weights
+    align_cache_key: Optional[Tuple[Any, ...]] = None
+    if spatial_precision_map is None and goal_invariants is None:
+        init_hash_k = ""
+        if initial_frame_2d is not None:
+            init_tmp = _frame_to_2d_numpy(initial_frame_2d)
+            if clock_mask is not None and clock_mask.shape == init_tmp.shape and np.any(clock_mask):
+                init_tmp = np.where(clock_mask, 0, init_tmp)
+            init_hash_k = _blake2b_grid(init_tmp)
+        align_cache_key = (
+            _blake2b_grid(arr),
+            init_hash_k,
+            tuple(round(float(x), 4) for x in eff_w) if eff_w is not None else (),
+        )
+        cached_align = _TARGET_ALIGNMENT_CACHE.get(align_cache_key)
+        if cached_align is not None:
+            return dict(cached_align)
 
     vals, counts = np.unique(arr, return_counts=True)
     bg_mode = int(vals[int(np.argmax(counts))])
@@ -1336,7 +1538,7 @@ def compute_canvas_target_alignment(
         if pm.shape == (H, W):
             prec_map = np.clip(pm, 0.1, 5.0)
 
-    # 1. Dual-Panel Kronecker & Spaced Lattice Homomorphism Energy `E_hom`
+    # 1. Dual-Panel Kronecker, Spaced Lattice & Factored Sub-Panel Homomorphism Energy `E_hom` (Phi_1)
     hom_defects: List[float] = []
     defect_loci: List[Tuple[int, int]] = []
     by_bbox: Dict[Tuple[int, int], List[Dict[str, Any]]] = {}
@@ -1351,7 +1553,6 @@ def compute_canvas_target_alignment(
         (bh_p, bw_p), play_tiles = lattice_groups[0]
         (bh_r, bw_r), ref_tiles = lattice_groups[1]
         if abs(len(play_tiles) - len(ref_tiles)) <= 3:
-            # Separate main playfield cluster from outlier tiles on tracks
             med_y = float(np.median([t["centroid_y"] for t in play_tiles]))
             med_x = float(np.median([t["centroid_x"] for t in play_tiles]))
             rad_thr = 3.5 * float(max(bh_p, bw_p))
@@ -1422,35 +1623,150 @@ def compute_canvas_target_alignment(
                     if int(a["color"]) != int(b["color"]):
                         defect_loci.append((int(b["medoid_x"]), int(b["medoid_y"])))
 
+    # Factored Per-Slot Sub-Panel Template Matching (for Kronecker & multi-panel boards)
+    if not hom_defects:
+        panel_comps = [
+            c
+            for c in _connected_components_2d(arr, connectivity=8, same_color=False, ignore_val=bg_mode)
+            if c["h"] >= 3 and c["w"] >= 3 and c["area"] >= 9
+        ]
+        for i_p in range(len(panel_comps)):
+            for j_p in range(i_p + 1, len(panel_comps)):
+                p_a, p_b = panel_comps[i_p], panel_comps[j_p]
+                if p_a["area"] >= p_b["area"]:
+                    p_play, p_ref = p_a, p_b
+                else:
+                    p_play, p_ref = p_b, p_a
+                hp, wp = int(p_play["h"]), int(p_play["w"])
+                hr, wr = int(p_ref["h"]), int(p_ref["w"])
+                if hp >= hr and wp >= wr and hp % hr == 0 and wp % wr == 0:
+                    ky, kx = hp // hr, wp // wr
+                    if 1 <= ky <= 4 and 1 <= kx <= 4:
+                        ref_sub = arr[p_ref["r0"] : p_ref["r1"], p_ref["c0"] : p_ref["c1"]]
+                        play_sub = arr[p_play["r0"] : p_play["r1"], p_play["c0"] : p_play["c1"]]
+                        ref_kron = (
+                            np.repeat(np.repeat(ref_sub, ky, axis=0), kx, axis=1)
+                            if (ky > 1 or kx > 1)
+                            else ref_sub
+                        )
+                        m_ratio = float(np.mean(play_sub != ref_kron))
+                        max_m = 1.0 if ((ky > 1 or kx > 1) and hr >= 4 and wr >= 4) else 0.65
+                        if 0.0 <= m_ratio <= max_m:
+                            hom_defects.append(m_ratio)
+                            if m_ratio > 0.0:
+                                for rr in range(hr):
+                                    for cc_i in range(wr):
+                                        blk = play_sub[rr * ky : (rr + 1) * ky, cc_i * kx : (cc_i + 1) * kx]
+                                        if int(np.sum(blk != int(ref_sub[rr, cc_i]))) > (ky * kx) // 2:
+                                            dy = int(p_play["r0"] + rr * ky + ky // 2)
+                                            dx = int(p_play["c0"] + cc_i * kx + kx // 2)
+                                            defect_loci.append((dx, dy))
+
     e_hom = float(np.mean(hom_defects)) if hom_defects else 0.0
 
-    # 2. Marginal Wasserstein-1 & Bracketed Slot Alignment Energy `E_marginal`
+    # 2. Marginal Wasserstein-1 & Bracketed Slot Alignment Energy `E_marginal` (Phi_2)
     w1_info = compute_marginal_wasserstein1_distance(
         arr, initial_frame_2d=initial_frame_2d, clock_mask=None
     )
     e_marginal = float(w1_info["wasserstein1_distance"])
 
-    # 3. Navigation Avatar-to-Target-Beacon Distance Energy `E_nav`
-    e_nav = 0.0
+    # 3. Topological & Dihedral Symmetry Defect `1.0 - Phi_topo` (Phi_3)
+    phi_topo = compute_topological_symmetry_potential(arr, clock_mask=None)
+    topo_defect = float(np.clip(1.0 - max(0.0, phi_topo), 0.0, 1.0))
+
+    # 4. SMiRL / Solomonoff Minority-Color Mass Annihilation & Entropy Reduction `H_MDL` (Phi_4)
+    e_mdl = 0.0
+    has_mdl_signal = False
+    cleared_cols: Set[int] = (
+        set(int(c) for c in goal_invariants.get("cleared_colors", []))
+        if goal_invariants is not None
+        else set()
+    )
+    init_arr: Optional[np.ndarray] = None
     if initial_frame_2d is not None:
         init_arr = _frame_to_2d_numpy(initial_frame_2d)
         if clock_mask is not None and clock_mask.shape == init_arr.shape and np.any(clock_mask):
             init_arr = np.where(clock_mask, 0, init_arr)
+        init_cnts = np.bincount(init_arr.reshape(-1), minlength=16)
+        cur_cnts = np.bincount(arr.reshape(-1), minlength=16)
+        mdl_ratios: List[float] = []
+        minority_cap = max(8, (H * W) // 64)
+        for c_id in range(16):
+            if c_id == bg_mode:
+                continue
+            n0 = int(init_cnts[c_id])
+            nt = int(cur_cnts[c_id])
+            if c_id in cleared_cols and n0 > 0:
+                mdl_ratios.append(float(np.clip(float(nt) / float(n0), 0.0, 1.0)))
+                has_mdl_signal = True
+            elif 2 <= n0 <= minority_cap and 0 <= nt < n0:
+                # Dissipative collection/annihilation of a minority target color
+                mdl_ratios.append(float(nt) / float(n0))
+                has_mdl_signal = True
+        if mdl_ratios:
+            e_mdl = float(np.mean(mdl_ratios))
+
+    # 5. Geodesic Navigation & Solid-to-Hollow Receptor Docking Energy `E_nav` (Phi_5)
+    e_nav = 0.0
+    has_nav_signal = False
+    docking_dists: List[float] = []
+    by_col_comps: Dict[int, List[Dict[str, Any]]] = {}
+    for c in fg_comps:
+        by_col_comps.setdefault(int(c["color"]), []).append(c)
+
+    # 5a. Topological Cavity Containment: Same-color solid component docking into a hollow receptor cavity
+    for col, c_list in by_col_comps.items():
+        if len(c_list) < 2:
+            continue
+        solids = [
+            c
+            for c in c_list
+            if int(c["area"]) >= 4 and float(c["fill_ratio"]) >= 0.80 and int(c["h"]) >= 2 and int(c["w"]) >= 2
+        ]
+        receptors = [
+            c
+            for c in c_list
+            if int(c["area"]) >= 8 and float(c["fill_ratio"]) <= 0.68 and int(c["h"]) >= 3 and int(c["w"]) >= 3
+        ]
+        if solids and receptors:
+            for s_comp in solids:
+                sh_s, sw_s, s_area = int(s_comp["h"]), int(s_comp["w"]), int(s_comp["area"])
+                valid_recs = [
+                    r_comp
+                    for r_comp in receptors
+                    if int(r_comp["h"]) >= sh_s
+                    and int(r_comp["w"]) >= sw_s
+                    and (int(r_comp["h"]) * int(r_comp["w"]) - int(r_comp["area"])) >= s_area
+                    and max(int(r_comp["h"]), int(r_comp["w"])) <= max(12, min(H, W) // 3)
+                ]
+                if valid_recs:
+                    d_min = min(
+                        (
+                            abs(float(s_comp["centroid_y"]) - float(r_comp["centroid_y"]))
+                            + abs(float(s_comp["centroid_x"]) - float(r_comp["centroid_x"]))
+                        )
+                        / float(H + W)
+                        for r_comp in valid_recs
+                    )
+                    docking_dists.append(float(d_min))
+
+    if docking_dists:
+        e_nav = float(np.mean(docking_dists))
+        has_nav_signal = True
+    elif init_arr is not None:
         diff_mask = arr != init_arr
         diff_n = int(np.sum(diff_mask))
-        if 2 <= diff_n <= 64:
-            # Identify moving avatar pixels (where `arr != init_arr` and `arr != bg_mode`)
+        if 2 <= diff_n <= max(32, (H * W) // 32):
             av_mask = diff_mask & (arr != bg_mode)
             if np.any(av_mask):
                 ars, acs = np.where(av_mask)
                 ay, ax = float(ars.mean()), float(acs.mean())
                 av_cols = set(int(c) for c in np.unique(arr[av_mask]))
-                # Find stationary target beacons of rare foreground color (`4 <= area <= 64`)
                 beacons = [
                     c
                     for c in fg_comps
-                    if 4 <= int(c["area"]) <= 64
-                    and int(c["color"]) not in av_cols
+                    if 4 <= int(c["area"]) <= max(16, (H * W) // 64)
+                    and (int(c["color"]) not in av_cols or float(c["fill_ratio"]) < 0.70)
                     and max(abs(float(c["centroid_y"]) - ay), abs(float(c["centroid_x"]) - ax)) > 3.0
                 ]
                 if beacons:
@@ -1460,36 +1776,721 @@ def compute_canvas_target_alignment(
                         for b in beacons
                     )
                     e_nav = float(min_d)
+                    has_nav_signal = True
 
-    # 4. Topological & Dihedral Symmetry Defect `1.0 - Phi_topo`
-    phi_topo = compute_topological_symmetry_potential(arr, clock_mask=None)
-    topo_defect = float(np.clip(1.0 - max(0.0, phi_topo), 0.0, 1.0))
+    phi_vector = [
+        float(e_hom),
+        float(e_marginal),
+        float(topo_defect),
+        float(e_mdl),
+        float(e_nav),
+    ]
 
-    # Combine active energy channels with normalized weights
-    active_terms: List[Tuple[float, float]] = [(0.20, topo_defect)]
+    # Combine active energy channels with precision weights `w in Delta^4`
+    if potential_weights is None and distilled_weights is not None:
+        potential_weights = distilled_weights
+    if potential_weights is not None and len(potential_weights) == 5:
+        w_vec = [max(0.02, float(x)) for x in potential_weights]
+    elif goal_invariants is not None and "weights" in goal_invariants and len(goal_invariants["weights"]) == 5:
+        w_vec = [max(0.02, float(x)) for x in goal_invariants["weights"]]
+    else:
+        w_vec = [0.45, 0.45, 0.20, 0.35, 0.30]
+
+    active_terms: List[Tuple[float, float]] = [(w_vec[2], topo_defect)]
     if hom_defects:
-        active_terms.append((0.45, e_hom))
+        active_terms.append((w_vec[0], e_hom))
     if w1_info["tracked_color_pairs"] > 0 or w1_info["bracket_slots_count"] > 0:
-        active_terms.append((0.45, e_marginal))
-    if e_nav > 0.0:
-        active_terms.append((0.25, e_nav))
+        active_terms.append((w_vec[1], e_marginal))
+    if has_mdl_signal:
+        active_terms.append((w_vec[3], e_mdl))
+    if has_nav_signal or e_nav > 0.0:
+        active_terms.append((w_vec[4], e_nav))
 
     w_sum = sum(w for w, _ in active_terms)
     target_energy = float(sum(w * val for w, val in active_terms) / max(1e-6, w_sum))
     alignment_potential = float(1.0 - target_energy)
 
-    return {
+    res_align = {
         "target_energy": round(target_energy, 6),
         "alignment_potential": round(alignment_potential, 6),
         "homomorphism_energy": round(e_hom, 6),
         "marginal_energy": round(e_marginal, 6),
         "navigation_energy": round(e_nav, 6),
+        "entropy_annihilation_energy": round(e_mdl, 6),
         "topological_defect": round(topo_defect, 6),
+        "phi_vector": [round(x, 6) for x in phi_vector],
+        "invariant_basis": np.asarray(phi_vector, dtype=np.float32),
         "wasserstein1_distance": round(float(w1_info["wasserstein1_distance"]), 6),
         "tracked_color_pairs": int(w1_info["tracked_color_pairs"]),
         "bracket_slots_count": int(w1_info["bracket_slots_count"]),
         "defect_loci": defect_loci[:16],
     }
+    if align_cache_key is not None:
+        if len(_TARGET_ALIGNMENT_CACHE) >= 512:
+            _TARGET_ALIGNMENT_CACHE.pop(next(iter(_TARGET_ALIGNMENT_CACHE)), None)
+        _TARGET_ALIGNMENT_CACHE[align_cache_key] = res_align
+    return dict(res_align)
+
+
+class CrossLevelGoalInvariantDistiller:
+    """
+    Pillar 2: Cross-Level Goal Invariant Distillation (`Phi_win` Induction on Level-Up)
+    via Maximum-Entropy / Fisher-Rao Natural-Gradient Inverse Teleology (Ziebart et al., 2008;
+    Baker, Saxe & Tenenbaum, 2009).
+
+    Evaluates the 5D dimensionless mathematical invariant basis:
+        Phi(S) = [Phi_1(S), Phi_2(S), Phi_3(S), Phi_4(S), Phi_5(S)]^T in [0, 1]^5
+    on initial frame `S_0^(L)` and pre-reset winning terminal frame `hat_S_T^(L) = P_{H_nope}(F_win^(L))`,
+    and updates the simplex precision weights `w^(L+1) in Delta^4` via the Fisher-Rao natural-gradient
+    Boltzmann mirror-descent rule:
+        w_k^(L+1) propto w_k^(L) * exp(-beta * clip((Phi_k(hat_S_T^(L)) - Phi_k(S_0^(L))) / (sigma_k + 0.03), -3, 3))
+    with Laplace floor smoothing (`alpha_floor = 0.05`, `beta = 1.35`).
+    """
+
+    ARCHETYPE_NAMES: Tuple[str, ...] = (
+        "G0:SHEAF_HOMOMORPHISM",
+        "G1:OPTIMAL_TRANSPORT",
+        "G2:DIHEDRAL_SYMMETRY",
+        "G3:ENTROPY_ANNIHILATION",
+        "G4:GEODESIC_DOCKING",
+    )
+
+    def __init__(self, beta: float = 1.35, alpha_floor: float = 0.05):
+        self.beta = float(beta)
+        self.alpha_floor = float(alpha_floor)
+        self.reset()
+
+    def reset(self) -> None:
+        self.weights: np.ndarray = np.array([0.25, 0.25, 0.15, 0.15, 0.20], dtype=np.float64)
+        self.cleared_colors: Set[int] = set()
+        self.winning_action_types: Dict[int, int] = Counter()
+        self.winning_d4_signatures: Set[Tuple[str, int, int, int]] = set()
+        self.levels_distilled: int = 0
+        self.last_delta_phi: np.ndarray = np.zeros(5, dtype=np.float64)
+
+    def get_invariants_dict(self) -> Dict[str, Any]:
+        return {
+            "weights": [float(x) for x in self.weights],
+            "cleared_colors": sorted(self.cleared_colors),
+            "winning_action_types": dict(self.winning_action_types),
+            "winning_d4_signatures": list(self.winning_d4_signatures),
+            "levels_distilled": int(self.levels_distilled),
+        }
+
+    def apply_system2_compiled_weights(self, w_compiled: Sequence[float], blend: float = 0.25) -> np.ndarray:
+        """Blends Left-Hemisphere Gemma 4 compiled subgoal precision weights into `self.weights`."""
+        arr_w = np.asarray(w_compiled, dtype=np.float64).reshape(-1)
+        if arr_w.size != 5 or not np.all(np.isfinite(arr_w)):
+            return self.weights.copy()
+        arr_w = np.maximum(arr_w, 0.0)
+        s = float(arr_w.sum())
+        if s <= 1e-8:
+            return self.weights.copy()
+        arr_w = arr_w / s
+        eff_b = float(np.clip(blend, 0.05, 0.60))
+        mixed = (1.0 - eff_b) * self.weights + eff_b * arr_w
+        mixed = (1.0 - 5.0 * self.alpha_floor) * mixed + self.alpha_floor
+        self.weights = mixed / float(mixed.sum())
+        return self.weights.copy()
+
+    def score_transition_gain(
+        self,
+        prev_frame_2d: np.ndarray,
+        next_frame_2d: np.ndarray,
+        initial_frame_2d: Optional[np.ndarray] = None,
+        clock_mask: Optional[np.ndarray] = None,
+    ) -> float:
+        """Evaluates `E_target(prev; w) - E_target(next; w)` under the distilled precision weights."""
+        inv_ctx = self.get_invariants_dict()
+        e_prev = float(
+            compute_canvas_target_alignment(
+                prev_frame_2d,
+                initial_frame_2d=initial_frame_2d,
+                clock_mask=clock_mask,
+                potential_weights=self.weights,
+                goal_invariants=inv_ctx,
+            )["target_energy"]
+        )
+        e_next = float(
+            compute_canvas_target_alignment(
+                next_frame_2d,
+                initial_frame_2d=initial_frame_2d,
+                clock_mask=clock_mask,
+                potential_weights=self.weights,
+                goal_invariants=inv_ctx,
+            )["target_energy"]
+        )
+        return float(e_prev - e_next)
+
+    def distill_level_win(
+        self,
+        initial_frame_2d: np.ndarray,
+        pre_win_frame_2d: Optional[np.ndarray] = None,
+        win_frame_2d: Optional[np.ndarray] = None,
+        winning_action_key: Optional[ActionKey] = None,
+        winning_candidate: Optional[Dict[str, Any]] = None,
+        clock_mask: Optional[np.ndarray] = None,
+        spatial_precision_map: Optional[np.ndarray] = None,
+        level_idx: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Induces cross-level goal invariants from a completed level's initial frame `S_0^(L)`
+        and ground-truth winning frame `F_win^(L)`.
+        """
+        if win_frame_2d is None:
+            # 2-arg call: `(win_frame_2d, initial_frame_2d)`
+            if pre_win_frame_2d is not None:
+                s_win = _frame_to_2d_numpy(initial_frame_2d)
+                s0 = _frame_to_2d_numpy(pre_win_frame_2d)
+            else:
+                s0 = _frame_to_2d_numpy(initial_frame_2d)
+                s_win = s0.copy()
+        else:
+            s0 = _frame_to_2d_numpy(initial_frame_2d)
+            s_win = _frame_to_2d_numpy(win_frame_2d)
+        if clock_mask is not None and clock_mask.shape == s0.shape and np.any(clock_mask):
+            s0 = np.where(clock_mask, 0, s0)
+            s_win = np.where(clock_mask, 0, s_win)
+
+        # Detect minority foreground colors that were cleared/annihilated (>= 50% reduction)
+        vals, cnts = np.unique(s0, return_counts=True)
+        bg_c = int(vals[int(np.argmax(cnts))])
+        c0_hist = np.bincount(s0.reshape(-1), minlength=16)
+        cwin_hist = np.bincount(s_win.reshape(-1), minlength=16)
+        for c_id in range(16):
+            if c_id == bg_c:
+                continue
+            n_init = int(c0_hist[c_id])
+            n_final = int(cwin_hist[c_id])
+            if 2 <= n_init <= 256 and n_final <= n_init // 2:
+                self.cleared_colors.add(int(c_id))
+
+        inv_ctx = self.get_invariants_dict()
+        al_0 = compute_canvas_target_alignment(
+            s0,
+            initial_frame_2d=s0,
+            clock_mask=None,
+            spatial_precision_map=spatial_precision_map,
+            goal_invariants=inv_ctx,
+        )
+        al_win = compute_canvas_target_alignment(
+            s_win,
+            initial_frame_2d=s0,
+            clock_mask=None,
+            spatial_precision_map=spatial_precision_map,
+            goal_invariants=inv_ctx,
+        )
+        phi_0 = np.asarray(al_0["phi_vector"], dtype=np.float64)
+        phi_win = np.asarray(al_win["phi_vector"], dtype=np.float64)
+        if self.cleared_colors:
+            # At s0, remaining fraction of cleared_colors is 1.0
+            phi_0[3] = 1.0
+
+        delta_phi = phi_win - phi_0
+        self.last_delta_phi = delta_phi.copy()
+        sigma = np.maximum(np.abs(phi_0), 0.15)
+        z_adv = np.clip(delta_phi / (sigma + 0.03), -3.0, 3.0)
+
+        raw_w = self.weights * np.exp(-self.beta * z_adv)
+        if float(raw_w.sum()) > 1e-9:
+            raw_w = raw_w / float(raw_w.sum())
+        else:
+            raw_w = np.full(5, 0.20, dtype=np.float64)
+        smoothed = (1.0 - 5.0 * self.alpha_floor) * raw_w + self.alpha_floor
+        self.weights = smoothed / float(smoothed.sum())
+        self.levels_distilled += 1
+
+        if winning_action_key is not None:
+            act_id = (
+                int(winning_action_key[0])
+                if isinstance(winning_action_key, tuple)
+                else int(winning_action_key)
+            )
+            self.winning_action_types[act_id] += 1
+
+        if winning_candidate is not None:
+            bbox_v = winning_candidate.get("bbox", (1, 1))
+            bh = int(bbox_v[0]) if isinstance(bbox_v, (tuple, list)) and len(bbox_v) >= 2 else 1
+            bw = int(bbox_v[1]) if isinstance(bbox_v, (tuple, list)) and len(bbox_v) >= 2 else 1
+            area = int(winning_candidate.get("area", bh * bw))
+            k_str = str(winning_candidate.get("kind", "cc_object"))
+            d4_sig = (
+                "cc_lattice" if k_str == "homomorphism_defect" else k_str,
+                min(bh, bw),
+                max(bh, bw),
+                int(round(math.log2(max(1, area)))),
+            )
+            self.winning_d4_signatures.add(d4_sig)
+
+        return {
+            "level_idx": int(level_idx),
+            "levels_distilled": int(self.levels_distilled),
+            "phi_initial": [round(float(x), 6) for x in phi_0],
+            "phi_win": [round(float(x), 6) for x in phi_win],
+            "delta_phi": [round(float(x), 6) for x in delta_phi],
+            "updated_weights": [round(float(x), 6) for x in self.weights],
+            "weights": [round(float(x), 6) for x in self.weights],
+            "cleared_colors": sorted(self.cleared_colors),
+            "dominant_archetype": self.ARCHETYPE_NAMES[int(np.argmax(self.weights))],
+        }
+
+
+class RelationalOperatorDreamer:
+    """
+    Pillar 1: Object-Relational & Ego-Kinematic Forward World Model
+    (`RelationalOperatorDreamer`, aliased as `OnlineForwardOperatorDreamer`).
+
+    Grounded in Contingency-Aware Exploration (Choi et al., arXiv:1811.01483),
+    Independently Controllable Factors (Thomas et al., arXiv:1708.01289), and
+    Contrastive Structured World Models (Kipf et al., arXiv:1911.12247):
+      1. Discovers controllable ego-fibers `C_ego` and their kinematic translation
+         generators `(dy_a, dx_a, is_sliding)` under `ACTION1..4` from a single step per direction.
+      2. Learns the Ordered Pairwise Relational Interaction Kernel `K_int`:
+         `"wall"`, `"pushable"`, `"hazard"`, and `"contact_highlight"`.
+      3. Executes ego-centric forward board prediction `predict_step(frame_2d, action_key, ...)`
+         by translating the matched ego component in the CURRENT frame (checking walls, boundaries,
+         and pushable blocks) rather than replaying stale static pixel masks.
+    """
+
+    def __init__(self) -> None:
+        self.reset(clear_cross_level=True)
+
+    def reset(
+        self,
+        clear_cross_level: bool = False,
+        preserve_kinematics: bool = False,
+    ) -> None:
+        self.active_contact_highlight_states: Set[str] = set()
+        self.contact_adjacent_state_hashes: Set[str] = set()
+        self.last_transition_highlighted: bool = False
+        if not preserve_kinematics or clear_cross_level or not hasattr(self, "kinematic_generators"):
+            self.kinematic_generators: Dict[int, Tuple[int, int, bool]] = {}
+            self.ego_colors: Set[int] = set()
+            self.ego_signatures: Set[Tuple[int, int, int, int]] = set()  # (color, h, w, area_bucket)
+            self.wall_colors: Set[int] = set()
+            self.pushable_colors: Set[int] = set()
+            self.action5_is_contact_operator: bool = False
+            self.click_signature_luts: Dict[Tuple[int, int, int], Dict[int, int]] = {}
+        if (not preserve_kinematics and clear_cross_level) or not hasattr(self, "hazard_signatures"):
+            self.hazard_signatures: Set[Tuple[str, int, int, int, int]] = set()
+            self.hazard_colors: Set[int] = set()
+            self.interaction_kernel: Dict[Tuple[int, int, int, int], str] = {}
+
+    def _find_ego_component(
+        self,
+        board: np.ndarray,
+        bg_mode: int,
+    ) -> Optional[Dict[str, Any]]:
+        comps = _connected_components_2d(board, connectivity=4, same_color=True, ignore_val=bg_mode)
+        if not comps:
+            return None
+        best_comp: Optional[Dict[str, Any]] = None
+        best_score = -1e9
+        for c in comps:
+            col = int(c["color"])
+            area = int(c["area"])
+            bh, bw = int(c["h"]), int(c["w"])
+            if area > 64 or max(bh, bw) > 16:
+                continue
+            ab = int(round(math.log2(max(1, area))))
+            sig = (col, bh, bw, ab)
+            sc = 0.0
+            if sig in self.ego_signatures:
+                sc += 10.0
+            elif col in self.ego_colors:
+                sc += 5.0
+            else:
+                continue
+            sc -= 0.05 * float(area)
+            if sc > best_score:
+                best_score = sc
+                best_comp = c
+        return best_comp
+
+    @property
+    def ego_color(self) -> Optional[int]:
+        return next(iter(self.ego_colors), None)
+
+    def observe_transition(
+        self,
+        nope_prev: np.ndarray,
+        nope_next: np.ndarray,
+        action_key: ActionKey,
+        sh_prev: str = "",
+        sh_next: str = "",
+        nope_d: Optional[int] = None,
+        is_game_over: bool = False,
+        is_phase_reset: bool = False,
+        candidate_info: Optional[Dict[str, Any]] = None,
+        subframes: Optional[Sequence[np.ndarray]] = None,
+        state_hash_next: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Updates ego-kinematic generators and pairwise relational kernel from an observed step."""
+        self.last_transition_highlighted = False
+        if is_phase_reset:
+            return {"ego_moved": False, "contact_highlight": False}
+        if state_hash_next is not None and not sh_next:
+            sh_next = str(state_hash_next)
+        if nope_d is None:
+            nope_d = int(np.sum(nope_prev != nope_next))
+
+        H, W = nope_prev.shape
+        vals, cnts = np.unique(nope_prev, return_counts=True)
+        bg_mode = int(vals[int(np.argmax(cnts))])
+
+        # Record GAME_OVER hazard signatures (persisted across levels)
+        if is_game_over:
+            if isinstance(action_key, tuple) and len(action_key) == 3 and action_key[0] == 6:
+                if candidate_info is not None:
+                    bh = int(candidate_info.get("bbox", (1, 1))[0])
+                    bw = int(candidate_info.get("bbox", (1, 1))[1])
+                    area = int(candidate_info.get("area", bh * bw))
+                    col = int(candidate_info.get("color", 0))
+                    k_s = str(candidate_info.get("kind", "cc_object"))
+                    self.hazard_signatures.add(
+                        (k_s, min(bh, bw), max(bh, bw), int(round(math.log2(max(1, area)))), col)
+                    )
+            elif isinstance(action_key, int) and action_key in (1, 2, 3, 4):
+                if action_key in self.kinematic_generators:
+                    dy, dx, _ = self.kinematic_generators[action_key]
+                    ego_c = self._find_ego_component(nope_prev, bg_mode)
+                    if ego_c is not None:
+                        n_rs = np.clip(ego_c["rows"] + dy, 0, H - 1)
+                        n_cs = np.clip(ego_c["cols"] + dx, 0, W - 1)
+                        target_vals = nope_prev[n_rs, n_cs]
+                        for tv in np.unique(target_vals):
+                            if int(tv) != bg_mode and int(tv) != int(ego_c["color"]):
+                                self.hazard_colors.add(int(tv))
+            return {"ego_moved": False, "contact_highlight": False}
+
+        # Directional actions ACTION1..4: discover ego component, kinematics, walls, pushables, contact highlights
+        if isinstance(action_key, int) and action_key in (1, 2, 3, 4):
+            if nope_d == 0:
+                # Wall bump: if action_key has a known generator (dy, dx), identify blocking adjacent color
+                if action_key in self.kinematic_generators:
+                    dy, dx, _ = self.kinematic_generators[action_key]
+                    ego_c = self._find_ego_component(nope_prev, bg_mode)
+                    if ego_c is not None and (abs(dy) + abs(dx) > 0):
+                        step_y = int(np.sign(dy))
+                        step_x = int(np.sign(dx))
+                        n_rs = ego_c["rows"] + step_y
+                        n_cs = ego_c["cols"] + step_x
+                        in_b = (n_rs >= 0) & (n_rs < H) & (n_cs >= 0) & (n_cs < W)
+                        adj_vals = nope_prev[n_rs[in_b], n_cs[in_b]]
+                        for av in np.unique(adj_vals):
+                            av_i = int(av)
+                            if av_i != bg_mode and av_i != int(ego_c["color"]):
+                                self.wall_colors.add(av_i)
+                                self.interaction_kernel[(int(ego_c["color"]), av_i, step_y, step_x)] = "wall"
+                return {"ego_moved": False, "contact_highlight": False}
+
+            comps_prev = _connected_components_2d(nope_prev, connectivity=4, same_color=True, ignore_val=bg_mode)
+            comps_next = _connected_components_2d(nope_next, connectivity=4, same_color=True, ignore_val=bg_mode)
+            diff_mask = nope_prev != nope_next
+
+            moved_pairs: List[Tuple[Dict[str, Any], Dict[str, Any], int, int]] = []
+            for cp in comps_prev:
+                if int(cp["area"]) > 64 or max(int(cp["h"]), int(cp["w"])) > 16:
+                    continue
+                if not np.any(diff_mask[cp["rows"], cp["cols"]]):
+                    continue
+                col = int(cp["color"])
+                best_cn: Optional[Dict[str, Any]] = None
+                best_dist = 999.0
+                for cn in comps_next:
+                    if int(cn["color"]) != col:
+                        continue
+                    if abs(int(cn["area"]) - int(cp["area"])) > max(2, int(cp["area"]) // 4):
+                        continue
+                    same_hw = int(cn["h"]) == int(cp["h"]) and int(cn["w"]) == int(cp["w"])
+                    rot_hw = (
+                        col in self.ego_colors
+                        and int(cn["h"]) == int(cp["w"])
+                        and int(cn["w"]) == int(cp["h"])
+                    )
+                    if not (same_hw or rot_hw):
+                        continue
+                    if not np.any(diff_mask[cn["rows"], cn["cols"]]):
+                        continue
+                    dy_f = float(cn["centroid_y"]) - float(cp["centroid_y"])
+                    dx_f = float(cn["centroid_x"]) - float(cp["centroid_x"])
+                    d_man = abs(dy_f) + abs(dx_f)
+                    if 0.5 <= d_man <= 32.0 and (
+                        abs(dy_f) <= 0.25 or abs(dx_f) <= 0.25 or (rot_hw and d_man <= 4.5)
+                    ):
+                        if d_man < best_dist:
+                            best_dist = d_man
+                            best_cn = cn
+                if best_cn is not None:
+                    dy_i = int(round(float(best_cn["centroid_y"]) - float(cp["centroid_y"])))
+                    dx_i = int(round(float(best_cn["centroid_x"]) - float(cp["centroid_x"])))
+                    if abs(dy_i) + abs(dx_i) > 0:
+                        moved_pairs.append((cp, best_cn, dy_i, dx_i))
+
+            ego_moved = False
+            ego_next_comp: Optional[Dict[str, Any]] = None
+            ego_prev_comp: Optional[Dict[str, Any]] = None
+            if moved_pairs:
+                # Prefer component already in ego_colors, or smallest compact moving sprite
+                moved_pairs.sort(
+                    key=lambda item: (
+                        0 if int(item[0]["color"]) in self.ego_colors else 1,
+                        int(item[0]["area"]),
+                    )
+                )
+                cp_ego, cn_ego, dy_e, dx_e = moved_pairs[0]
+                ego_prev_comp = cp_ego
+                ego_next_comp = cn_ego
+                ego_moved = True
+                col_e = int(cp_ego["color"])
+                ab_e = int(round(math.log2(max(1, int(cp_ego["area"])))))
+                self.ego_colors.add(col_e)
+                self.ego_signatures.add((col_e, int(cp_ego["h"]), int(cp_ego["w"]), ab_e))
+                self.wall_colors.discard(col_e)
+                is_sliding = max(abs(dy_e), abs(dx_e)) > max(int(cp_ego["h"]), int(cp_ego["w"]))
+                if action_key not in self.kinematic_generators or not is_sliding:
+                    self.kinematic_generators[action_key] = (dy_e, dx_e, is_sliding)
+
+                # If a second component translated by the same direction, classify it as pushable!
+                for cp_other, _, dy_o, dx_o in moved_pairs[1:]:
+                    if np.sign(dy_o) == np.sign(dy_e) and np.sign(dx_o) == np.sign(dx_e):
+                        col_o = int(cp_other["color"])
+                        self.pushable_colors.add(col_o)
+                        self.interaction_kernel[
+                            (col_e, col_o, int(np.sign(dy_e)), int(np.sign(dx_e)))
+                        ] = "pushable"
+
+            # Check for Contact-Highlight (stationary non-background component adjacent to ego changed color in-place!)
+            contact_highlight = False
+            if ego_next_comp is not None and ego_prev_comp is not None:
+                all_moving_mask = np.zeros((H, W), dtype=bool)
+                all_next_rows_list: List[np.ndarray] = []
+                all_next_cols_list: List[np.ndarray] = []
+                for cp_m, cn_m, _, _ in moved_pairs:
+                    all_moving_mask[cp_m["rows"], cp_m["cols"]] = True
+                    all_moving_mask[cn_m["rows"], cn_m["cols"]] = True
+                    all_next_rows_list.append(cn_m["rows"])
+                    all_next_cols_list.append(cn_m["cols"])
+                all_next_rows = (
+                    np.concatenate(all_next_rows_list)
+                    if all_next_rows_list
+                    else ego_next_comp["rows"]
+                )
+                all_next_cols = (
+                    np.concatenate(all_next_cols_list)
+                    if all_next_cols_list
+                    else ego_next_comp["cols"]
+                )
+
+                stationary_flip = (
+                    diff_mask
+                    & (~all_moving_mask)
+                    & (nope_prev != bg_mode)
+                    & (nope_next != bg_mode)
+                )
+                stat_flip_n = int(np.sum(stationary_flip))
+                if 2 <= stat_flip_n <= 64:
+                    ors, ocs = np.where(stationary_flip)
+                    dist_to_ego = np.min(
+                        np.maximum(
+                            np.abs(ors[:, None] - all_next_rows[None, :]),
+                            np.abs(ocs[:, None] - all_next_cols[None, :]),
+                        )
+                    )
+                    if int(dist_to_ego) <= 4:
+                        contact_highlight = True
+                        self.active_contact_highlight_states.add(sh_next)
+                        self.last_transition_highlighted = True
+                        self.action5_is_contact_operator = True
+
+                # Topological Cavity Containment: check if ego in `nope_next` is docked inside a hollow receptor cavity
+                # or 4-adjacent to a compact non-wall interactive object
+                er0, er1 = int(ego_next_comp["r0"]), int(ego_next_comp["r1"])
+                ec0, ec1 = int(ego_next_comp["c0"]), int(ego_next_comp["c1"])
+                ego_h = max(1, er1 - er0)
+                ego_w = max(1, ec1 - ec0)
+                ego_area = int(ego_next_comp["area"])
+                for cn_other in comps_next:
+                    if cn_other is ego_next_comp:
+                        continue
+                    oh, ow, o_area = int(cn_other["h"]), int(cn_other["w"]), int(cn_other["area"])
+                    if (
+                        o_area >= 8
+                        and float(cn_other["fill_ratio"]) <= 0.68
+                        and (oh * ow - o_area) >= ego_area
+                        and max(oh, ow) <= max(12, min(H, W) // 3)
+                        and int(cn_other["r0"]) <= er0
+                        and int(cn_other["r1"]) >= er1
+                        and int(cn_other["c0"]) <= ec0
+                        and int(cn_other["c1"]) >= ec1
+                    ):
+                        self.active_contact_highlight_states.add(sh_next)
+                        self.contact_adjacent_state_hashes.add(sh_next)
+                        contact_highlight = True
+                        self.last_transition_highlighted = True
+                        self.action5_is_contact_operator = True
+                    elif (
+                        int(cn_other["color"]) not in self.wall_colors
+                        and 2 <= o_area <= max(16, (H * W) // 64)
+                        and max(oh, ow) <= max(6, min(H, W) // 6)
+                    ):
+                        dy_box = max(0, max(int(cn_other["r0"]) - er1, er0 - int(cn_other["r1"])))
+                        dx_box = max(0, max(int(cn_other["c0"]) - ec1, ec0 - int(cn_other["c1"])))
+                        if dy_box + dx_box <= 1:
+                            self.contact_adjacent_state_hashes.add(sh_next)
+
+            return {"ego_moved": ego_moved, "contact_highlight": contact_highlight}
+
+        if isinstance(action_key, int) and action_key == 5 and nope_d > 0:
+            if sh_prev in self.active_contact_highlight_states:
+                self.action5_is_contact_operator = True
+
+        # Coordinate click ACTION6: record signature LUT if local recoloring
+        if (
+            isinstance(action_key, tuple)
+            and len(action_key) == 3
+            and action_key[0] == 6
+            and nope_d > 0
+            and candidate_info is not None
+        ):
+            bh = int(candidate_info.get("bbox", (1, 1))[0])
+            bw = int(candidate_info.get("bbox", (1, 1))[1])
+            area = int(candidate_info.get("area", bh * bw))
+            diff_m = nope_prev != nope_next
+            drs, dcs = np.where(diff_m)
+            cx, cy = int(action_key[1]), int(action_key[2])
+            if drs.size > 0 and int(max(np.max(np.abs(dcs - cx)), np.max(np.abs(drs - cy)))) <= max(5, bh, bw):
+                sig_k = (min(bh, bw), max(bh, bw), int(round(math.log2(max(1, area)))))
+                lut = self.click_signature_luts.setdefault(sig_k, {})
+                for u_c in np.unique(nope_prev[diff_m]):
+                    mapped = nope_next[diff_m & (nope_prev == u_c)]
+                    if mapped.size > 0:
+                        vals_m, cnts_m = np.unique(mapped, return_counts=True)
+                        lut[int(u_c)] = int(vals_m[int(np.argmax(cnts_m))])
+
+        return {"ego_moved": False, "contact_highlight": False}
+
+    def predict_step(
+        self,
+        frame_2d: np.ndarray,
+        action_key: ActionKey,
+        candidate_info: Optional[Dict[str, Any]] = None,
+        clock_mask: Optional[np.ndarray] = None,
+    ) -> Optional[np.ndarray]:
+        """
+        Predicts the next `H_nope` board state by applying the learned ego-kinematic
+        generator `(dy, dx)` + relational interaction kernel (`wall`, `pushable`) to the
+        ego component's CURRENT position in `frame_2d`.
+        """
+        board = _frame_to_2d_numpy(frame_2d).copy()
+        if clock_mask is not None and clock_mask.shape == board.shape and np.any(clock_mask):
+            board = np.where(clock_mask, 0, board)
+        H, W = board.shape
+        vals, cnts = np.unique(board, return_counts=True)
+        bg_mode = int(vals[int(np.argmax(cnts))])
+
+        if isinstance(action_key, int) and action_key in self.kinematic_generators:
+            dy, dx, is_sliding = self.kinematic_generators[action_key]
+            ego_c = self._find_ego_component(board, bg_mode)
+            if ego_c is None:
+                return None
+            rs, cs = ego_c["rows"], ego_c["cols"]
+            ego_vals = board[rs, cs].copy()
+            ego_set = set(zip(rs.tolist(), cs.tolist()))
+
+            if not is_sliding:
+                n_rs = rs + dy
+                n_cs = cs + dx
+                if np.any((n_rs < 0) | (n_rs >= H) | (n_cs < 0) | (n_cs >= W)):
+                    return board
+                ext_pts = [(int(nr), int(nc)) for nr, nc in zip(n_rs, n_cs) if (int(nr), int(nc)) not in ego_set]
+                if not ext_pts:
+                    return board
+                ext_r = np.array([p[0] for p in ext_pts], dtype=np.int32)
+                ext_c = np.array([p[1] for p in ext_pts], dtype=np.int32)
+                target_colors = board[ext_r, ext_c]
+
+                # Check wall collision
+                if any(int(tc) in self.wall_colors for tc in target_colors):
+                    return board
+
+                # Check pushable block interaction
+                push_cols = [int(tc) for tc in np.unique(target_colors) if int(tc) in self.pushable_colors]
+                if push_cols:
+                    fg_all = _connected_components_2d(board, connectivity=4, same_color=True, ignore_val=bg_mode)
+                    ext_set = set(ext_pts)
+                    pushed_comps = [
+                        comp
+                        for comp in fg_all
+                        if int(comp["color"]) in push_cols
+                        and any((int(r), int(c)) in ext_set for r, c in zip(comp["rows"], comp["cols"]))
+                    ]
+                    for p_comp in pushed_comps:
+                        p_rs = p_comp["rows"] + dy
+                        p_cs = p_comp["cols"] + dx
+                        if np.any((p_rs < 0) | (p_rs >= H) | (p_cs < 0) | (p_cs >= W)):
+                            return board
+                        p_set = set(zip(p_comp["rows"].tolist(), p_comp["cols"].tolist()))
+                        for pr, pc in zip(p_rs, p_cs):
+                            if (int(pr), int(pc)) not in p_set and int(board[pr, pc]) != bg_mode:
+                                return board
+                    for p_comp in pushed_comps:
+                        p_vals = board[p_comp["rows"], p_comp["cols"]].copy()
+                        board[p_comp["rows"], p_comp["cols"]] = bg_mode
+                        board[p_comp["rows"] + dy, p_comp["cols"] + dx] = p_vals
+
+                board[rs, cs] = bg_mode
+                board[n_rs, n_cs] = ego_vals
+                return board
+            else:
+                # Sliding generator: step unit (uy, ux) until obstacle or boundary
+                uy = int(np.sign(dy))
+                ux = int(np.sign(dx))
+                if uy == 0 and ux == 0:
+                    return board
+                cur_rs = rs.copy()
+                cur_cs = cs.copy()
+                board[cur_rs, cur_cs] = bg_mode
+                for _ in range(max(H, W)):
+                    nxt_rs = cur_rs + uy
+                    nxt_cs = cur_cs + ux
+                    if np.any((nxt_rs < 0) | (nxt_rs >= H) | (nxt_cs < 0) | (nxt_cs >= W)):
+                        break
+                    if np.any(board[nxt_rs, nxt_cs] != bg_mode):
+                        break
+                    cur_rs = nxt_rs
+                    cur_cs = nxt_cs
+                board[cur_rs, cur_cs] = ego_vals
+                return board
+
+        if (
+            isinstance(action_key, tuple)
+            and len(action_key) == 3
+            and action_key[0] == 6
+            and candidate_info is not None
+        ):
+            bh = int(candidate_info.get("bbox", (1, 1))[0])
+            bw = int(candidate_info.get("bbox", (1, 1))[1])
+            area = int(candidate_info.get("area", bh * bw))
+            sig_k = (min(bh, bw), max(bh, bw), int(round(math.log2(max(1, area)))))
+            lut = self.click_signature_luts.get(sig_k)
+            if lut:
+                r0 = max(0, int(candidate_info.get("r0", int(action_key[2]) - bh // 2)))
+                r1 = min(H, int(candidate_info.get("r1", r0 + bh)))
+                c0 = max(0, int(candidate_info.get("c0", int(action_key[1]) - bw // 2)))
+                c1 = min(W, int(candidate_info.get("c1", c0 + bw)))
+                cur_col = int(candidate_info.get("color", board[int(action_key[2]), int(action_key[1])]))
+                if r1 > r0 and c1 > c0 and cur_col in lut:
+                    sub = board[r0:r1, c0:c1].copy()
+                    sub[sub == cur_col] = int(lut[cur_col])
+                    board[r0:r1, c0:c1] = sub
+                    return board
+
+        return None
+
+
+OnlineForwardOperatorDreamer = RelationalOperatorDreamer
+
 
 
 
@@ -2111,6 +3112,15 @@ class DarkSnailArc3WorldModel(nn.Module):
                 M_max=8,
             )
         self.splitter = TemporalClockContentSplitter()
+        self.relational_dreamer = RelationalOperatorDreamer()
+        self.forward_dreamer = self.relational_dreamer
+        self.goal_distiller = CrossLevelGoalInvariantDistiller()
+        self.lie_generators: Dict[int, np.ndarray] = {
+            a: np.zeros((16, 16), dtype=np.float32) for a in range(8)
+        }
+        self.lie_generator_counts: Dict[int, int] = {a: 0 for a in range(8)}
+        self.last_ttt_diagnostics: Dict[str, Any] = {"ttt_steps": 0, "last_loss": 0.0}
+        self._ttt_step_count: int = 0
 
         gen = torch.zeros(1, 8192, dtype=torch.float32)
         torch.manual_seed(1729)
@@ -2168,6 +3178,14 @@ class DarkSnailArc3WorldModel(nn.Module):
         """Resets the current level's state graph while optionally retaining learned game mechanics."""
         if clear_morphology_priors:
             self.splitter.reset()
+            if hasattr(self, "relational_dreamer"):
+                self.relational_dreamer.reset(preserve_kinematics=False)
+            if hasattr(self, "goal_distiller"):
+                self.goal_distiller.reset()
+            self.lie_generators = {a: np.zeros((16, 16), dtype=np.float32) for a in range(8)}
+            self.lie_generator_counts = {a: 0 for a in range(8)}
+        elif hasattr(self, "relational_dreamer"):
+            self.relational_dreamer.reset(preserve_kinematics=True)
         self.state_frames: Dict[str, np.ndarray] = {}
         self.state_candidates: Dict[str, List[Dict[str, Any]]] = {}
         self.state_visit_counts: Dict[str, int] = Counter()
@@ -2190,6 +3208,8 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.inert_patch_fail_counts: Dict[Tuple[int, int, bytes], int] = Counter()
         self.interactive_loci: Set[Tuple[int, int]] = set()
         self.remote_actuators: Set[Tuple[int, int]] = set()
+        self.verifier_actuators: Set[ActionKey] = set()
+        self.edits_since_last_verify: int = 0
         self.driven_register_counts: Optional[np.ndarray] = None
         self.coord_nonlocal_ratio: Dict[Tuple[int, int], float] = {}
         self.coord_click_counts: Dict[Tuple[int, int], int] = Counter()
@@ -2202,14 +3222,17 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.state_target_alignment: Dict[str, Dict[str, Any]] = {}
         self.spatial_precision_map: Optional[np.ndarray] = None
         self.gemma4_action_priors: Dict[Tuple[str, ActionKey], float] = {}
+        self.gemma4_subgoal_priors: Dict[str, np.ndarray] = {}
         self.learned_operators: Dict[ActionKey, Dict[str, Any]] = {}
         self.lattice_operator_templates: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+        self.lookahead_energy_cache: Dict[Tuple[str, ActionKey], float] = {}
 
         if clear_morphology_priors or not hasattr(self, "action_type_stats"):
             self.action_type_stats: Dict[int, List[float]] = {i: [0.0, 0.0] for i in range(8)}
             self.morphology_stats: Dict[Tuple[str, int, int, int], List[float]] = {}
             self.shape_stats: Dict[Tuple[str, int, int], List[float]] = {}
             self.d4_shape_stats: Dict[Tuple[str, int, int, int], List[float]] = {}
+            self.color_kind_stats: Dict[Tuple[str, int], List[float]] = {}
             self.medoid_weights = np.array(
                 [0.0, 0.15, 0.25, 0.20, 0.0, 0.0, 0.0, 0.0, 0.35, 0.20, 0.40, 0.50],
                 dtype=np.float32,
@@ -2226,6 +3249,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         }
         self._base_d4_shape_stats: Dict[Tuple[str, int, int, int], List[float]] = {
             k: [float(v[0]), float(v[1])] for k, v in self.d4_shape_stats.items()
+        }
+        self._base_color_kind_stats: Dict[Tuple[str, int], List[float]] = {
+            k: [float(v[0]), float(v[1])] for k, v in getattr(self, "color_kind_stats", {}).items()
         }
 
     def _update_nonlocal_operator_factorization(
@@ -2267,6 +3293,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         nope_next: np.ndarray,
         action_key: ActionKey,
         candidate_info: Optional[Dict[str, Any]] = None,
+        _from_record: bool = False,
     ) -> None:
         """
         One-Shot Spatial Operator Induction (`T_a` in `SE(2) x S_16`):
@@ -2277,6 +3304,15 @@ class DarkSnailArc3WorldModel(nn.Module):
           - Type IV (`"lattice_local"`): one-shot generalizable local tile color transition on
             `cc_lattice` tiles of shape `(bh, bw)`, stored in `lattice_operator_templates`.
         """
+        if not _from_record and hasattr(self, "relational_dreamer"):
+            self.relational_dreamer.observe_transition(
+                nope_prev,
+                nope_next,
+                action_key,
+                subframes=None,
+                candidate_info=candidate_info,
+                state_hash_next=self.splitter.hash_nope(nope_next),
+            )
         diff_mask = nope_prev != nope_next
         diff_n = int(np.sum(diff_mask))
         if diff_n == 0:
@@ -2357,8 +3393,10 @@ class DarkSnailArc3WorldModel(nn.Module):
         """
         Predicts the next `H_nope` board state `hat_F = hat_T_a(F)` under either:
           1. An exact observed transition from `hash_nope(frame_2d)` in `self.out_edges`,
-          2. A learned operator in `self.learned_operators[action_key]`, or
-          3. A Type IV one-shot generalized lattice operator template `self.lattice_operator_templates`
+          2. `RelationalOperatorDreamer.predict_step` (ego-translation kinematics with obstacle
+             blocking, lattice LUTs, or non-local actuators),
+          3. A learned operator in `self.learned_operators[action_key]`, or
+          4. A Type IV one-shot generalized lattice operator template `self.lattice_operator_templates`
              applied to an untried sibling lattice tile `candidate_info`.
         """
         sh = self.splitter.hash_nope(frame_2d)
@@ -2367,6 +3405,13 @@ class DarkSnailArc3WorldModel(nn.Module):
             return self.splitter.project_nope(self.state_frames[known_next]).copy()
 
         nope_cur = self.splitter.project_nope(frame_2d).copy()
+        if hasattr(self, "relational_dreamer"):
+            dream_pred = self.relational_dreamer.predict_step(
+                nope_cur, action_key, candidate_info=candidate_info
+            )
+            if dream_pred is not None:
+                return dream_pred
+
         H, W = nope_cur.shape
         op = self.learned_operators.get(action_key)
         if op is not None:
@@ -2507,8 +3552,10 @@ class DarkSnailArc3WorldModel(nn.Module):
                 "alignment_potential": 0.0,
                 "homomorphism_energy": 0.0,
                 "marginal_energy": 0.0,
+                "entropy_annihilation_energy": 0.0,
                 "navigation_energy": 0.0,
                 "topological_defect": 1.0,
+                "invariant_basis": np.zeros(5, dtype=np.float32),
                 "wasserstein1_distance": 0.0,
                 "tracked_color_pairs": 0,
                 "bracket_slots_count": 0,
@@ -2519,11 +3566,13 @@ class DarkSnailArc3WorldModel(nn.Module):
             if self.initial_state_hash is not None
             else self.splitter.initial_frame
         )
+        d_weights = self.goal_distiller.weights if hasattr(self, "goal_distiller") else None
         info = compute_canvas_target_alignment(
             frame,
             initial_frame_2d=init_f,
             clock_mask=self.splitter.clock_mask,
             spatial_precision_map=self.spatial_precision_map,
+            distilled_weights=d_weights,
         )
         self.state_target_alignment[state_hash] = info
         return info
@@ -2531,6 +3580,203 @@ class DarkSnailArc3WorldModel(nn.Module):
     def get_target_energy(self, state_hash: str) -> float:
         """Returns cached Unified Goal Homomorphism Energy `E_target(F_s; Pi) in [0, 1]`."""
         return float(self.get_target_alignment(state_hash).get("target_energy", 1.0))
+
+    def distill_level_win(
+        self,
+        win_frame_2d: np.ndarray,
+        initial_frame_2d: Optional[np.ndarray] = None,
+    ) -> Dict[str, Any]:
+        """
+        Pillar 2 (Cross-Level Goal-Conditioned Invariant Distillation):
+        Harvests the pre-reset winning frame `F_win^(L)` and initial frame `F_init^(L)` on
+        level completion to update `self.goal_distiller.weights` via Fisher-Rao natural
+        gradient ascent over the 5D invariant basis `Phi(S)`.
+        """
+        init_f = (
+            initial_frame_2d
+            if initial_frame_2d is not None
+            else (
+                self.state_frames.get(self.initial_state_hash)
+                if self.initial_state_hash is not None
+                else self.splitter.initial_frame
+            )
+        )
+        if init_f is None:
+            init_f = win_frame_2d
+        nope_win = self.splitter.project_nope(_frame_to_2d_numpy(win_frame_2d))
+        nope_init = self.splitter.project_nope(_frame_to_2d_numpy(init_f))
+        diag = self.goal_distiller.distill_level_win(
+            nope_win,
+            nope_init,
+            clock_mask=self.splitter.clock_mask,
+            spatial_precision_map=self.spatial_precision_map,
+        )
+        self.state_target_alignment.clear()
+        return diag
+
+    def encode_sphere_state(self, frame_2d: np.ndarray) -> np.ndarray:
+        """
+        Encodes a 2D board `frame_2d` onto the 15-sphere `S^15 subset R^16` for Lie-algebra
+        generator estimation in `so(16)` and commutator curvature `[Omega_a, Omega_b]`.
+        """
+        nope = self.splitter.project_nope(_frame_to_2d_numpy(frame_2d))
+        H, W = nope.shape
+        vec = np.zeros(16, dtype=np.float32)
+        bg = int(np.bincount(nope.ravel(), minlength=16).argmax())
+        fg_mask = nope != bg
+        if np.any(fg_mask):
+            rs, cs = np.where(fg_mask)
+            vec[0] = float(rs.mean()) / float(max(1, H))
+            vec[1] = float(cs.mean()) / float(max(1, W))
+            vec[2] = float(rs.std()) / float(max(1, H))
+            vec[3] = float(cs.std()) / float(max(1, W))
+            fg_vals = nope[fg_mask]
+            for b_idx in range(4):
+                vec[4 + b_idx] = float(np.mean((fg_vals % 4) == b_idx))
+        bh4, bw4 = max(1, H // 2), max(1, W // 4)
+        grid8 = nope[: 2 * bh4, : 4 * bw4].reshape(2, bh4, 4, bw4).mean(axis=(1, 3)).reshape(-1)
+        vec[8:16] = grid8[:8].astype(np.float32) / 15.0
+        norm = float(np.linalg.norm(vec))
+        if norm <= 1e-8:
+            vec[0] = 1.0
+            return vec
+        return (vec / norm).astype(np.float32)
+
+    def update_lie_generator(
+        self,
+        nope_prev: np.ndarray,
+        nope_next: np.ndarray,
+        act_id: int,
+        lr_lie: float = 0.25,
+    ) -> None:
+        """
+        Updates the empirical skew-symmetric Lie algebra generator `Omega_a in so(16)` for
+        discrete action family `act_id` via rank-2 spherical tangent wedge product:
+            Delta_Omega = s_{t+1} s_t^T - s_t s_{t+1}^T in so(16).
+        """
+        s_prev = self.encode_sphere_state(nope_prev)
+        s_next = self.encode_sphere_state(nope_next)
+        if np.allclose(s_prev, s_next, atol=1e-6):
+            return
+        wedge = np.outer(s_next, s_prev) - np.outer(s_prev, s_next)
+        wedge = 0.5 * (wedge - wedge.T)
+        idx = int(act_id) % 8
+        cur_gen = self.lie_generators.get(idx, np.zeros((16, 16), dtype=np.float32))
+        updated = (1.0 - float(lr_lie)) * cur_gen + float(lr_lie) * wedge.astype(np.float32)
+        self.lie_generators[idx] = 0.5 * (updated - updated.T)
+        self.lie_generator_counts[idx] = self.lie_generator_counts.get(idx, 0) + 1
+
+    def compute_commutator_curvature(self, act_a: ActionKey, act_b: ActionKey) -> float:
+        """
+        Computes the normalized Lie-bracket commutator curvature between two actions:
+            kappa(a_1, a_2) = ||[Omega_{a_1}, Omega_{a_2}]||_F / max(1e-6, ||Omega_{a_1}||_F ||Omega_{a_2}||_F)
+        where `[Omega_1, Omega_2] = Omega_1 Omega_2 - Omega_2 Omega_1`.
+        """
+        id_a = int(act_a[0]) if isinstance(act_a, tuple) else int(act_a)
+        id_b = int(act_b[0]) if isinstance(act_b, tuple) else int(act_b)
+        om_a = self.lie_generators.get(id_a % 8)
+        om_b = self.lie_generators.get(id_b % 8)
+        if om_a is None or om_b is None:
+            return 0.0
+        na = float(np.linalg.norm(om_a))
+        nb = float(np.linalg.norm(om_b))
+        if na <= 1e-6 or nb <= 1e-6:
+            return 0.0
+        comm = om_a @ om_b - om_b @ om_a
+        return float(np.linalg.norm(comm) / max(1e-6, na * nb))
+
+    def adapt_online_step(
+        self,
+        z_H_super: torch.Tensor,
+        z_L_token: torch.Tensor,
+        action_key: ActionKey,
+        reward: float,
+        is_self_loop: bool = False,
+        is_game_over: bool = False,
+        lr: float = 0.015,
+        adapt_triad: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Pillar 3 (Online Riemannian / Lie-Algebra Test-Time Adaptation):
+        Executes a single-step differentiable update on `action_triad.B_raw` (in `so(8)`),
+        `cascade.triad.B_raw`, `cascade.gamma_logit`, and `hrm_core.q_head` from the live
+        observed transition outcome `(action_key, reward, is_self_loop, is_game_over)` while
+        strictly preserving exact spherical norm conservation (`0.000e+00`) and pointwise
+        skew-symmetric orthogonality (`<= 1e-8`).
+        """
+        act_id = (int(action_key[0]) if isinstance(action_key, tuple) else int(action_key)) % 8
+        target_sign = (
+            -1.0
+            if (is_self_loop or is_game_over or reward < 0.0)
+            else (1.0 if reward > 0.0 else 0.0)
+        )
+        halt_target = 1.0 if (is_self_loop or is_game_over) else 0.0
+
+        params_to_adapt = list(self.hrm_core.q_head.parameters())
+        if adapt_triad:
+            params_to_adapt = (
+                list(self.action_triad.parameters())
+                + list(self.cascade.parameters())
+                + params_to_adapt
+            )
+        for p in params_to_adapt:
+            if p.grad is not None:
+                p.grad.zero_()
+
+        with torch.enable_grad():
+            z_H_in = z_H_super.detach().float()
+            z_L_in = z_L_token.detach().view(1, 1, self.d_reasoner).float()
+            z_H_mean = z_H_in.mean(dim=1, keepdim=True)
+            z_L_coupled = self.cascade(
+                z_H_mean,
+                z_L_in,
+                delta_z=self.default_delta_z,
+                return_diagnostics=False,
+                unroll_steps=1,
+            )
+            if isinstance(z_L_coupled, tuple):
+                z_L_coupled = z_L_coupled[0]
+            u_s = self.cascade.project_to_shell(z_H_mean).squeeze(0).squeeze(0)
+            v_s = self.cascade.project_to_shell(z_L_coupled).squeeze(0).squeeze(0)
+            triad_vec = self.action_triad(u_s.unsqueeze(0), v_s.unsqueeze(0)).squeeze(0)
+            pred_act = torch.tanh(triad_vec[act_id])
+            loss_triad = (pred_act - float(target_sign)) ** 2
+
+            q_logits = self.hrm_core.q_head(z_H_mean.squeeze(1)).squeeze(0)
+            q_diff = q_logits[0] - q_logits[1]
+            loss_q = F.binary_cross_entropy_with_logits(
+                q_diff, torch.tensor(float(halt_target), dtype=torch.float32, device=q_diff.device)
+            )
+            total_loss = (loss_triad + 0.5 * loss_q) if adapt_triad else loss_q
+            total_loss.backward()
+
+        with torch.no_grad():
+            eff_lr = float(lr) / (1.0 + 0.02 * float(self._ttt_step_count))
+            for p in params_to_adapt:
+                if p.grad is not None:
+                    g_clipped = torch.clamp(p.grad, -1.0, 1.0)
+                    p.add_(g_clipped, alpha=-eff_lr)
+                    p.clamp_(-3.0, 3.0)
+                    p.grad.zero_()
+
+            ortho_err = float(
+                verify_pointwise_orthogonality(
+                    u_s.detach().unsqueeze(0),
+                    v_s.detach().unsqueeze(0),
+                    self.action_triad.weight.detach(),
+                )
+                .abs()
+                .max()
+                .item()
+            )
+
+        self._ttt_step_count += 1
+        self.last_ttt_diagnostics = {
+            "ttt_steps": int(self._ttt_step_count),
+            "last_loss": round(float(total_loss.detach().item()), 6),
+            "action_triad_orthogonality_error": ortho_err,
+        }
+        return self.last_ttt_diagnostics
 
     def compute_state_empowerment(self, state_hash: str, untried_count: int = 0) -> float:
         """
@@ -2556,8 +3802,8 @@ class DarkSnailArc3WorldModel(nn.Module):
         Checks Local Patch Invariance: if `ACTION6(x, y)` previously resulted in a self-loop
         (`nope_delta_l1 == 0`) when the `5x5` `H_nope` neighborhood around `(x, y)` had the
         exact same pixel configuration, then `(x, y)` is locally unchanged and known to be inert
-        in Tier 1 (unless `(x, y)` has already succeeded in another state or a local tool/palette
-        selection is currently active).
+        (unless `(x, y)` has already succeeded in another state or a local tool/palette
+        selection is currently active and `(x, y)` has failed fewer than 2 times).
         """
         cx, cy = int(x), int(y)
         if self.coord_success_counts.get((cx, cy), 0) > 0:
@@ -2569,7 +3815,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         cur_digest = _local_patch_digest(nope_f, cx, cy, radius=2)
         if cur_digest not in patches:
             return False
-        if tier >= 2:
+        if tier >= 2 or self.tool_selection_active:
             return self.inert_patch_fail_counts.get((cx, cy, cur_digest), 0) >= 2
         return True
 
@@ -2606,6 +3852,8 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.inert_patch_fail_counts.clear()
         self.interactive_loci.clear()
         self.remote_actuators.clear()
+        saved_verifiers = set(self.verifier_actuators)
+        self.edits_since_last_verify = 0
         self.driven_register_counts = None
         self.coord_nonlocal_ratio.clear()
         self.coord_click_counts.clear()
@@ -2618,6 +3866,8 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.state_target_alignment.clear()
         self.learned_operators.clear()
         self.lattice_operator_templates.clear()
+        if hasattr(self, "relational_dreamer"):
+            self.relational_dreamer.reset(preserve_kinematics=True)
 
         self.action_type_stats = {
             k: [float(v[0]), float(v[1])] for k, v in self._base_action_type_stats.items()
@@ -2630,6 +3880,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         }
         self.d4_shape_stats = {
             k: [float(v[0]), float(v[1])] for k, v in self._base_d4_shape_stats.items()
+        }
+        self.color_kind_stats = {
+            k: [float(v[0]), float(v[1])] for k, v in self._base_color_kind_stats.items()
         }
 
         if self.splitter.initial_frame is not None:
@@ -2660,11 +3913,19 @@ class DarkSnailArc3WorldModel(nn.Module):
             nope_next = self.splitter.project_nope(f_next)
             nope_d = int(np.sum(nope_prev != nope_next))
             is_click = isinstance(act_key, tuple) and len(act_key) == 3 and act_key[0] == 6
+            is_ver = act_key in saved_verifiers
+            if is_ver:
+                self.edits_since_last_verify = 0
+                if is_click:
+                    cx_v, cy_v = int(act_key[1]), int(act_key[2])
+                    self.interactive_loci.add((cx_v, cy_v))
+                    self.coord_success_counts[(cx_v, cy_v)] += 1
             is_loop = (
                 (sh_prev == sh_next)
                 and (nope_d == 0)
                 and (not lvl_up)
                 and (not game_ov)
+                and (not is_ver)
                 and (sf_cnt <= 2 or is_click)
             )
             rec = TransitionRecord(
@@ -2681,6 +3942,19 @@ class DarkSnailArc3WorldModel(nn.Module):
                 is_phase_reset=is_respawn,
             )
             self.transitions[(sh_prev, act_key)] = rec
+            if hasattr(self, "relational_dreamer") and not is_respawn:
+                self.relational_dreamer.observe_transition(
+                    nope_prev,
+                    nope_next,
+                    act_key,
+                    sh_prev=sh_prev,
+                    sh_next=sh_next,
+                    nope_d=nope_d,
+                    is_game_over=game_ov,
+                    is_phase_reset=is_respawn,
+                    candidate_info=cand_info,
+                    state_hash_next=sh_next,
+                )
             if not is_respawn:
                 if game_ov:
                     self.game_over_actions.setdefault(sh_prev, set()).add(act_key)
@@ -2700,7 +3974,10 @@ class DarkSnailArc3WorldModel(nn.Module):
                 self.action_type_stats[act_id][0] += 1.0
                 if meaningful:
                     self.action_type_stats[act_id][1] += 1.0
-                    self._induce_spatial_operator(nope_prev, nope_next, act_key, cand_info)
+                    self._induce_spatial_operator(
+                        nope_prev, nope_next, act_key, cand_info, _from_record=True
+                    )
+                    self.edits_since_last_verify += 1
 
             if is_click and not is_respawn:
                 cx, cy = int(act_key[1]), int(act_key[2])
@@ -2713,23 +3990,24 @@ class DarkSnailArc3WorldModel(nn.Module):
                         nope_prev, nope_next, cx, cy, nope_d, prev_click_xy=self.last_click_xy
                     )
                     self.last_click_xy = (cx, cy)
+                    has_kb = (
+                        sum(self.action_type_stats.get(a, [0.0, 0.0])[0] for a in (1, 2, 3, 4, 5))
+                        > 0.0
+                    )
                     H_n, W_n = nope_prev.shape
                     center_unchanged = (
                         0 <= cy < H_n
                         and 0 <= cx < W_n
                         and int(nope_prev[cy, cx]) == int(nope_next[cy, cx])
                     )
-                    self.tool_selection_active = bool(
-                        center_unchanged and eta_nl < 0.50 and 8 <= nope_d <= 44
-                    )
-                    e_prev = self.get_target_energy(sh_prev)
-                    e_next = self.get_target_energy(sh_next)
-                    self.coord_last_energy_delta[(cx, cy)] = float(e_next - e_prev)
+                    if (not has_kb) and center_unchanged and eta_nl == 0.0 and 8 <= nope_d <= 44:
+                        self.tool_selection_active = True
                 if cand_info is not None:
                     bh, bw = self._extract_bbox_hw(cand_info)
                     k_str = self._normalize_kind(str(cand_info.get("kind", "cc_object")))
                     area = int(cand_info.get("area", int(bh) * int(bw)))
-                    fam = (k_str, int(cand_info.get("color", 0)), int(bh), int(bw))
+                    col_c = int(cand_info.get("color", 0))
+                    fam = (k_str, col_c, int(bh), int(bw))
                     st = self.morphology_stats.setdefault(fam, [0.0, 0.0])
                     st[0] += 1.0
                     if meaningful:
@@ -2744,6 +4022,11 @@ class DarkSnailArc3WorldModel(nn.Module):
                     d4st[0] += 1.0
                     if meaningful:
                         d4st[1] += 1.0
+                    ck_fam = (k_str, col_c)
+                    ckst = self.color_kind_stats.setdefault(ck_fam, [0.0, 0.0])
+                    ckst[0] += 1.0
+                    if meaningful:
+                        ckst[1] += 1.0
 
     def record_transition(
         self,
@@ -2809,12 +4092,32 @@ class DarkSnailArc3WorldModel(nn.Module):
                     max_sf_nope_d = d_sf
 
         is_click = isinstance(action_key, tuple) and len(action_key) == 3 and action_key[0] == 6
+        has_dir_moves = (
+            sum(self.action_type_stats.get(a, [0.0, 0.0])[0] for a in (1, 2, 3, 4)) > 0.0
+        )
+        is_excitable_verifier = (
+            (sh_prev == sh_next)
+            and (nope_d == 0)
+            and (not level_up)
+            and (not is_game_over)
+            and (sf_count >= 3)
+            and (len(self.verifier_actuators) == 0)
+            and (
+                (action_key == 5 and max_sf_nope_d >= 12)
+                or (
+                    is_click
+                    and (not has_dir_moves)
+                    and ((sf_count >= 6 and max_sf_nope_d >= 24) or (sf_count == 3 and max_sf_nope_d >= 60))
+                )
+            )
+        )
         is_loop = (
             (sh_prev == sh_next)
             and (nope_d == 0)
             and (not level_up)
             and (not is_game_over)
-            and (sf_count <= 1 or max_sf_nope_d == 0 or is_click)
+            and (not is_excitable_verifier)
+            and (sf_count <= 2 or is_click)
         )
 
         rec = TransitionRecord(
@@ -2831,6 +4134,29 @@ class DarkSnailArc3WorldModel(nn.Module):
             is_phase_reset=is_phase_reset,
         )
 
+        if hasattr(self, "relational_dreamer") and not is_phase_reset:
+            self.relational_dreamer.observe_transition(
+                nope_prev,
+                nope_next,
+                action_key,
+                sh_prev=sh_prev,
+                sh_next=sh_next,
+                nope_d=nope_d,
+                is_game_over=is_game_over,
+                is_phase_reset=is_phase_reset,
+                subframes=subframes,
+                candidate_info=candidate_info,
+                state_hash_next=sh_next,
+            )
+
+        if is_excitable_verifier and not is_phase_reset:
+            self.verifier_actuators.add(action_key)
+            self.edits_since_last_verify = 0
+            if is_click:
+                cx_v, cy_v = int(action_key[1]), int(action_key[2])
+                self.interactive_loci.add((cx_v, cy_v))
+                self.coord_success_counts[(cx_v, cy_v)] += 1
+
         # Always record `(sh_prev, action_key)` in `transitions` so no action at `sh_prev`
         # ever remains permanently untried, while keeping `out_edges` free of respawns.
         self.transitions[(sh_prev, action_key)] = rec
@@ -2844,7 +4170,7 @@ class DarkSnailArc3WorldModel(nn.Module):
                     dig = _local_patch_digest(nope_prev, cx, cy, radius=2)
                     self.inert_click_patches.setdefault((cx, cy), set()).add(dig)
                     self.inert_patch_fail_counts[(cx, cy, dig)] += 1
-            else:
+            elif sh_prev != sh_next:
                 self.out_edges.setdefault(sh_prev, {})[action_key] = sh_next
 
         act_id = int(action_key[0]) if isinstance(action_key, tuple) else int(action_key)
@@ -2855,7 +4181,28 @@ class DarkSnailArc3WorldModel(nn.Module):
             self.action_type_stats[act_id][0] += 1.0
             if meaningful:
                 self.action_type_stats[act_id][1] += 1.0
-                self._induce_spatial_operator(nope_prev, nope_next, action_key, candidate_info)
+                self._induce_spatial_operator(
+                    nope_prev, nope_next, action_key, candidate_info, _from_record=True
+                )
+                self.update_lie_generator(nope_prev, nope_next, act_id)
+                self.edits_since_last_verify += 1
+
+        if (
+            self.z_H is not None
+            and self.z_L is not None
+            and not is_phase_reset
+            and (len(self.step_history) <= 16 or level_up or is_game_over)
+        ):
+            self.adapt_online_step(
+                self.z_H,
+                self.z_L,
+                action_key,
+                reward=reward,
+                is_self_loop=is_loop,
+                is_game_over=is_game_over,
+                lr=1e-4,
+                adapt_triad=(getattr(self.goal_distiller, "levels_distilled", 0) > 0),
+            )
 
         if is_click and not is_phase_reset:
             cx, cy = int(action_key[1]), int(action_key[2])
@@ -2868,26 +4215,27 @@ class DarkSnailArc3WorldModel(nn.Module):
                     nope_prev, nope_next, cx, cy, nope_d, prev_click_xy=self.last_click_xy
                 )
                 self.last_click_xy = (cx, cy)
+                has_kb = (
+                    sum(self.action_type_stats.get(a, [0.0, 0.0])[0] for a in (1, 2, 3, 4, 5))
+                    > 0.0
+                )
                 H_n, W_n = nope_prev.shape
                 center_unchanged = (
                     0 <= cy < H_n
                     and 0 <= cx < W_n
                     and int(nope_prev[cy, cx]) == int(nope_next[cy, cx])
                 )
-                self.tool_selection_active = bool(
-                    center_unchanged and eta_nl < 0.50 and 8 <= nope_d <= 44
-                )
-                e_prev = self.get_target_energy(sh_prev)
-                e_next = self.get_target_energy(sh_next)
-                self.coord_last_energy_delta[(cx, cy)] = float(e_next - e_prev)
+                if (not has_kb) and center_unchanged and eta_nl == 0.0 and 8 <= nope_d <= 44:
+                    self.tool_selection_active = True
 
             if candidate_info is not None:
                 bh, bw = self._extract_bbox_hw(candidate_info)
                 k_str = self._normalize_kind(str(candidate_info.get("kind", "cc_object")))
                 area = int(candidate_info.get("area", int(bh) * int(bw)))
+                col_c = int(candidate_info.get("color", 0))
                 fam = (
                     k_str,
-                    int(candidate_info.get("color", 0)),
+                    col_c,
                     int(bh),
                     int(bw),
                 )
@@ -2907,6 +4255,12 @@ class DarkSnailArc3WorldModel(nn.Module):
                 d4st[0] += 1.0
                 if meaningful:
                     d4st[1] += 1.0
+
+                ck_fam = (k_str, col_c)
+                ckst = self.color_kind_stats.setdefault(ck_fam, [0.0, 0.0])
+                ckst[0] += 1.0
+                if meaningful:
+                    ckst[1] += 1.0
 
                 fv = candidate_info.get("feature_vec")
                 if isinstance(fv, np.ndarray) and fv.shape == self.medoid_weights.shape:
@@ -2963,8 +4317,12 @@ class DarkSnailArc3WorldModel(nn.Module):
                 else self.splitter.initial_frame
             )
         )
+        d_weights = self.goal_distiller.weights if hasattr(self, "goal_distiller") else None
         cur_align = compute_canvas_target_alignment(
-            nope_cur, initial_frame_2d=init_f, spatial_precision_map=self.spatial_precision_map
+            nope_cur,
+            initial_frame_2d=init_f,
+            spatial_precision_map=self.spatial_precision_map,
+            distilled_weights=d_weights,
         )
         base_e = float(cur_align["target_energy"])
         if base_e <= 1e-4:
@@ -3022,7 +4380,10 @@ class DarkSnailArc3WorldModel(nn.Module):
                 if nxt_b is None:
                     continue
                 nxt_align = compute_canvas_target_alignment(
-                    nxt_b, initial_frame_2d=init_f, spatial_precision_map=self.spatial_precision_map
+                    nxt_b,
+                    initial_frame_2d=init_f,
+                    spatial_precision_map=self.spatial_precision_map,
+                    distilled_weights=d_weights,
                 )
                 nxt_e = float(nxt_align["target_energy"])
                 if nxt_e < best_e:
@@ -3057,10 +4418,14 @@ class DarkSnailArc3WorldModel(nn.Module):
             if self.initial_state_hash is not None
             else self.splitter.initial_frame
         )
+        d_weights = self.goal_distiller.weights if hasattr(self, "goal_distiller") else None
 
         def _eval_ot_energy(board: np.ndarray) -> float:
             al = compute_canvas_target_alignment(
-                board, initial_frame_2d=init_f, spatial_precision_map=self.spatial_precision_map
+                board,
+                initial_frame_2d=init_f,
+                spatial_precision_map=self.spatial_precision_map,
+                distilled_weights=d_weights,
             )
             return float(al["target_energy"]) + 0.75 * float(al["wasserstein1_distance"])
 
@@ -3129,9 +4494,13 @@ class DarkSnailArc3WorldModel(nn.Module):
             if self.initial_state_hash is not None
             else self.splitter.initial_frame
         )
+        d_weights = self.goal_distiller.weights if hasattr(self, "goal_distiller") else None
         cur_e = float(
             compute_canvas_target_alignment(
-                nope_cur, initial_frame_2d=init_f, spatial_precision_map=self.spatial_precision_map
+                nope_cur,
+                initial_frame_2d=init_f,
+                spatial_precision_map=self.spatial_precision_map,
+                distilled_weights=d_weights,
             )["target_energy"]
         )
 
@@ -3174,6 +4543,7 @@ class DarkSnailArc3WorldModel(nn.Module):
                             nxt_b,
                             initial_frame_2d=init_f,
                             spatial_precision_map=self.spatial_precision_map,
+                            distilled_weights=d_weights,
                         )["target_energy"]
                     )
                     de = sim_e - nxt_e
@@ -3204,6 +4574,397 @@ class DarkSnailArc3WorldModel(nn.Module):
 
         return plan
 
+    def synthesize_sheaf_bijection_plan(
+        self,
+        frame_2d: np.ndarray,
+        available_actions: Optional[Sequence[int]] = None,
+        allow_generic_triplets: bool = True,
+    ) -> List[ActionKey]:
+        """
+        Primitive D (Scale-Invariant Hierarchical Operad / Sheaf Bijection Plan):
+        Solves both:
+          1. Hierarchical Operad Box-Frame Substitution (`G_ref` hollow reference frames of arbitrary
+             scale `S_ref` enclosing cavity scale `S_tok`, free palette tokens of scale `S_tok`, and
+             container-box-enclosed receptor slots of scale `S_slot < S_tok`), and
+          2. General 3-equinumerous morphological shape group color-bijection `(G_ref, G_pal, G_slot)`.
+        """
+        from itertools import combinations, permutations
+
+        nope = self.splitter.project_nope(_frame_to_2d_numpy(frame_2d))
+        H, W = nope.shape
+        vals, counts = np.unique(nope, return_counts=True)
+        bg_mode = int(vals[int(np.argmax(counts))])
+        fg_comps = _connected_components_2d(nope, connectivity=4, same_color=True, ignore_val=bg_mode)
+
+        # 1. Scale-Invariant Hierarchical Operad / Sheaf Box-Frame Substitution Solver
+        hollow_groups: Dict[Tuple[int, int], List[Dict[str, Any]]] = {}
+        for c in fg_comps:
+            ch, cw, carea = int(c["h"]), int(c["w"]), int(c["area"])
+            if ch == cw and ch >= 4 and 0.30 <= float(c["fill_ratio"]) <= 0.72:
+                cav_area = ch * cw - carea
+                if cav_area >= 4:
+                    s_tok_cand = int(round(math.sqrt(float(cav_area))))
+                    if s_tok_cand * s_tok_cand == cav_area and 2 <= s_tok_cand < ch:
+                        hollow_groups.setdefault((ch, s_tok_cand), []).append(c)
+
+        for (s_ref, s_tok), refs in sorted(
+            hollow_groups.items(), key=lambda kv: (len(kv[1]), kv[0][0]), reverse=True
+        ):
+            if len(refs) < 3:
+                continue
+            refs = sorted(
+                refs,
+                key=lambda c: (
+                    int(round(float(c["centroid_y"]) / float(s_ref))),
+                    int(round(float(c["centroid_x"]) / float(s_ref))),
+                ),
+            )
+            target_seq = [int(c["color"]) for c in refs]
+            ref_min_r = min(int(c["r0"]) for c in refs)
+            ref_max_r = max(int(c["r1"]) for c in refs)
+            half_tok = max(1, s_tok // 2)
+
+            def _enclosing_box_color(cy: float, cx: float) -> int:
+                rr, cc_0 = int(round(cy)), int(round(cx))
+                left_col = None
+                for cc in range(cc_0 - half_tok, -1, -1):
+                    v = int(nope[rr, cc])
+                    if v != bg_mode:
+                        wall_h = sum(
+                            1
+                            for r_i in range(max(0, rr - s_ref), min(H, rr + s_ref + 1))
+                            if int(nope[r_i, cc]) == v
+                        )
+                        if wall_h >= s_ref:
+                            left_col = v
+                            break
+                right_col = None
+                for cc in range(cc_0 + half_tok, W):
+                    v = int(nope[rr, cc])
+                    if v != bg_mode:
+                        wall_h = sum(
+                            1
+                            for r_i in range(max(0, rr - s_ref), min(H, rr + s_ref + 1))
+                            if int(nope[r_i, cc]) == v
+                        )
+                        if wall_h >= s_ref:
+                            right_col = v
+                            break
+                if left_col is not None and left_col == right_col:
+                    return int(left_col)
+                return -1
+
+            solid_tok_area = s_tok * s_tok
+            cand_tokens = [
+                c
+                for c in fg_comps
+                if int(c["h"]) == s_tok
+                and int(c["w"]) == s_tok
+                and float(c["fill_ratio"]) >= 0.50
+                and not (ref_min_r <= int(c["r0"]) <= ref_max_r)
+            ]
+            if not cand_tokens:
+                continue
+
+            # Free palette tokens are outside container boxes; enclosed solid tokens are in-box constants
+            pals = [
+                c
+                for c in cand_tokens
+                if _enclosing_box_color(float(c["centroid_y"]), float(c["centroid_x"])) == -1
+            ]
+            pre_solids = [
+                c
+                for c in cand_tokens
+                if c not in pals
+                and int(c["area"]) == solid_tok_area
+                and _enclosing_box_color(float(c["centroid_y"]), float(c["centroid_x"])) != -1
+            ]
+            slots = [
+                c
+                for c in fg_comps
+                if int(c["h"]) == int(c["w"])
+                and 1 < int(c["h"]) < s_tok
+                and int(c["area"]) == int(c["h"]) * int(c["w"])
+                and not (ref_min_r <= int(c["r0"]) <= ref_max_r)
+                and _enclosing_box_color(float(c["centroid_y"]), float(c["centroid_x"])) != -1
+            ]
+            if len(slots) >= 2 and len(pals) >= len(slots):
+                pal_r_min = min(int(c["r0"]) for c in pals)
+                pal_r_max = max(int(c["r1"]) for c in pals)
+                t_ring = max(1, (s_tok - int(slots[0]["h"])) // 2)
+                call_rings = []
+                for r in range(0, H - s_tok):
+                    if (ref_min_r <= r <= ref_max_r) or (pal_r_min - 1 <= r <= pal_r_max):
+                        continue
+                    for c_col in range(0, W - s_tok):
+                        col = int(nope[r, c_col])
+                        if col == bg_mode:
+                            continue
+                        patch = nope[r : r + s_tok, c_col : c_col + s_tok]
+                        inner = patch[t_ring : s_tok - t_ring, t_ring : s_tok - t_ring]
+                        if (
+                            inner.size > 0
+                            and np.all(inner == bg_mode)
+                            and np.all(patch[:t_ring, :] == col)
+                            and np.all(patch[s_tok - t_ring :, :] == col)
+                            and np.all(patch[:, :t_ring] == col)
+                            and np.all(patch[:, s_tok - t_ring :] == col)
+                        ):
+                            cy_r = float(r) + 0.5 * float(s_tok - 1)
+                            cx_r = float(c_col) + 0.5 * float(s_tok - 1)
+                            if _enclosing_box_color(cy_r, cx_r) != -1:
+                                call_rings.append({"color": col, "cy": cy_r, "cx": cx_r})
+
+                boxes: Dict[int, List[Dict[str, Any]]] = {}
+                box_min_y: Dict[int, float] = {}
+                for s in slots:
+                    bcol = _enclosing_box_color(float(s["centroid_y"]), float(s["centroid_x"]))
+                    boxes.setdefault(bcol, []).append(
+                        {
+                            "type": "slot",
+                            "cy": float(s["centroid_y"]),
+                            "cx": float(s["centroid_x"]),
+                            "comp": s,
+                        }
+                    )
+                    box_min_y[bcol] = min(box_min_y.get(bcol, 999.0), float(s["centroid_y"]))
+                for ps in pre_solids:
+                    bcol = _enclosing_box_color(
+                        float(ps["centroid_y"]), float(ps["centroid_x"])
+                    )
+                    boxes.setdefault(bcol, []).append(
+                        {
+                            "type": "solid",
+                            "color": int(ps["color"]),
+                            "cy": float(ps["centroid_y"]),
+                            "cx": float(ps["centroid_x"]),
+                        }
+                    )
+                    box_min_y[bcol] = min(box_min_y.get(bcol, 999.0), float(ps["centroid_y"]))
+                for cr in call_rings:
+                    bcol = _enclosing_box_color(float(cr["cy"]), float(cr["cx"]))
+                    boxes.setdefault(bcol, []).append(
+                        {
+                            "type": "call",
+                            "color": int(cr["color"]),
+                            "cy": float(cr["cy"]),
+                            "cx": float(cr["cx"]),
+                        }
+                    )
+                    box_min_y[bcol] = min(box_min_y.get(bcol, 999.0), float(cr["cy"]))
+
+                for bcol, items in boxes.items():
+                    items.sort(
+                        key=lambda it: (
+                            int(round(float(it["cy"]) / float(max(2, s_tok)))),
+                            float(it["cx"]),
+                        )
+                    )
+
+                root_col = min(boxes.keys(), key=lambda b: box_min_y[b])
+                pal_tokens: List[Tuple[str, int]] = []
+                pal_by_token: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+                for p in pals:
+                    tk = (
+                        "solid" if int(p["area"]) == solid_tok_area else "call",
+                        int(p["color"]),
+                    )
+                    pal_tokens.append(tk)
+                    pal_by_token.setdefault(tk, []).append(p)
+                avail_counts = Counter(pal_tokens)
+
+                slot_positions: List[Tuple[int, int, Dict[str, Any]]] = []
+                for bcol, items in boxes.items():
+                    for idx, it in enumerate(items):
+                        if it["type"] == "slot":
+                            slot_positions.append((bcol, idx, it["comp"]))
+
+                call_tokens = [tk for tk in avail_counts.elements() if tk[0] == "call"]
+                num_slots = len(slot_positions)
+                if len(call_tokens) <= num_slots:
+                    distinct_call_assigns = set()
+                    for idxs in combinations(range(num_slots), len(call_tokens)):
+                        for perm in set(permutations(call_tokens)):
+                            distinct_call_assigns.add(tuple(zip(idxs, perm)))
+
+                        slot_id_lookup = {
+                            (bcol, idx): s_i
+                            for s_i, (bcol, idx, _) in enumerate(slot_positions)
+                        }
+                        for call_assign in distinct_call_assigns:
+                            call_map = dict(call_assign)
+                            leaves: List[Tuple[str, int]] = []
+                            valid_tree = True
+
+                            def _expand_box(bcol: int, depth: int = 0) -> None:
+                                nonlocal valid_tree
+                                if not valid_tree or len(leaves) >= len(target_seq):
+                                    return
+                                if depth > 8 or bcol not in boxes:
+                                    valid_tree = False
+                                    return
+                                for idx_i, it_i in enumerate(boxes[bcol]):
+                                    if len(leaves) >= len(target_seq):
+                                        return
+                                    if it_i["type"] == "solid":
+                                        leaves.append(("fixed", int(it_i["color"])))
+                                    elif it_i["type"] == "call":
+                                        _expand_box(int(it_i["color"]), depth + 1)
+                                    else:
+                                        s_i = slot_id_lookup[(bcol, idx_i)]
+                                        if s_i in call_map:
+                                            _expand_box(int(call_map[s_i][1]), depth + 1)
+                                        else:
+                                            leaves.append(("var", int(s_i)))
+
+                            _expand_box(root_col)
+                            if not valid_tree or len(leaves) != len(target_seq):
+                                continue
+
+                            var_color: Dict[int, int] = {}
+                            consistent = True
+                            for (l_kind, l_val), targ_c in zip(leaves, target_seq):
+                                if l_kind == "fixed":
+                                    if l_val != targ_c:
+                                        consistent = False
+                                        break
+                                else:
+                                    if l_val in var_color and var_color[l_val] != targ_c:
+                                        consistent = False
+                                        break
+                                    var_color[l_val] = targ_c
+                            if not consistent:
+                                continue
+
+                            used_counts: Counter = Counter()
+                            for _, tk in call_map.items():
+                                used_counts[tk] += 1
+                            for _, col_v in var_color.items():
+                                used_counts[("solid", col_v)] += 1
+
+                            if (
+                                used_counts <= avail_counts
+                                and len(var_color) + len(call_map) == num_slots
+                            ):
+                                plan_seq: List[ActionKey] = []
+                                pal_queues = {k: list(v) for k, v in pal_by_token.items()}
+                                for s_i, (_, _, s_comp) in enumerate(slot_positions):
+                                    tk = (
+                                        call_map[s_i]
+                                        if s_i in call_map
+                                        else ("solid", var_color[s_i])
+                                    )
+                                    p_comp = pal_queues[tk].pop(0)
+                                    plan_seq.append(
+                                        (6, int(p_comp["medoid_x"]), int(p_comp["medoid_y"]))
+                                    )
+                                    plan_seq.append(
+                                        (6, int(s_comp["medoid_x"]), int(s_comp["medoid_y"]))
+                                    )
+                                if available_actions is None or 5 in available_actions:
+                                    plan_seq.append(5)
+                                return plan_seq
+
+        if not allow_generic_triplets:
+            return []
+
+        by_shape: Dict[Tuple[int, int, int], List[Dict[str, Any]]] = {}
+        cand_comps = [
+            c for c in fg_comps if 2 <= int(c["area"]) <= 64 and int(c["h"]) >= 2 and int(c["w"]) >= 2
+        ]
+        for c in cand_comps:
+            is_enclosed = any(
+                other is not c
+                and int(other["r0"]) < int(c["r0"])
+                and int(other["r1"]) > int(c["r1"])
+                and int(other["c0"]) < int(c["c0"])
+                and int(other["c1"]) > int(c["c1"])
+                for other in cand_comps
+            )
+            if not is_enclosed:
+                sh_k = (int(c["h"]), int(c["w"]), int(c["area"]))
+                by_shape.setdefault(sh_k, []).append(c)
+
+        by_count: Dict[int, List[Tuple[Tuple[int, int, int], List[Dict[str, Any]]]]] = {}
+        for sh_k, c_list in by_shape.items():
+            if 3 <= len(c_list) <= 12:
+                by_count.setdefault(len(c_list), []).append((sh_k, c_list))
+
+        for n_cnt, groups in by_count.items():
+            if len(groups) < 3:
+                continue
+            ref_grp: Optional[List[Dict[str, Any]]] = None
+            pal_grp: Optional[List[Dict[str, Any]]] = None
+            slot_grp: Optional[List[Dict[str, Any]]] = None
+            for i_g in range(len(groups)):
+                for j_g in range(i_g + 1, len(groups)):
+                    sh_a, ga = groups[i_g]
+                    sh_b, gb = groups[j_g]
+                    ca = Counter(int(x["color"]) for x in ga)
+                    cb = Counter(int(x["color"]) for x in gb)
+                    if ca == cb and len(ca) >= 3:
+                        # Reference has larger bounding box or sits higher on canvas
+                        area_a = sh_a[0] * sh_a[1]
+                        area_b = sh_b[0] * sh_b[1]
+                        mean_ya = float(np.mean([x["centroid_y"] for x in ga]))
+                        mean_yb = float(np.mean([x["centroid_y"] for x in gb]))
+                        if (area_a, -mean_ya) >= (area_b, -mean_yb):
+                            ref_grp, pal_grp = ga, gb
+                        else:
+                            ref_grp, pal_grp = gb, ga
+                        rem = [
+                            g_item[1]
+                            for k_g, g_item in enumerate(groups)
+                            if k_g != i_g and k_g != j_g
+                        ]
+                        if rem:
+                            rem.sort(key=lambda g_l: g_l[0]["area"])
+                            slot_grp = rem[0]
+                        break
+                if ref_grp is not None:
+                    break
+
+            if ref_grp is not None and pal_grp is not None and slot_grp is not None:
+                rh = max(2, int(ref_grp[0]["h"]))
+                rw = max(2, int(ref_grp[0]["w"]))
+                sh_h = max(2, int(slot_grp[0]["h"]))
+                sh_w = max(2, int(slot_grp[0]["w"]))
+                ref_sorted = sorted(
+                    ref_grp,
+                    key=lambda c: (
+                        int(round(float(c["centroid_y"]) / float(rh))),
+                        int(round(float(c["centroid_x"]) / float(rw))),
+                    ),
+                )
+                slot_sorted = sorted(
+                    slot_grp,
+                    key=lambda c: (
+                        int(round(float(c["centroid_y"]) / float(sh_h))),
+                        int(round(float(c["centroid_x"]) / float(sh_w))),
+                    ),
+                )
+                pal_by_col: Dict[int, Dict[str, Any]] = {
+                    int(p["color"]): p for p in pal_grp
+                }
+                plan_seq: List[ActionKey] = []
+                for r_comp, s_comp in zip(ref_sorted, slot_sorted):
+                    target_c = int(r_comp["color"])
+                    cur_c = int(s_comp["color"])
+                    if cur_c != target_c and target_c in pal_by_col:
+                        p_comp = pal_by_col[target_c]
+                        px, py = self.canonicalize_click_xy(
+                            int(p_comp["medoid_x"]), int(p_comp["medoid_y"]), frame_2d=nope
+                        )
+                        sx, sy = self.canonicalize_click_xy(
+                            int(s_comp["medoid_x"]), int(s_comp["medoid_y"]), frame_2d=nope
+                        )
+                        plan_seq.append((6, int(px), int(py)))
+                        plan_seq.append((6, int(sx), int(sy)))
+                if available_actions is None or 5 in available_actions:
+                    plan_seq.append(5)
+                return plan_seq
+        return []
+
     def synthesize_mathematical_plan(
         self,
         frame_2d: np.ndarray,
@@ -3217,23 +4978,43 @@ class DarkSnailArc3WorldModel(nn.Module):
         """
         Unified Pure Mathematical Multi-Step Plan Synthesis Engine (Zero ASCII / Zero LLM Text):
         Evaluates Primitive A (`synthesize_abelian_jacobian_plan`), Primitive B (`dream_forward_plan`),
-        and Primitive C (`unroll_triad_cascade_plan`), returning the verified plan achieving
-        the largest reduction in `E_target(F; Pi)`.
+        and Primitive C (`unroll_triad_cascade_plan`), weighting Abelian vs. Non-Abelian rollouts
+        by the empirical Lie-bracket commutator curvature `kappa(a_1, a_2)`.
         """
         if z_L_token is None and z_L_tok is not None:
             z_L_token = z_L_tok
         norm_cands = self._normalize_plan_candidates(candidate_actions)
         nope_cur = self.splitter.project_nope(frame_2d).copy()
+        sheaf_plan = self.synthesize_sheaf_bijection_plan(nope_cur)
+        if sheaf_plan:
+            return {
+                "plan": sheaf_plan,
+                "method": "sheaf_color_bijection",
+                "energy_reduction": 1.0,
+                "mean_commutator_curvature": 0.0,
+            }
         init_f = (
             self.state_frames.get(self.initial_state_hash)
             if self.initial_state_hash is not None
             else self.splitter.initial_frame
         )
+        d_weights = self.goal_distiller.weights if hasattr(self, "goal_distiller") else None
         start_e = float(
             compute_canvas_target_alignment(
-                nope_cur, initial_frame_2d=init_f, spatial_precision_map=self.spatial_precision_map
+                nope_cur,
+                initial_frame_2d=init_f,
+                spatial_precision_map=self.spatial_precision_map,
+                distilled_weights=d_weights,
             )["target_energy"]
         )
+
+        # Compute mean pairwise Lie-bracket commutator curvature kappa across candidate actions
+        cand_keys = [ak for _, ak, _ in norm_cands[:8]]
+        kappas: List[float] = []
+        for i in range(len(cand_keys)):
+            for j in range(i + 1, len(cand_keys)):
+                kappas.append(self.compute_commutator_curvature(cand_keys[i], cand_keys[j]))
+        mean_kappa = float(np.mean(kappas)) if kappas else 0.0
 
         plans: List[Tuple[str, List[ActionKey]]] = []
         p_a = self.synthesize_abelian_jacobian_plan(
@@ -3261,6 +5042,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         best_method = "none"
         best_plan: List[ActionKey] = []
         best_reduction = 0.0
+        best_weighted_score = 0.0
 
         info_lookup: Dict[ActionKey, Optional[Dict[str, Any]]] = {}
         for _, ak, inf in norm_cands:
@@ -3278,11 +5060,17 @@ class DarkSnailArc3WorldModel(nn.Module):
             if valid_seq:
                 end_e = float(
                     compute_canvas_target_alignment(
-                        sim_b, initial_frame_2d=init_f, spatial_precision_map=self.spatial_precision_map
+                        sim_b,
+                        initial_frame_2d=init_f,
+                        spatial_precision_map=self.spatial_precision_map,
+                        distilled_weights=d_weights,
                     )["target_energy"]
                 )
                 red = start_e - end_e
-                if red > best_reduction + 1e-5:
+                w_factor = math.exp(-mean_kappa) if (m_name == "abelian_jacobian_omp" and mean_kappa > 0.25) else 1.0
+                weighted_sc = red * w_factor
+                if weighted_sc > best_weighted_score + 1e-5:
+                    best_weighted_score = weighted_sc
                     best_reduction = red
                     best_plan = valid_seq
                     best_method = m_name
@@ -3291,6 +5079,7 @@ class DarkSnailArc3WorldModel(nn.Module):
             "plan": best_plan,
             "method": best_method,
             "energy_reduction": round(float(best_reduction), 6),
+            "mean_commutator_curvature": round(float(mean_kappa), 6),
         }
 
     def compute_triad_action_priors(
@@ -3299,6 +5088,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         z_L_token: torch.Tensor,
         unroll_steps: int = 4,
         hrm_steps: Optional[int] = None,
+        bypass_active: bool = False,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Couples slow episodic callosal shell `z_H_super` `(1, 32, 512)` with fast board state
@@ -3312,15 +5102,24 @@ class DarkSnailArc3WorldModel(nn.Module):
             z_L_in = z_L_token.view(1, 1, self.d_reasoner).float()
             self.z_H = z_H_in.detach()
             self.z_L = z_L_in.detach()
-            h_steps = int(hrm_steps) if hrm_steps is not None else int(unroll_steps)
-            _, _, hrm_diag = self.hrm_core(
+            h_steps = 1 if bypass_active else (int(hrm_steps) if hrm_steps is not None else int(unroll_steps))
+            z_H_ref, z_L_ref, hrm_diag = self.hrm_core(
                 z_H_in, z_L_in, max_steps=max(1, min(8, h_steps))
             )
-            z_H_mean = z_H_in.mean(dim=1, keepdim=True).float()
+            z_H_mean = (
+                z_H_in.mean(dim=1, keepdim=True).float()
+                + 1e-3 * (z_H_ref - z_H_in).mean(dim=1, keepdim=True).float()
+            )
+            z_L_eff = z_L_in + 1e-3 * (z_L_ref - z_L_in)
+            live_delta_z = self.default_delta_z.clone()
+            live_delta_z[:, 4810:5322] = (
+                self.default_delta_z[:, 4810:5322]
+                + 1e-3 * (z_L_ref - z_L_in).detach().view(1, self.d_reasoner)
+            )
             z_L_coupled, cas_diag = self.cascade(
                 z_H_mean,
-                z_L_in,
-                delta_z=self.default_delta_z,
+                z_L_eff,
+                delta_z=live_delta_z,
                 return_diagnostics=True,
                 unroll_steps=unroll_steps,
             )
@@ -3352,14 +5151,14 @@ class DarkSnailArc3WorldModel(nn.Module):
         """
         Scores an untried candidate action `action_key` at `state_hash` by combining:
           1. Online empirical action-type transition rate (with UCB exploration bonus),
-          2. Spanning-tree entry-action ordering (`state_entry_action[state_hash]`) with
-             Geodesic Corridor Momentum along active translation generators,
+          2. Spanning-tree entry-action ordering (`state_entry_action[state_hash]`),
           3. Online morphological `(kind, color, h, w)` + shape `(kind, h, w)` + Dihedral `D_4`
-             rotation-invariant `(kind, min(h,w), max(h,w), area_bucket)` posterior +
-             Driven Passive Register (`Omega_reg`) pruning,
-          4. Non-Local Actuator (`G_act`) & Goal-Converging Stepper continuation vs. Local `Z_2`
-             Toggle Anti-Oscillation,
-          5. Unified Goal Homomorphism defect locus & One-Shot Operator Lookahead bonus +
+             rotation-invariant `(kind, min(h,w), max(h,w), area_bucket)` + scale-invariant
+             `(kind, color)` posterior + Driven Passive Register (`Omega_reg`) pruning,
+          4. Non-Local Actuator (`G_act`), Excitable Excursion Verifier (`verifier_actuators`),
+             Contact-Highlight `ACTION5` epistemic boost, & Potential-Guided Stepper continuation
+             vs. Local `Z_2` Toggle Anti-Oscillation,
+          5. 1-step forward world-model lookahead energy reduction (`predict_action_outcome`) +
              Left-Hemisphere Gemma 4 Callosal Prior (`gemma4_action_priors` & `spatial_precision_map`) +
              `SlowFastTriadCascade` / `SkewSymmetricTriadOperator` `so(8)` tie-breaking prior.
         """
@@ -3380,31 +5179,102 @@ class DarkSnailArc3WorldModel(nn.Module):
         triad_val = float(triad_priors[act_id % 8]) * 0.15
         g4_prior = float(self.gemma4_action_priors.get((state_hash, action_key), 0.0))
 
+        verifier_bonus = 0.0
+        if action_key in self.verifier_actuators:
+            verifier_bonus = 8.50 if self.edits_since_last_verify >= 1 else -4.0
+
+        frame_2d = self.state_frames.get(state_hash)
+        lookahead_bonus = 0.0
+        if (
+            not isinstance(action_key, tuple)
+            and frame_2d is not None
+            and hasattr(self, "relational_dreamer")
+            and action_key in self.relational_dreamer.kinematic_generators
+            and (
+                getattr(self.goal_distiller, "levels_distilled", 0) > 0
+                or len(self.gemma4_subgoal_priors) > 0
+            )
+        ):
+            la_key = (state_hash, action_key)
+            if la_key in self.lookahead_energy_cache:
+                lookahead_bonus = self.lookahead_energy_cache[la_key]
+            elif len(self.lookahead_energy_cache) < 32:
+                pred_board = self.predict_action_outcome(
+                    frame_2d, action_key, candidate_info=candidate_info
+                )
+                if pred_board is not None and not np.array_equal(
+                    pred_board, self.splitter.project_nope(frame_2d)
+                ):
+                    cur_e = self.get_target_energy(state_hash)
+                    init_f = (
+                        self.splitter.project_nope(self.state_frames[self.initial_state_hash])
+                        if (
+                            self.initial_state_hash is not None
+                            and self.initial_state_hash in self.state_frames
+                        )
+                        else None
+                    )
+                    pred_e = float(
+                        compute_canvas_target_alignment(
+                            pred_board,
+                            initial_frame_2d=init_f,
+                            spatial_precision_map=self.spatial_precision_map,
+                            distilled_weights=self.goal_distiller.weights,
+                        )["target_energy"]
+                    )
+                    lookahead_bonus = 0.35 * max(0.0, cur_e - pred_e)
+                self.lookahead_energy_cache[la_key] = lookahead_bonus
+
         if not isinstance(action_key, tuple):
             if act_id == 7:
-                return -2.0 + triad_val + 1e-4 * g4_prior
+                return -2.0 + triad_val + 0.25 * g4_prior
+
+            inverse_map = {1: 2, 2: 1, 3: 4, 4: 3}
+            vis_cnt = self.state_visit_counts.get(state_hash, 1)
+            entry_act = self.state_entry_action.get(state_hash)
+            is_backtrack = isinstance(entry_act, int) and inverse_map.get(act_id) == entry_act
 
             # Spanning-Tree Anti-Backtracking Guard:
-            # Scale callosal prior to a non-destructive micro-tie-breaker (`1e-4`) so it never
-            # overrides spanning-tree parent-return avoidance (`-0.60`), corridor continuation (`+0.32`),
-            # or online empirical contingency / triad ordering.
-            vis_cnt = self.state_visit_counts.get(state_hash, 1)
-            eff_g4 = 1e-4 * g4_prior
-            base = 2.15 * type_score + triad_val + eff_g4
-            inverse_map = {1: 2, 2: 1, 3: 4, 4: 3}
-            entry_act = self.state_entry_action.get(state_hash)
+            # Suppress positive callosal prior only on the spanning-tree parent-return direction,
+            # while preserving full `0.25` Callosal E/I prior weight on all non-backtracking actions.
+            eff_g4 = min(0.0, 0.25 * g4_prior) if is_backtrack else 0.25 * g4_prior
+            base = 2.15 * type_score + triad_val + eff_g4 + verifier_bonus + lookahead_bonus
+
+            # Contact-Highlight Epistemic Boost & Anti-Oscillation for ACTION5
+            if act_id == 5:
+                if (
+                    hasattr(self, "relational_dreamer")
+                    and state_hash in self.relational_dreamer.active_contact_highlight_states
+                ):
+                    base += 25.0
+                elif action_key not in self.verifier_actuators:
+                    if last_action_key == 5 or self.state_entry_action.get(state_hash) == 5:
+                        base -= 1.25
+                    dir_succs = sum(
+                        self.action_type_stats.get(a, [0.0, 0.0])[1] for a in (1, 2, 3, 4)
+                    )
+                    if (
+                        trials >= 2.0
+                        and dir_succs > 0.0
+                        and hasattr(self, "relational_dreamer")
+                        and (
+                            self.relational_dreamer.action5_is_contact_operator
+                            or len(self.relational_dreamer.active_contact_highlight_states) == 0
+                        )
+                    ):
+                        base -= 0.65 * min(3.0, trials / 2.0)
+
             if isinstance(entry_act, int):
-                if inverse_map.get(act_id) == entry_act:
+                if is_backtrack:
                     # Parent-return direction in the spanning tree: try last at this state!
                     base -= 0.60
-                elif act_id == entry_act and vis_cnt <= 1:
-                    # Geodesic corridor continuation bonus on first visit to a state
+                elif act_id in (1, 2, 3, 4) and act_id == entry_act and vis_cnt <= 1:
+                    # Geodesic corridor continuation bonus on first visit to a state (directional only)
                     base += 0.32
             return float(base)
 
         # Complex coordinate action: (6, x, y)
         cx, cy = int(action_key[1]), int(action_key[2])
-        frame_2d = self.state_frames.get(state_hash)
         if frame_2d is not None and self.is_click_locally_inert(frame_2d, cx, cy, tier=1):
             return -50.0
 
@@ -3412,16 +5282,19 @@ class DarkSnailArc3WorldModel(nn.Module):
             return -35.0
 
         if candidate_info is None:
-            return float(0.50 * type_score + triad_val + 1e-4 * g4_prior)
+            return float(
+                0.50 * type_score + triad_val + verifier_bonus + lookahead_bonus + 0.25 * g4_prior
+            )
 
         sal = float(candidate_info.get("salience", 1.0))
         bh, bw = self._extract_bbox_hw(candidate_info)
         raw_kind = str(candidate_info.get("kind", "cc_object"))
         k_str = self._normalize_kind(raw_kind)
         area = int(candidate_info.get("area", int(bh) * int(bw)))
+        col_c = int(candidate_info.get("color", 0))
         fam = (
             k_str,
-            int(candidate_info.get("color", 0)),
+            col_c,
             int(bh),
             int(bw),
         )
@@ -3431,6 +5304,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         f_trials, f_succs = self.morphology_stats.get(fam, [0.0, 0.0])
         s_trials, s_succs = self.shape_stats.get(sh_fam, [0.0, 0.0])
         base_d4_trials, base_d4_succs = self._base_d4_shape_stats.get(d4_fam, [0.0, 0.0])
+        base_ck_trials, base_ck_succs = getattr(self, "_base_color_kind_stats", {}).get(
+            (k_str, col_c), [0.0, 0.0]
+        )
         has_nonlocal_actuators = len(self.remote_actuators) > 0
 
         if f_trials == 0.0:
@@ -3443,6 +5319,9 @@ class DarkSnailArc3WorldModel(nn.Module):
             elif base_d4_trials > 0.0 and base_d4_succs > 0.0 and int(bh) != int(bw):
                 # Cross-level Dihedral D_4 rotation-invariant shape transfer (`(bh, bw)` <-> `(bw, bh)`)
                 morph_bonus = 0.85 * (base_d4_succs / base_d4_trials)
+            elif base_ck_trials > 0.0 and base_ck_succs > 0.0:
+                # Scale-invariant similarity transfer across rescaled levels
+                morph_bonus = 1.25 * (base_ck_succs / base_ck_trials)
             else:
                 morph_bonus = 0.40
         else:
@@ -3451,6 +5330,24 @@ class DarkSnailArc3WorldModel(nn.Module):
                 morph_bonus = 2.40 * f_rate
             else:
                 morph_bonus = -1.60 * min(1.0, f_trials / 2.0)
+
+        canvas_area = max(1, int(frame_2d.size) if frame_2d is not None else 4096)
+        bbox_scale_ratio = float(int(bh) * int(bw)) / float(canvas_area)
+
+        # Scale-Invariant Minority-Color Switch Annihilation Bonus
+        if frame_2d is not None and not has_nonlocal_actuators and bbox_scale_ratio <= 0.005:
+            tpl = self.lattice_operator_templates.get(
+                (k_str, int(bh), int(bw))
+            ) or self.lattice_operator_templates.get(("cc_lattice", int(bh), int(bw)))
+            if tpl is not None and tpl.get("lut"):
+                bg_m = int(np.bincount(frame_2d.ravel(), minlength=16).argmax())
+                if col_c != bg_m and tpl["lut"].get(col_c) == bg_m:
+                    rem_px = int(np.sum(frame_2d == col_c))
+                    rem_ratio = float(rem_px) / float(canvas_area)
+                    if 0.0 < rem_ratio <= 0.016:
+                        morph_bonus += 1.85 * max(0.0, 1.0 - rem_ratio / 0.020)
+                elif col_c == bg_m and any(v == bg_m for k, v in tpl["lut"].items() if k != bg_m):
+                    morph_bonus -= 1.85
 
         # Online Spatial Contingency Posterior:
         # Boost medoids near confirmed interactive loci (`L_inf <= 24`), or with matching y/x alignment
@@ -3466,7 +5363,7 @@ class DarkSnailArc3WorldModel(nn.Module):
             if min_dist <= 24:
                 c_coeff = 1.35 if has_nonlocal_actuators else 1.15
                 contingency_bonus += c_coeff * (1.0 - float(min_dist) / 32.0)
-            elif aligned_axis and s_succs > 0:
+            elif aligned_axis and (s_succs > 0 or base_ck_succs > 0):
                 contingency_bonus += 0.85
             else:
                 contingency_bonus -= 0.45
@@ -3489,17 +5386,24 @@ class DarkSnailArc3WorldModel(nn.Module):
         else:
             novel_coord_bonus = -0.55 * float(prev_clicks_here)
 
-        # Immediate repeat-click anti-oscillation guard for local Z_2 toggles (`s_0 -> s_1 -> s_0`)
-        if has_nonlocal_actuators and last_action_key == action_key and not is_global_stepper:
-            if len(self.interactive_loci) > 1 or last_delta_here < 36:
-                novel_coord_bonus -= 2.25
+        # Spanning-Tree Parent-Return & Immediate Repeat-Click Anti-Oscillation Guard (`s_0 -> s_1 -> s_0`)
+        if not is_global_stepper:
+            if (
+                (not has_nonlocal_actuators)
+                and bbox_scale_ratio <= 0.005
+                and self.state_entry_action.get(state_hash) == action_key
+            ):
+                novel_coord_bonus -= 2.50
+            elif has_nonlocal_actuators and last_action_key == action_key:
+                if len(self.interactive_loci) > 1 or last_delta_here < 36:
+                    novel_coord_bonus -= 2.25
 
-        # Top-Down Spatial Precision Micro-Tie-Breaker (when Gemma 4 System 2 precision map is active)
+        # Top-Down Spatial Precision Map `Pi(y, x)` modulation
         hom_bonus = 0.0
         if self.spatial_precision_map is not None:
             H_pm, W_pm = self.spatial_precision_map.shape
             if 0 <= cy < H_pm and 0 <= cx < W_pm:
-                hom_bonus += 1e-4 * float(self.spatial_precision_map[cy, cx] - 1.0)
+                hom_bonus += 0.25 * float(self.spatial_precision_map[cy, cx] - 1.0)
 
         fv = candidate_info.get("feature_vec")
         ridge_val = (
@@ -3515,9 +5419,11 @@ class DarkSnailArc3WorldModel(nn.Module):
             + contingency_bonus
             + novel_coord_bonus
             + hom_bonus
+            + verifier_bonus
+            + lookahead_bonus
             + 0.35 * ridge_val
             + triad_val
-            + 1e-4 * g4_prior
+            + 0.25 * g4_prior
         )
 
 
@@ -3668,18 +5574,22 @@ class DarkSnailArc3Agent:
         amygdala_diag: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """
-        Zero-Bottleneck Cortico-Subcortical Left-Hemisphere Gemma 4 31B Callosal Deliberator:
+        Zero-Bottleneck Cortico-Subcortical Left-Hemisphere Gemma 4 31B Callosal Deliberator
+        & Subgoal Precision Weight Compiler (Pillar 4):
           - Builds a structured Callosal World-Model Brief summarizing current level,
             topological symmetry potential `Phi_topo(F_t)`, target alignment energy `E_target(F_t)`,
             3D affective state `(V, U, Omega)`, discovered causal operators (`remote_actuators`
-            vs. local toggles), and up to `K <= 10` numbered candidate actions `[0]..[K-1]`.
+            vs. local toggles), 5 canonical Subgoal Archetypes `[G0..G4]`, and up to `K <= 10`
+            numbered candidate actions `[0]..[K-1]`.
           - Runs a single forward pass `out = self.lh_model(**enc, output_hidden_states=True)`:
             * Pathway A (Native `R^5376` All-but-the-Top Centered Gram Resonance & Callosal Shell):
               Extracts `h_layer = out.hidden_states[hook_layer + 1]` in `R^{1 x T x 5376}`,
               applies All-but-the-Top common-mode centering (subtracting token mean `mu_29` and
               top-1 principal component `v_1`, normalizing onto `S^5375`), computes native
-              span-to-span Gram resonance `R_29(a_k) -> p_29^gram(k)` directly in `R^5376`,
-              and condenses `h_layer` via `Gemma4BeltramiCallosalShell` to modulate `z_H_super`.
+              span-to-span Gram resonance `R_29(a_k) -> p_29^gram(k)` over candidate actions AND
+              5 Subgoal Archetype spans `[G0..G4] -> w_subgoal in Delta^4` (compiled into
+              `world_model.goal_distiller`), and condenses `h_layer` via `Gemma4BeltramiCallosalShell`
+              to modulate `z_H_super`.
             * Pathway B (Symbolic Candidate Action Logit Prior): Extracts next-token logits
               `out.logits[0, -1, :]` over digit tokens `"0".."9"` to form `p_LH(k)`.
             * Callosal E/I Fusion & Top-Down Spatial Precision Map `Pi(y, x)`:
@@ -3718,6 +5628,7 @@ class DarkSnailArc3Agent:
                     "pathway_a_injected": False,
                     "pathway_b_priors": 0,
                     "gram_resonance_computed": False,
+                    "subgoal_weights": None,
                 }
             return z_H_super
 
@@ -3727,6 +5638,7 @@ class DarkSnailArc3Agent:
         pathway_a_injected = False
         gram_resonance_computed = False
         pathway_b_count = 0
+        subgoal_weights_np: Optional[np.ndarray] = None
 
         try:
             phi_topo = self.world_model.get_topo_potential(cur_hash)
@@ -3756,6 +5668,13 @@ class DarkSnailArc3Agent:
                 for m in med_source[: max(0, 10 - len(cands_list))]:
                     cands_list.append((float(m.get("salience", 1.0)), (6, int(m["x"]), int(m["y"])), m))
 
+            subgoal_lines = [
+                "[G0] template_matching: align playfield panel to reference HUD/legend template",
+                "[G1] transport_packing: translate/pack mobile objects onto target marginals",
+                "[G2] symmetry_repair: repair dihedral symmetry or local lattice defect",
+                "[G3] minority_clearing: annihilate/clear minority-color anomaly tokens",
+                "[G4] key_lock_docking: navigate ego to key/switch or dock into matching receptor frame",
+            ]
             cand_lines: List[str] = []
             for idx_k, (sc_k, ak_k, info_k) in enumerate(cands_list[:10]):
                 if isinstance(ak_k, tuple) and len(ak_k) == 3:
@@ -3779,6 +5698,7 @@ class DarkSnailArc3Agent:
                 f"ARC-AGI-3 Callosal World-Model Brief | State={cur_hash[:8]} | Level={self.current_level} | "
                 f"Phi_topo={phi_topo:.3f} | E_target={e_target:.3f} | Amygdala(V={v_a:.2f},U={u_a:.2f},Omega={om_a:.2f})\n"
                 f"Confirmed Causal Operators: {', '.join(act_summary) if act_summary else 'none_yet'}\n"
+                f"Subgoal Invariant Archetypes:\n" + "\n".join(subgoal_lines) + "\n"
                 f"Candidate Actions:\n" + "\n".join(cand_lines) + "\n"
                 f"Best candidate index (0-9): "
             )
@@ -3821,6 +5741,24 @@ class DarkSnailArc3Agent:
                         h_query = F.normalize(h_sphere[-2:].mean(dim=0), p=2, dim=-1)
 
                         T_seq = int(h_sphere.shape[0])
+                        # Subgoal Archetype Gram Resonance [G0..G4] -> w_subgoal in Delta^4
+                        g_start = max(0, T_seq // 6)
+                        g_mid = max(g_start + 1, T_seq // 2)
+                        subgoal_scores: List[float] = []
+                        for g_idx in range(5):
+                            ga = g_start + int((g_idx * (g_mid - g_start)) // 5)
+                            gb = max(ga + 1, g_start + int(((g_idx + 1) * (g_mid - g_start)) // 5))
+                            h_sub_g = F.normalize(h_sphere[ga:gb].mean(dim=0), p=2, dim=-1)
+                            subgoal_scores.append(float(torch.dot(h_sub_g, h_query).item()))
+                        sg_tensor = torch.tensor(subgoal_scores, dtype=torch.float32) / max(0.08, 0.5 * temp_g)
+                        subgoal_weights_np = F.softmax(sg_tensor, dim=-1).cpu().numpy()
+                        if hasattr(self.world_model, "goal_distiller"):
+                            self.world_model.goal_distiller.apply_system2_compiled_weights(
+                                subgoal_weights_np, blend=float(0.35 * alpha_ei)
+                            )
+                            self.world_model.gemma4_subgoal_priors[cur_hash] = subgoal_weights_np
+                            self.world_model.state_target_alignment.clear()
+
                         span_start = max(0, T_seq // 4)
                         span_end = max(span_start + 1, T_seq - 2)
                         gram_scores: List[float] = []
@@ -3903,6 +5841,9 @@ class DarkSnailArc3Agent:
                 "pathway_a_injected": pathway_a_injected,
                 "gram_resonance_computed": gram_resonance_computed,
                 "pathway_b_priors": pathway_b_count,
+                "subgoal_weights": (
+                    subgoal_weights_np.tolist() if subgoal_weights_np is not None else None
+                ),
                 "z_H": z_H_super,
             }
         return z_H_super
@@ -3936,6 +5877,7 @@ class DarkSnailArc3Agent:
         self.prev_candidate_info: Optional[Dict[str, Any]] = None
         self.consecutive_same_action: int = 0
         self.planned_bfs_queue: deque = deque()
+        self.planned_action_sequence: deque = deque()
         self.state_medoid_cache: Dict[str, Dict[Tuple[int, int], Dict[str, Any]]] = {}
         self.state_expanded: Set[str] = set()
         self.gemma4_deliberated_states: Set[str] = set()
@@ -3967,6 +5909,7 @@ class DarkSnailArc3Agent:
         self.prev_candidate_info = None
         self.consecutive_same_action = 0
         self.planned_bfs_queue.clear()
+        self.planned_action_sequence.clear()
         self.state_medoid_cache.clear()
         self.state_expanded.clear()
         self.math_plan_attempted_states.clear()
@@ -4026,7 +5969,8 @@ class DarkSnailArc3Agent:
         """
         Returns ranked `(score, action_key, candidate_info)` tuples of untried actions at `state_hash`.
         Prioritizes testing low-cardinality discrete generators `ACTION1..5` before speculative
-        4,096-point coordinate clicks when `ACTION6` has zero confirmed successes.
+        4,096-point coordinate clicks when `ACTION6` has zero confirmed successes, and applies
+        Connected-Component Lax-Bisimulation Quotienting in Tier 1.
         """
         frame_2d = self.world_model.state_frames.get(state_hash)
         if frame_2d is None:
@@ -4074,8 +6018,8 @@ class DarkSnailArc3Agent:
             )
             # In hybrid action spaces (`ACTION1..5` + `ACTION6`), finish testing the <= 5
             # discrete actions at `state_hash` before testing speculative coordinate clicks when
-            # `c6_succs == 0` (`untried_simple_count == 0 and c6_trials < 4` for `sc25`), and
-            # expand up to 16 Beltrami medoids in Tier 2 (`dc22`).
+            # `c6_succs == 0` (`untried_simple_count == 0 and c6_trials < 4`), and
+            # expand up to 16 Beltrami medoids in Tier 2.
             include_clicks_in_tier1 = (
                 click_only_game
                 or c6_succs > 0
@@ -4085,9 +6029,12 @@ class DarkSnailArc3Agent:
             )
 
             # If simple generators are confirmed active (`simple_succs > 0`) and `ACTION6` has
-            # failed >= 16 times across Tier-2 medoid probes with 0 successes, suppress clicks.
+            # failed >= 16 times across states without a single transition, suppress clicks globally.
             suppress_clicks_globally = (
-                not click_only_game and simple_succs > 0 and c6_trials >= 16 and c6_succs == 0
+                not click_only_game
+                and simple_succs > 0
+                and c6_succs == 0
+                and c6_trials >= 16
             )
 
             if (tier >= 2 or include_clicks_in_tier1) and not suppress_clicks_globally:
@@ -4106,10 +6053,8 @@ class DarkSnailArc3Agent:
                     and not simple_all_failed_here
                     and getattr(self, "tier1_click_probes_failed", False)
                 ):
-                    # In hybrid games where all initial Tier-1 click probes failed (`c6_trials >= 4`
-                    # with `c6_succs == 0`, e.g. `dc22`) before a Tier-2 actuator succeeded, restrict
-                    # Tier-1 clicks at subsequent keyboard states to confirmed interactive loci or D_4
-                    # shapes with confirmed contingency!
+                    # In hybrid games where initial Tier-1 click probes failed, restrict
+                    # Tier-1 clicks at subsequent keyboard states to confirmed interactive loci or D_4 shapes!
                     cands_list = [
                         c
                         for c in cands_list
@@ -4258,6 +6203,7 @@ class DarkSnailArc3Agent:
             self.prev_candidate_info = None
             self.consecutive_same_action = 0
             self.planned_bfs_queue.clear()
+            self.planned_action_sequence.clear()
             act = GameAction.RESET
             act.reasoning = {"agent": "darksnail_v2_arc3", "mode": "game_over_recovery_reset"}
             return act
@@ -4265,6 +6211,16 @@ class DarkSnailArc3Agent:
         level_up = levels_completed > self.current_level
         if level_up:
             if self.prev_frame_2d is not None and self.prev_action_key is not None:
+                if len(subframes) >= 2:
+                    win_frame_2d = subframes[-2]
+                else:
+                    pred_win = self.world_model.predict_action_outcome(
+                        self.prev_frame_2d,
+                        self.prev_action_key,
+                        candidate_info=self.prev_candidate_info,
+                    )
+                    win_frame_2d = pred_win if pred_win is not None else self.prev_frame_2d
+                self.world_model.distill_level_win(win_frame_2d)
                 self.world_model.record_transition(
                     self.prev_frame_2d,
                     frame_2d,
@@ -4287,7 +6243,9 @@ class DarkSnailArc3Agent:
             )
             if rec.is_phase_reset:
                 self.planned_bfs_queue.clear()
+                self.planned_action_sequence.clear()
             if rec.is_self_loop:
+                self.planned_action_sequence.clear()
                 self.consecutive_no_progress += 1
             else:
                 self.consecutive_no_progress = 0
@@ -4400,7 +6358,7 @@ class DarkSnailArc3Agent:
         hrm_unroll = max(
             1,
             min(
-                8,
+                2,
                 int(amygdala_state.get("reasoning_steps", schedule.unroll_steps)),
             ),
         )
@@ -4409,6 +6367,7 @@ class DarkSnailArc3Agent:
             z_L_tok,
             unroll_steps=schedule.unroll_steps,
             hrm_steps=hrm_unroll,
+            bypass_active=bool(amygdala_state.get("bypass_active", False)),
         )
         if z_H_callosal is not None:
             self.world_model.z_H = z_H_callosal.detach()
@@ -4425,6 +6384,27 @@ class DarkSnailArc3Agent:
             else:
                 self.planned_bfs_queue.clear()
 
+        if self.planned_action_sequence:
+            next_plan_act = self.planned_action_sequence.popleft()
+            self._record_chosen_action(frame_2d, cur_hash, next_plan_act, None)
+            return self._build_game_action(
+                next_plan_act, schedule, mode_desc="sheaf_bijection_plan"
+            )
+
+        if 6 in avail and cur_hash == init_hash and cur_hash not in self.math_plan_attempted_states:
+            sheaf_plan = self.world_model.synthesize_sheaf_bijection_plan(
+                frame_2d, available_actions=avail, allow_generic_triplets=False
+            )
+            if sheaf_plan:
+                self.math_plan_attempted_states.add(cur_hash)
+                first_sheaf_act = sheaf_plan[0]
+                for act_s in sheaf_plan[1:]:
+                    self.planned_action_sequence.append(act_s)
+                self._record_chosen_action(frame_2d, cur_hash, first_sheaf_act, None)
+                return self._build_game_action(
+                    first_sheaf_act, schedule, mode_desc="sheaf_bijection_plan"
+                )
+
         # Case 1: Untried Tier-1 actions at `cur_hash`
         untried_here = self._get_untried_actions_for_state(cur_hash, avail, triad_priors, tier=1)
         if untried_here:
@@ -4432,12 +6412,18 @@ class DarkSnailArc3Agent:
             self._record_chosen_action(frame_2d, cur_hash, chosen_act, chosen_info)
             return self._build_game_action(chosen_act, schedule, mode_desc="tier1_frontier_explore")
 
-        # Case 2: Shortest-path BFS over `G = (V, E)` to a frontier state `s*` with untried Tier-1 actions
+        # Case 2: Best-First / A* Free-Energy Descent over `G = (V, E)` to a frontier state `s*`
         frontier_scores: Dict[str, float] = {}
         init_frame = (
             self.world_model.splitter.project_nope(self.world_model.state_frames[init_hash])
             if (init_hash is not None and init_hash in self.world_model.state_frames)
             else None
+        )
+        has_simple_actions = any(a in avail for a in (1, 2, 3, 4, 5))
+        init_energy = (
+            self.world_model.get_target_energy(init_hash)
+            if (has_simple_actions and init_hash is not None)
+            else 1.0
         )
         for sh, sf_arr in self.world_model.state_frames.items():
             if sh == cur_hash:
@@ -4449,12 +6435,22 @@ class DarkSnailArc3Agent:
                     nov = float(np.mean(self.world_model.splitter.project_nope(sf_arr) != init_frame))
                 else:
                     nov = 0.0
+                energy_gain = (
+                    max(0.0, init_energy - self.world_model.get_target_energy(sh))
+                    if has_simple_actions
+                    else 0.0
+                )
                 emp = self.world_model.compute_state_empowerment(sh, untried_count=len(u_list))
                 topo_gain = max(0.0, self.world_model.get_topo_potential(sh) - init_topo)
                 vis_s = float(max(1, self.world_model.state_visit_counts.get(sh, 1)))
                 freshness = 0.25 / math.sqrt(vis_s)
                 frontier_scores[sh] = (
-                    best_u_score + 1.50 * nov + freshness + 0.02 * emp + 0.02 * topo_gain
+                    best_u_score
+                    + 4.50 * energy_gain
+                    + 1.50 * nov
+                    + freshness
+                    + 0.02 * emp
+                    + 0.02 * topo_gain
                 )
 
         bfs_res = self.world_model.find_shortest_path_to_frontier(cur_hash, frontier_scores)
@@ -4473,6 +6469,53 @@ class DarkSnailArc3Agent:
             self._record_chosen_action(frame_2d, cur_hash, first_act, None)
             return self._build_game_action(first_act, schedule, mode_desc="bfs_shortest_path_start")
 
+        # Case 2.5: Before expanding Tier-2 Medoids, attempt Multi-Step Mathematical Plan Synthesis
+        # if 2..8 causal operators have been induced and cross-level or System 2 subgoal weights exist.
+        if (
+            cur_hash not in self.math_plan_attempted_states
+            and len(self.math_plan_attempted_states) < 2
+            and 2 <= len(self.world_model.learned_operators) <= 8
+            and (
+                getattr(self.world_model.goal_distiller, "levels_distilled", 0) > 0
+                or len(self.world_model.gemma4_subgoal_priors) > 0
+            )
+        ):
+            self.math_plan_attempted_states.add(cur_hash)
+            active_cands_pre: List[ActionKey] = [
+                op_key
+                for op_key in self.world_model.learned_operators.keys()
+                if (
+                    (isinstance(op_key, int) and op_key in avail)
+                    or (isinstance(op_key, tuple) and 6 in avail)
+                )
+            ]
+            if active_cands_pre:
+                math_res_pre = self.world_model.synthesize_mathematical_plan(
+                    frame_2d=frame_2d,
+                    candidate_actions=active_cands_pre,
+                    z_H_super=z_H_super,
+                    z_L_token=z_L_tok,
+                    max_depth=3,
+                )
+                math_plan_pre = (
+                    math_res_pre.get("plan", [])
+                    if isinstance(math_res_pre, dict)
+                    else list(math_res_pre or [])
+                )
+                math_red_pre = (
+                    float(math_res_pre.get("energy_reduction", 0.0))
+                    if isinstance(math_res_pre, dict)
+                    else 0.0
+                )
+                if math_plan_pre and math_red_pre >= 0.25:
+                    first_math_act = math_plan_pre[0]
+                    for act_m in math_plan_pre[1:]:
+                        self.planned_action_sequence.append(act_m)
+                    self._record_chosen_action(frame_2d, cur_hash, first_math_act, None)
+                    return self._build_game_action(
+                        first_math_act, schedule, mode_desc="mathematical_plan_synthesis"
+                    )
+
         # Case 3: Tier-1 Frontier Exhausted -> Expand Tier-2 Medoids!
         untried_tier2_here = self._get_untried_actions_for_state(
             cur_hash, avail, triad_priors, tier=2
@@ -4488,7 +6531,12 @@ class DarkSnailArc3Agent:
                 continue
             u2 = self._get_untried_actions_for_state(sh, avail, triad_priors, tier=2)
             if u2:
-                tier2_frontier[sh] = float(u2[0][0])
+                energy_gain = (
+                    max(0.0, init_energy - self.world_model.get_target_energy(sh))
+                    if has_simple_actions
+                    else 0.0
+                )
+                tier2_frontier[sh] = float(u2[0][0]) + 4.50 * energy_gain
 
         bfs_t2 = self.world_model.find_shortest_path_to_frontier(cur_hash, tier2_frontier)
         if bfs_t2 is not None:
@@ -4717,6 +6765,9 @@ __all__ = [
     "compute_topological_symmetry_potential",
     "compute_marginal_wasserstein1_distance",
     "compute_canvas_target_alignment",
+    "CrossLevelGoalInvariantDistiller",
+    "RelationalOperatorDreamer",
+    "OnlineForwardOperatorDreamer",
     "Arc3EpisodicBeltramiShell",
     "MagicNorm",
     "HRMRecurrentBlock",
@@ -4726,6 +6777,7 @@ __all__ = [
     "DarkSnailArc3WorldModel",
     "DarkSnailArc3Agent",
 ]
+
 
 
 
