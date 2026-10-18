@@ -3221,6 +3221,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.state_topo_potential: Dict[str, float] = {}
         self.state_target_alignment: Dict[str, Dict[str, Any]] = {}
         self.spatial_precision_map: Optional[np.ndarray] = None
+        self.state_precision_maps: Dict[str, np.ndarray] = {}
         self.gemma4_action_priors: Dict[Tuple[str, ActionKey], float] = {}
         self.gemma4_subgoal_priors: Dict[str, np.ndarray] = {}
         self.learned_operators: Dict[ActionKey, Dict[str, Any]] = {}
@@ -3571,7 +3572,7 @@ class DarkSnailArc3WorldModel(nn.Module):
             frame,
             initial_frame_2d=init_f,
             clock_mask=self.splitter.clock_mask,
-            spatial_precision_map=self.spatial_precision_map,
+            spatial_precision_map=None,
             distilled_weights=d_weights,
         )
         self.state_target_alignment[state_hash] = info
@@ -5190,10 +5191,7 @@ class DarkSnailArc3WorldModel(nn.Module):
             and frame_2d is not None
             and hasattr(self, "relational_dreamer")
             and action_key in self.relational_dreamer.kinematic_generators
-            and (
-                getattr(self.goal_distiller, "levels_distilled", 0) > 0
-                or len(self.gemma4_subgoal_priors) > 0
-            )
+            and getattr(self.goal_distiller, "levels_distilled", 0) > 0
         ):
             la_key = (state_hash, action_key)
             if la_key in self.lookahead_energy_cache:
@@ -5218,7 +5216,7 @@ class DarkSnailArc3WorldModel(nn.Module):
                         compute_canvas_target_alignment(
                             pred_board,
                             initial_frame_2d=init_f,
-                            spatial_precision_map=self.spatial_precision_map,
+                            spatial_precision_map=None,
                             distilled_weights=self.goal_distiller.weights,
                         )["target_energy"]
                     )
@@ -5398,12 +5396,13 @@ class DarkSnailArc3WorldModel(nn.Module):
                 if len(self.interactive_loci) > 1 or last_delta_here < 36:
                     novel_coord_bonus -= 2.25
 
-        # Top-Down Spatial Precision Map `Pi(y, x)` modulation
+        # Top-Down Spatial Precision Map `Pi(y, x)` modulation (state-scoped & non-double-counted)
         hom_bonus = 0.0
-        if self.spatial_precision_map is not None:
-            H_pm, W_pm = self.spatial_precision_map.shape
+        state_pm = getattr(self, "state_precision_maps", {}).get(state_hash)
+        if state_pm is not None and (state_hash, action_key) not in self.gemma4_action_priors:
+            H_pm, W_pm = state_pm.shape
             if 0 <= cy < H_pm and 0 <= cx < W_pm:
-                hom_bonus += 0.25 * float(self.spatial_precision_map[cy, cx] - 1.0)
+                hom_bonus += 0.25 * float(state_pm[cy, cx] - 1.0)
 
         fv = candidate_info.get("feature_vec")
         ridge_val = (
@@ -5753,11 +5752,11 @@ class DarkSnailArc3Agent:
                         sg_tensor = torch.tensor(subgoal_scores, dtype=torch.float32) / max(0.08, 0.5 * temp_g)
                         subgoal_weights_np = F.softmax(sg_tensor, dim=-1).cpu().numpy()
                         if hasattr(self.world_model, "goal_distiller"):
-                            self.world_model.goal_distiller.apply_system2_compiled_weights(
-                                subgoal_weights_np, blend=float(0.35 * alpha_ei)
-                            )
                             self.world_model.gemma4_subgoal_priors[cur_hash] = subgoal_weights_np
-                            self.world_model.state_target_alignment.clear()
+                            if getattr(self.world_model.goal_distiller, "levels_distilled", 0) > 0:
+                                self.world_model.goal_distiller.apply_system2_compiled_weights(
+                                    subgoal_weights_np, blend=float(0.08 * alpha_ei)
+                                )
 
                         span_start = max(0, T_seq // 4)
                         span_end = max(span_start + 1, T_seq - 2)
@@ -5805,7 +5804,7 @@ class DarkSnailArc3Agent:
                     t_tensor = torch.tensor(digit_scores, dtype=torch.float32) / max(0.05, temp_g)
                     p_lh_np = F.softmax(t_tensor, dim=-1).cpu().numpy()
 
-                # Callosal E/I Fusion & Top-Down Spatial Precision Map `Pi(y, x)`
+                # Callosal E/I Fusion & Zero-Centered Within-State Prior + Per-State Spatial Precision Map `Pi_s(y, x)`
                 if valid_k > 0 and (p_lh_np is not None or p_gram_np is not None):
                     if p_lh_np is not None and p_gram_np is not None:
                         p_callosal = (1.0 - alpha_ei) * p_lh_np + alpha_ei * p_gram_np
@@ -5821,17 +5820,22 @@ class DarkSnailArc3Agent:
                         indexing="ij",
                     )
                     pi_map = np.ones((H_f, W_f), dtype=np.float32)
+                    pi_state_map = np.ones((H_f, W_f), dtype=np.float32)
+                    p_unif = 1.0 / float(max(1, valid_k))
 
                     for k_idx in range(valid_k):
                         ak_k = cands_list[k_idx][1]
                         pk_val = float(p_callosal[k_idx])
-                        self.world_model.gemma4_action_priors[(cur_hash, ak_k)] = 1.50 * pk_val
+                        pk_centered = pk_val - p_unif
+                        self.world_model.gemma4_action_priors[(cur_hash, ak_k)] = 1.50 * pk_centered
                         if isinstance(ak_k, tuple) and len(ak_k) == 3 and ak_k[0] == 6:
                             cx_k, cy_k = float(ak_k[1]), float(ak_k[2])
                             gauss = np.exp(-((yy - cy_k) ** 2 + (xx - cx_k) ** 2) / (2.0 * 4.0 ** 2))
                             pi_map += 1.50 * pk_val * gauss
+                            pi_state_map += 1.00 * pk_centered * gauss
 
                     self.world_model.spatial_precision_map = np.clip(pi_map, 0.2, 4.0)
+                    self.world_model.state_precision_maps[cur_hash] = np.clip(pi_state_map, 0.5, 2.0)
                     pathway_b_count = valid_k
         except Exception:
             pass
@@ -6431,6 +6435,15 @@ class DarkSnailArc3Agent:
             u_list = self._get_untried_actions_for_state(sh, avail, triad_priors, tier=1)
             if u_list:
                 best_u_score = float(u_list[0][0])
+                best_ak = u_list[0][1]
+                # Remove within-state Callosal re-ranking offset when comparing across states in BFS
+                g4_off = 0.25 * float(self.world_model.gemma4_action_priors.get((sh, best_ak), 0.0))
+                if not isinstance(best_ak, tuple):
+                    inv_m = {1: 2, 2: 1, 3: 4, 4: 3}
+                    ent_a = self.world_model.state_entry_action.get(sh)
+                    if isinstance(ent_a, int) and inv_m.get(int(best_ak)) == ent_a:
+                        g4_off = min(0.0, g4_off)
+                best_u_score -= g4_off
                 if init_frame is not None:
                     nov = float(np.mean(self.world_model.splitter.project_nope(sf_arr) != init_frame))
                 else:
@@ -6470,15 +6483,12 @@ class DarkSnailArc3Agent:
             return self._build_game_action(first_act, schedule, mode_desc="bfs_shortest_path_start")
 
         # Case 2.5: Before expanding Tier-2 Medoids, attempt Multi-Step Mathematical Plan Synthesis
-        # if 2..8 causal operators have been induced and cross-level or System 2 subgoal weights exist.
+        # if 2..8 causal operators have been induced and cross-level distilled weights exist.
         if (
             cur_hash not in self.math_plan_attempted_states
             and len(self.math_plan_attempted_states) < 2
             and 2 <= len(self.world_model.learned_operators) <= 8
-            and (
-                getattr(self.world_model.goal_distiller, "levels_distilled", 0) > 0
-                or len(self.world_model.gemma4_subgoal_priors) > 0
-            )
+            and getattr(self.world_model.goal_distiller, "levels_distilled", 0) > 0
         ):
             self.math_plan_attempted_states.add(cur_hash)
             active_cands_pre: List[ActionKey] = [
