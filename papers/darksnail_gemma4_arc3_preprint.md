@@ -229,7 +229,7 @@ where $\mathcal B_{S \to 32}$ (`BeltramiCondense`) extracts `16` Tier-1 Beltrami
 
 ### 2.4 Block-KL + Dual Lagrangian Sidecar Calibration & Full $n = 200$ LongBench QASPER / 50-Position Banal NIAH Evaluation
 
-We calibrate the 10-global-layer V4 router sidecar ([`checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors`](../checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors), `85.38 MB`) using [`warmup_gemma4_router_kl`](../darksnail/gemma4.py) over `40` steps of self-supervised **Block-KL Divergence + Dual Lagrangian Entropy Regularization** against the exact teacher block-attention distribution on the `384`-D `k_nope` subspace.
+We calibrate the 10-global-layer V4 router sidecar ([`checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors`](../checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors), `85.38 MB`) using [`warmup_gemma4_routers_kl`](../darksnail/gemma4.py) over `40` steps of self-supervised **Block-KL Divergence + Dual Lagrangian Entropy Regularization** against the exact teacher block-attention distribution on the `384`-D `k_nope` subspace.
 To prevent long-range needle loss during autoregressive multi-token generation (`seq_len == 1`), `SurgicalGemma4Attention` caches the top-96 Beltrami + Query-Tail contiguous token spans (`kernel_size = 13`) during prefill (`seq_len > 1`) and pairs them with **Measure-Preserving Donor Pruning** (`_apply_darksnail_block_bridge`), which evicts an equal number of lowest-salience interior filler blocks so that the total causal key budget of `darksnail@r` never exceeds `v4_triad@r`.
 
 Tables 1 and 2 report the complete empirical evaluation on `google/gemma-4-31B-it` (`bfloat16`) across the **50-position Banal NIAH suite** ($N = 4,096$ tokens, needle `"spherical coordinates"`)
