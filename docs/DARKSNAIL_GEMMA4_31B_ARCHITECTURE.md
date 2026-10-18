@@ -286,3 +286,27 @@ k_pruned, v_pruned, hidden_out, keep_mask = hook.forward_global_kv_hook(
     steps=4,
 )
 ```
+
+### 6.4 Unified Mechanistic Interpretability & Spherical Lie-Steering Hooks (`darksnail/hooks.py`)
+```python
+from darksnail.hooks import (
+    AllButTheTopGramHook,
+    BeltramiShellProbeHook,
+    DarkSnailHookSession,
+    PRoPESubspaceHook,
+    SphericalLieSteeringHook,
+)
+
+probe = BeltramiShellProbeHook(outlier_budget=16, condensed_budget=16, isometric_target_dim=4096)
+steerer = SphericalLieSteeringHook(subspace_dim=64, dt=0.15)
+gram = AllButTheTopGramHook(
+    goal_span=(0, 128),
+    candidate_spans=[(128, 136), (136, 144), (144, 152)],
+    alpha_callosal=0.65,
+)
+prope = PRoPESubspaceHook(head_dim=512, partial_rotary_factor=0.25, layout="hf_split_half")
+
+with DarkSnailHookSession(model, hooks=[probe, steerer, gram, (29, prope)]):
+    _ = model(input_ids)
+```
+

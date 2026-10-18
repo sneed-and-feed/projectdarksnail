@@ -5,7 +5,11 @@ from .llama_patcher import (
     load_router_sidecar,
 )
 from .surgery import SurgicalLlamaAttention, SurgeryLossRamp
-from .surgery_trainer import SurgeryTrainer, TauAnnealingCallback
+try:
+    from .surgery_trainer import SurgeryTrainer, TauAnnealingCallback
+except Exception:
+    SurgeryTrainer = None
+    TauAnnealingCallback = None
 from .topology import (
     DynamicTopologyRouter,
     MultiPrimeTopologyRouter,
@@ -13,8 +17,18 @@ from .topology import (
     compute_expected_block_distance,
 )
 from .qat import QATLinear, inject_qat, FakeQuantizeSTE
-from .adelic_cache import SurprisalAdelicCache, BeltramiAdelicCache, TemporalAdelicCache
-from .speculative import SpeculativeSurgicalGenerator, ZenoSpeculativeGenerator
+try:
+    from .adelic_cache import SurprisalAdelicCache, BeltramiAdelicCache, TemporalAdelicCache
+except Exception:
+    SurprisalAdelicCache = None
+    BeltramiAdelicCache = None
+    TemporalAdelicCache = None
+
+try:
+    from .speculative import SpeculativeSurgicalGenerator, ZenoSpeculativeGenerator
+except Exception:
+    SpeculativeSurgicalGenerator = None
+    ZenoSpeculativeGenerator = None
 
 try:
     from .multimodal_injector import MultimodalEncoder, VisionProjection

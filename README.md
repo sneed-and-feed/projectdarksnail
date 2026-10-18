@@ -1,7 +1,7 @@
 # Project DarkSnail V2 — Bi-Hemispheric $\times$ Ultrametric Triad Synthesis
 
 [![Lean 4 Verified](https://img.shields.io/badge/Lean_4-Zero_Sorry_Verified-brightgreen)](#lean-4-formal-verification-occlusiontriadlean)
-[![Pytest](https://img.shields.io/badge/pytest-25%2F25_passed-brightgreen)](#unit-test-suite)
+[![Pytest](https://img.shields.io/badge/pytest-32%2F32_passed-brightgreen)](#unit-test-suite)
 [![ARC-AGI-1](https://img.shields.io/badge/ARC--AGI--1_Eval-38.00_%2F_400_(9.50%25)-blue)](#empirical-evaluation-on-arc-agi-1-n--400)
 [![ARC-AGI-1 Shapes](https://img.shields.io/badge/ARC--AGI--1_Shapes-419_%2F_419_eval_%7C_94.5%25_train-success)](#empirical-evaluation-on-arc-agi-1-n--400)
 [![ARC-AGI-3 Interactive](https://img.shields.io/badge/ARC--AGI--3_25_Games-29_%2F_183_Levels_(15.85%25)%20%7C%2018_%2F_25_Games%20%7C%201_Won-purple)](#embodied-interactive-evaluation-on-arc-agi-3-25-games-183-levels)
@@ -166,6 +166,7 @@ darksnail/
 │   ├── __init__.py          # Package exports
 │   ├── arc3.py              # DarkSnailArc3Agent: TemporalClockContentSplitter, Sheaf Cavity CSP, Fisher-Rao Distiller, Relational Dreamer, Online so(16) TTT & Gemma 4 Callosal Shell
 │   ├── gemma4.py            # Gemma 4 31B p-RoPE splitter, SurgicalGemma4Attention, Layer-29 Gemma4BeltramiCallosalShell & KL warmup
+│   ├── hooks.py             # Composable Mechanistic Interpretability & Spherical Lie-Algebraic Steering Hooks (DarkSnailHookSession, BeltramiShellProbeHook, SphericalLieSteeringHook, AllButTheTopGramHook, PRoPESubspaceHook)
 │   ├── shell.py             # BeltramiCallosalShell, infer_arc_output_shape_beltrami, extract_beltrami_pullback_canvas & Zeno flux
 │   ├── readout.py           # SkewSymmetricTriadOperator, DarkSnailCanvasReadout, ContinuousSpectralFieldReadout, SlowFastTriadCascade, RoPE2DMedoidPooler
 │   ├── antenna.py           # ZenoAmygdalaController (dynamic K in {1,4,8,16}) & DarkSnailSystem2Adaptor
@@ -214,15 +215,48 @@ darksnail/
 └── tests/
     ├── test_darksnail.py            # 10-suite core DarkSnail V2 + CDS pytest verification
     ├── test_darksnail_arc3.py       # 11-suite ARC-AGI-3 interactive agent, Argon integrity & Callosal verification
-    └── test_darksnail_gemma4.py     # 5-suite + 10-audit Gemma 4 31B pytest verification
+    ├── test_darksnail_gemma4.py     # 5-suite + 10-audit Gemma 4 31B pytest verification
+    └── test_hooks.py                # 6-suite Mechanistic Interpretability & Spherical Lie-Steering Hook verification
+```
+
+### Mechanistic Interpretability & Standalone Hooks (`darksnail.hooks`)
+
+[`darksnail/hooks.py`](darksnail/hooks.py) packages Project DarkSnail's residual-stream telemetry, norm-preserving $\mathfrak{so}(M)$ activation steering, anisotropic cone debiasing, and Proportional RoPE (`p-RoPE`) subspace separation into four zero-weight-training PyTorch forward hooks managed by `DarkSnailHookSession`:
+
+```python
+from darksnail import (
+    AllButTheTopGramHook,
+    BeltramiShellProbeHook,
+    DarkSnailHookSession,
+    PRoPESubspaceHook,
+    SphericalLieSteeringHook,
+)
+
+probe = BeltramiShellProbeHook(outlier_budget=16, condensed_budget=16, isometric_target_dim=4096)
+steerer = SphericalLieSteeringHook(subspace_dim=64, dt=0.15)
+gram = AllButTheTopGramHook(
+    goal_span=(0, 128),
+    candidate_spans=[(128, 136), (136, 144), (144, 152)],
+    alpha_callosal=0.65,
+)
+prope = PRoPESubspaceHook(head_dim=512, partial_rotary_factor=0.25, layout="hf_split_half")
+
+# Auto-detects model.model.layers (Llama L=16) or model.language_model.layers (Gemma 4 Global L=29)
+# and guarantees handle.remove() cleanup on exit or exception:
+with DarkSnailHookSession(model, hooks=[probe, steerer, gram, (29, prope)]):
+    _ = model(input_ids)
+
+telemetry = probe.last_telemetry       # condensed_shell (B, 32, 4096), tier1_outlier_indices, zeno_flux_phi_lh
+resonances = gram.last_telemetry       # gram_resonances, p_callosal, relu_callosal_margin
 ```
 
 ### Unit Test Suite
 ```powershell
-python -m pytest tests/test_darksnail_arc3.py tests/test_darksnail_gemma4.py tests/test_darksnail.py -v
+python -m pytest tests/test_darksnail_arc3.py tests/test_darksnail_gemma4.py tests/test_darksnail.py tests/test_hooks.py -v
 ```
 
 ### Google Colab GPU Execution
 - **ARC-AGI-3 Interactive Benchmark (25 Games, 183 Levels) + Live Gemma 4 31B Callosal Telemetry:** Open [`notebooks/darksnail_arc3_colab.ipynb`](notebooks/darksnail_arc3_colab.ipynb) in Google Colab (A100 / L4 runtime).
 - **ARC-AGI-1** ($N=400$) **+ LongBench QASPER** ($n=200$) **& Banal NIAH** ($50$ positions): Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab.
+
 

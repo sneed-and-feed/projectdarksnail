@@ -372,6 +372,27 @@ def _exact_orthogonality_ulp_polish(
                 so_b = torch.where(imp, w, so_b)
                 sr_b = torch.where(imp, rw, sr_b)
 
+            j_max = sord_b[:, 0:1]
+            vj_max = torch.gather(sv_b, -1, j_max)
+            safe_vmax = torch.where(vj_max.abs() > 1e-7, vj_max, torch.ones_like(vj_max))
+            for s_mul in range(1, 512):
+                if not bool((sr_b.abs() > 1e-8).any().item()):
+                    break
+                scale_f = 1.0 + float(s_mul if s_mul % 2 == 0 else -s_mul) * 3.7e-5
+                w = so_b * scale_f
+                w = w - ((sv_b * w).sum(dim=-1, keepdim=True) / vn_b) * sv_b
+                rw = (sv_b * w).sum(dim=-1, keepdim=True)
+                omax = torch.gather(w, -1, j_max)
+                bmax = omax - (rw / safe_vmax)
+                umax = (torch.nextafter(bmax, sinf_b) - bmax).abs()
+                for k in (0, 1, -1, 2, -2, 3, -3, 4, -4):
+                    cmax = bmax if k == 0 else (bmax + float(k) * umax)
+                    c = w.scatter(-1, j_max, cmax)
+                    cr = (sv_b * c).sum(dim=-1, keepdim=True)
+                    imp = cr.abs() < sr_b.abs()
+                    so_b = torch.where(imp, c, so_b)
+                    sr_b = torch.where(imp, cr, sr_b)
+
             so[rem_mask] = so_b
             sr[rem_mask] = sr_b
 

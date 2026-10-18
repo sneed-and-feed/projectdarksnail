@@ -97,6 +97,14 @@ __all__ = [
     "DarkSnailArc3Agent",
     "load_gemma4_router_sidecar",
     "save_gemma4_router_sidecar",
+    "BeltramiShellProbeHook",
+    "SphericalLieSteeringHook",
+    "AllButTheTopGramHook",
+    "PRoPESubspaceHook",
+    "DarkSnailHookSession",
+    "discover_decoder_layers",
+    "resolve_default_hook_layer",
+    "build_isometric_haar_qr_bridge",
 ]
 
 from .arc3 import (
@@ -143,4 +151,15 @@ from .gemma4 import (
     save_gemma4_router_sidecar,
     warmup_gemma4_routers_kl,
 )
+from .hooks import (
+    AllButTheTopGramHook,
+    BeltramiShellProbeHook,
+    DarkSnailHookSession,
+    PRoPESubspaceHook,
+    SphericalLieSteeringHook,
+    build_isometric_haar_qr_bridge,
+    discover_decoder_layers,
+    resolve_default_hook_layer,
+)
+
 
