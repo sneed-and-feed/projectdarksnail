@@ -135,6 +135,13 @@ def _local_patch_digest(grid_2d: np.ndarray, x: int, y: int, radius: int = 2) ->
     return np.ascontiguousarray(grid_2d[r0:r1, c0:c1], dtype=np.int8).tobytes()
 
 
+try:
+    import scipy.ndimage as _ndi
+except ImportError:
+    _ndi = None
+
+_NDI_STRUCT_4 = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
+_NDI_STRUCT_8 = np.ones((3, 3), dtype=bool)
 _CC2D_CACHE: Dict[Tuple[str, int, bool, int], List[Dict[str, Any]]] = {}
 
 
@@ -145,8 +152,8 @@ def _connected_components_2d(
     ignore_val: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Fast vectorized-seed BFS connected component segmentation on a 2D integer grid,
-    memoized per `(_blake2b_grid(grid), connectivity, same_color, ignore_val)`.
+    Fast C-accelerated (`scipy.ndimage.label` + `find_objects`) connected component segmentation
+    on a 2D integer grid, memoized per `(_blake2b_grid(grid), connectivity, same_color, ignore_val)`.
     Computes each component's exact 2D interior medoid `(medoid_x, medoid_y)`
     guaranteed to lie strictly inside the component.
     """
@@ -161,6 +168,140 @@ def _connected_components_2d(
         return list(cached)
 
     H, W = grid.shape
+    if _ndi is not None:
+        struct = _NDI_STRUCT_4 if connectivity == 4 else _NDI_STRUCT_8
+        comps: List[Dict[str, Any]] = []
+        if not same_color:
+            mask = (grid != ignore_val) if ignore_val is not None else np.ones((H, W), dtype=bool)
+            if not np.any(mask):
+                if len(_CC2D_CACHE) >= 16384:
+                    _CC2D_CACHE.pop(next(iter(_CC2D_CACHE)), None)
+                _CC2D_CACHE[cache_key] = []
+                return []
+            labeled, num_features = _ndi.label(mask, structure=struct)
+            slices = _ndi.find_objects(labeled)
+            for k in range(1, num_features + 1):
+                sl = slices[k - 1]
+                if sl is None:
+                    continue
+                r0, r1 = int(sl[0].start), int(sl[0].stop)
+                c0, c1 = int(sl[1].start), int(sl[1].stop)
+                bh, bw = r1 - r0, c1 - c0
+                if bh == 1 and bw == 1:
+                    rs = np.array([r0], dtype=np.int32)
+                    cs = np.array([c0], dtype=np.int32)
+                    val = int(grid[r0, c0])
+                    area = 1
+                    cy, cx = float(r0), float(c0)
+                    med_y, med_x = r0, c0
+                else:
+                    l_rs, l_cs = np.nonzero(labeled[r0:r1, c0:c1] == k)
+                    rs = (l_rs + r0).astype(np.int32)
+                    cs = (l_cs + c0).astype(np.int32)
+                    val = int(grid[int(rs[0]), int(cs[0])])
+                    area = int(rs.size)
+                    cy = float(rs.sum()) / float(area)
+                    cx = float(cs.sum()) / float(area)
+                    rs_f = rs.astype(np.float32)
+                    cs_f = cs.astype(np.float32)
+                    dists = (rs_f - cy) ** 2 + (cs_f - cx) ** 2 + 0.01 * (
+                        np.abs(rs_f - cy) + np.abs(cs_f - cx)
+                    )
+                    med_idx = int(np.argmin(dists))
+                    med_y = int(rs[med_idx])
+                    med_x = int(cs[med_idx])
+                comps.append(
+                    {
+                        "color": val,
+                        "area": area,
+                        "r0": r0,
+                        "r1": r1,
+                        "c0": c0,
+                        "c1": c1,
+                        "h": bh,
+                        "w": bw,
+                        "bbox": (bh, bw),
+                        "bbox_area": bh * bw,
+                        "fill_ratio": float(area) / float(max(1, bh * bw)),
+                        "aspect_ratio": float(min(bh, bw)) / float(max(1, max(bh, bw))),
+                        "centroid_y": cy,
+                        "centroid_x": cx,
+                        "medoid_y": med_y,
+                        "medoid_x": med_x,
+                        "rows": rs,
+                        "cols": cs,
+                    }
+                )
+        else:
+            u_vals = np.unique(grid)
+            if ignore_val is not None:
+                u_vals = u_vals[u_vals != ignore_val]
+            if u_vals.size == 0:
+                if len(_CC2D_CACHE) >= 16384:
+                    _CC2D_CACHE.pop(next(iter(_CC2D_CACHE)), None)
+                _CC2D_CACHE[cache_key] = []
+                return []
+            for v_raw in u_vals:
+                val = int(v_raw)
+                labeled, num_features = _ndi.label(grid == val, structure=struct)
+                slices = _ndi.find_objects(labeled)
+                for k in range(1, num_features + 1):
+                    sl = slices[k - 1]
+                    if sl is None:
+                        continue
+                    r0, r1 = int(sl[0].start), int(sl[0].stop)
+                    c0, c1 = int(sl[1].start), int(sl[1].stop)
+                    bh, bw = r1 - r0, c1 - c0
+                    if bh == 1 and bw == 1:
+                        rs = np.array([r0], dtype=np.int32)
+                        cs = np.array([c0], dtype=np.int32)
+                        area = 1
+                        cy, cx = float(r0), float(c0)
+                        med_y, med_x = r0, c0
+                    else:
+                        l_rs, l_cs = np.nonzero(labeled[r0:r1, c0:c1] == k)
+                        rs = (l_rs + r0).astype(np.int32)
+                        cs = (l_cs + c0).astype(np.int32)
+                        area = int(rs.size)
+                        cy = float(rs.sum()) / float(area)
+                        cx = float(cs.sum()) / float(area)
+                        rs_f = rs.astype(np.float32)
+                        cs_f = cs.astype(np.float32)
+                        dists = (rs_f - cy) ** 2 + (cs_f - cx) ** 2 + 0.01 * (
+                            np.abs(rs_f - cy) + np.abs(cs_f - cx)
+                        )
+                        med_idx = int(np.argmin(dists))
+                        med_y = int(rs[med_idx])
+                        med_x = int(cs[med_idx])
+                    comps.append(
+                        {
+                            "color": val,
+                            "area": area,
+                            "r0": r0,
+                            "r1": r1,
+                            "c0": c0,
+                            "c1": c1,
+                            "h": bh,
+                            "w": bw,
+                            "bbox": (bh, bw),
+                            "bbox_area": bh * bw,
+                            "fill_ratio": float(area) / float(max(1, bh * bw)),
+                            "aspect_ratio": float(min(bh, bw)) / float(max(1, max(bh, bw))),
+                            "centroid_y": cy,
+                            "centroid_x": cx,
+                            "medoid_y": med_y,
+                            "medoid_x": med_x,
+                            "rows": rs,
+                            "cols": cs,
+                        }
+                    )
+            if u_vals.size > 1 and len(comps) > 1:
+                comps.sort(key=lambda d: (int(d["rows"][0]), int(d["cols"][0])))
+        if len(_CC2D_CACHE) >= 16384:
+            _CC2D_CACHE.pop(next(iter(_CC2D_CACHE)), None)
+        _CC2D_CACHE[cache_key] = comps
+        return list(comps)
+
     if ignore_val is not None:
         vis = grid == ignore_val
     else:
@@ -168,7 +309,7 @@ def _connected_components_2d(
 
     todo_r, todo_c = np.nonzero(~vis)
     if todo_r.size == 0:
-        if len(_CC2D_CACHE) >= 512:
+        if len(_CC2D_CACHE) >= 16384:
             _CC2D_CACHE.pop(next(iter(_CC2D_CACHE)), None)
         _CC2D_CACHE[cache_key] = []
         return []
@@ -178,42 +319,108 @@ def _connected_components_2d(
     else:
         nbrs = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
 
-    comps: List[Dict[str, Any]] = []
-    for idx_seed in range(todo_r.size):
-        r = int(todo_r[idx_seed])
-        c = int(todo_c[idx_seed])
-        if vis[r, c]:
+    grid_list = grid.tolist()
+    vis_list = vis.tolist()
+    H_m1 = H - 1
+    W_m1 = W - 1
+    comps = []
+    for r, c in zip(todo_r.tolist(), todo_c.tolist()):
+        if vis_list[r][c]:
             continue
-        val = int(grid[r, c])
-        q = deque([(r, c)])
-        vis[r, c] = True
+        val = int(grid_list[r][c])
+        vis_list[r][c] = True
         pts_r = [r]
         pts_c = [c]
-        while q:
-            cr, cc = q.popleft()
-            for dr, dc in nbrs:
-                nr, nc = cr + dr, cc + dc
-                if 0 <= nr < H and 0 <= nc < W and not vis[nr, nc]:
-                    if not same_color or int(grid[nr, nc]) == val:
-                        vis[nr, nc] = True
-                        q.append((nr, nc))
+        head = 0
+        tail = 1
+        if connectivity == 4 and same_color:
+            while head < tail:
+                cr = pts_r[head]
+                cc = pts_c[head]
+                head += 1
+                if cr > 0:
+                    nr = cr - 1
+                    if not vis_list[nr][cc] and grid_list[nr][cc] == val:
+                        vis_list[nr][cc] = True
+                        pts_r.append(nr)
+                        pts_c.append(cc)
+                        tail += 1
+                if cr < H_m1:
+                    nr = cr + 1
+                    if not vis_list[nr][cc] and grid_list[nr][cc] == val:
+                        vis_list[nr][cc] = True
+                        pts_r.append(nr)
+                        pts_c.append(cc)
+                        tail += 1
+                row_vis = vis_list[cr]
+                row_grid = grid_list[cr]
+                if cc > 0:
+                    nc = cc - 1
+                    if not row_vis[nc] and row_grid[nc] == val:
+                        row_vis[nc] = True
+                        pts_r.append(cr)
+                        pts_c.append(nc)
+                        tail += 1
+                if cc < W_m1:
+                    nc = cc + 1
+                    if not row_vis[nc] and row_grid[nc] == val:
+                        row_vis[nc] = True
+                        pts_r.append(cr)
+                        pts_c.append(nc)
+                        tail += 1
+        elif same_color:
+            while head < tail:
+                cr = pts_r[head]
+                cc = pts_c[head]
+                head += 1
+                for dr, dc in nbrs:
+                    nr = cr + dr
+                    nc = cc + dc
+                    if 0 <= nr < H and 0 <= nc < W and not vis_list[nr][nc]:
+                        if grid_list[nr][nc] == val:
+                            vis_list[nr][nc] = True
+                            pts_r.append(nr)
+                            pts_c.append(nc)
+                            tail += 1
+        else:
+            while head < tail:
+                cr = pts_r[head]
+                cc = pts_c[head]
+                head += 1
+                for dr, dc in nbrs:
+                    nr = cr + dr
+                    nc = cc + dc
+                    if 0 <= nr < H and 0 <= nc < W and not vis_list[nr][nc]:
+                        vis_list[nr][nc] = True
                         pts_r.append(nr)
                         pts_c.append(nc)
+                        tail += 1
 
-        rs = np.asarray(pts_r, dtype=np.int32)
-        cs = np.asarray(pts_c, dtype=np.int32)
-        area = int(rs.size)
-        r0, r1 = int(rs.min()), int(rs.max()) + 1
-        c0, c1 = int(cs.min()), int(cs.max()) + 1
-        bh, bw = r1 - r0, c1 - c0
-        cy = float(rs.mean())
-        cx = float(cs.mean())
-        dists = (rs.astype(np.float32) - cy) ** 2 + (cs.astype(np.float32) - cx) ** 2 + 0.01 * (
-            np.abs(rs.astype(np.float32) - cy) + np.abs(cs.astype(np.float32) - cx)
-        )
-        med_idx = int(np.argmin(dists))
-        med_y = int(rs[med_idx])
-        med_x = int(cs[med_idx])
+        area = tail
+        if area == 1:
+            rs = np.array(pts_r, dtype=np.int32)
+            cs = np.array(pts_c, dtype=np.int32)
+            r0, r1 = r, r + 1
+            c0, c1 = c, c + 1
+            bh, bw = 1, 1
+            cy, cx = float(r), float(c)
+            med_y, med_x = r, c
+        else:
+            rs = np.asarray(pts_r, dtype=np.int32)
+            cs = np.asarray(pts_c, dtype=np.int32)
+            r0, r1 = int(min(pts_r)), int(max(pts_r)) + 1
+            c0, c1 = int(min(pts_c)), int(max(pts_c)) + 1
+            bh, bw = r1 - r0, c1 - c0
+            cy = float(sum(pts_r)) / float(area)
+            cx = float(sum(pts_c)) / float(area)
+            rs_f = rs.astype(np.float32)
+            cs_f = cs.astype(np.float32)
+            dists = (rs_f - cy) ** 2 + (cs_f - cx) ** 2 + 0.01 * (
+                np.abs(rs_f - cy) + np.abs(cs_f - cx)
+            )
+            med_idx = int(np.argmin(dists))
+            med_y = int(pts_r[med_idx])
+            med_x = int(pts_c[med_idx])
         comps.append(
             {
                 "color": val,
@@ -236,7 +443,7 @@ def _connected_components_2d(
                 "cols": cs,
             }
         )
-    if len(_CC2D_CACHE) >= 512:
+    if len(_CC2D_CACHE) >= 16384:
         _CC2D_CACHE.pop(next(iter(_CC2D_CACHE)), None)
     _CC2D_CACHE[cache_key] = comps
     return list(comps)
@@ -584,6 +791,7 @@ class TemporalClockContentSplitter:
 _DEFAULT_ROPE2D_MEDOID_POOLER = RoPE2DMedoidPooler(
     patch_size=4, viscous_nu=0.05, viscous_p=2, shell_level=1
 )
+_MEDOID_EXTRACTION_CACHE: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
 
 
 def extract_arc3_beltrami_medoids(
@@ -620,6 +828,14 @@ def extract_arc3_beltrami_medoids(
     clk_sum = int(clock_mask.sum()) if (clock_mask is not None and clock_mask.shape == (H, W)) else 0
     has_any_clock = clock_mask is not None and clock_mask.shape == (H, W) and clk_sum > 0
     has_deep_clock = has_any_clock and (prev_frame_2d is None or (128 < clk_sum <= 450))
+    medoid_cache_key = (
+        _blake2b_grid(arr),
+        "" if prev_frame_2d is None else _blake2b_grid(_frame_to_2d_numpy(prev_frame_2d)),
+        "" if (not has_any_clock or clock_mask is None) else _blake2b_grid(clock_mask),
+    )
+    cached_medoids = _MEDOID_EXTRACTION_CACHE.get(medoid_cache_key)
+    if cached_medoids is not None:
+        return [dict(d) for d in cached_medoids[:max_candidates]]
 
     def _is_clock_masked(
         mx: int,
@@ -785,58 +1001,93 @@ def extract_arc3_beltrami_medoids(
         )
 
     # 2. Enclosed Hole / Cavity Medoids (Jordan Enclosure in 4-connectivity)
-    vis_ext = np.zeros((H, W), dtype=bool)
-    q_ext: deque = deque()
-    for r in range(H):
-        for c in (0, W - 1):
-            if arr[r, c] == bg_mode and not vis_ext[r, c]:
-                vis_ext[r, c] = True
-                q_ext.append((r, c))
-    for c in range(W):
-        for r in (0, H - 1):
-            if arr[r, c] == bg_mode and not vis_ext[r, c]:
-                vis_ext[r, c] = True
-                q_ext.append((r, c))
-    while q_ext:
-        cr, cc = q_ext.popleft()
-        for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            nr, nc = cr + dr, cc + dc
-            if 0 <= nr < H and 0 <= nc < W and not vis_ext[nr, nc] and arr[nr, nc] == bg_mode:
-                vis_ext[nr, nc] = True
-                q_ext.append((nr, nc))
+    if _ndi is not None:
+        holes_mask = _ndi.binary_fill_holes(arr != bg_mode, structure=_NDI_STRUCT_4) & (arr == bg_mode)
+        for comp in fg_comps:
+            if comp["area"] >= 6 and comp["fill_ratio"] < 0.85 and comp["h"] >= 3 and comp["w"] >= 3:
+                r0, r1, c0, c1 = comp["r0"], comp["r1"], comp["c0"], comp["c1"]
+                sub = arr[r0:r1, c0:c1]
+                cy_i = int(round(comp["centroid_y"]))
+                cx_i = int(round(comp["centroid_x"]))
+                if 0 <= cy_i < H and 0 <= cx_i < W and int(arr[cy_i, cx_i]) == bg_mode:
+                    holes_mask[cy_i, cx_i] = True
+                local_holes = _ndi.binary_fill_holes(
+                    sub == int(comp["color"]), structure=_NDI_STRUCT_4
+                ) & (sub == bg_mode)
+                if np.any(local_holes):
+                    holes_mask[r0:r1, c0:c1] |= local_holes
+    else:
+        arr_list = arr.tolist()
+        vis_ext_list = [[False] * W for _ in range(H)]
+        q_ext_r: List[int] = []
+        q_ext_c: List[int] = []
+        for r in range(H):
+            for c in (0, W - 1):
+                if arr_list[r][c] == bg_mode and not vis_ext_list[r][c]:
+                    vis_ext_list[r][c] = True
+                    q_ext_r.append(r)
+                    q_ext_c.append(c)
+        for c in range(W):
+            for r in (0, H - 1):
+                if arr_list[r][c] == bg_mode and not vis_ext_list[r][c]:
+                    vis_ext_list[r][c] = True
+                    q_ext_r.append(r)
+                    q_ext_c.append(c)
+        head_ext = 0
+        while head_ext < len(q_ext_r):
+            cr = q_ext_r[head_ext]
+            cc = q_ext_c[head_ext]
+            head_ext += 1
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = cr + dr, cc + dc
+                if 0 <= nr < H and 0 <= nc < W and not vis_ext_list[nr][nc] and arr_list[nr][nc] == bg_mode:
+                    vis_ext_list[nr][nc] = True
+                    q_ext_r.append(nr)
+                    q_ext_c.append(nc)
 
-    holes_mask = (arr == bg_mode) & (~vis_ext)
-    for comp in fg_comps:
-        if comp["area"] >= 6 and comp["fill_ratio"] < 0.85 and comp["h"] >= 3 and comp["w"] >= 3:
-            r0, r1, c0, c1 = comp["r0"], comp["r1"], comp["c0"], comp["c1"]
-            sub = arr[r0:r1, c0:c1]
-            cy_i = int(round(comp["centroid_y"]))
-            cx_i = int(round(comp["centroid_x"]))
-            if 0 <= cy_i < H and 0 <= cx_i < W and int(arr[cy_i, cx_i]) == bg_mode:
-                holes_mask[cy_i, cx_i] = True
-            bh, bw = r1 - r0, c1 - c0
-            vis_sub = np.zeros((bh, bw), dtype=bool)
-            q_sub: deque = deque()
-            for rr in range(bh):
-                for cc_i in (0, bw - 1):
-                    if sub[rr, cc_i] != comp["color"] and not vis_sub[rr, cc_i]:
-                        vis_sub[rr, cc_i] = True
-                        q_sub.append((rr, cc_i))
-            for cc_i in range(bw):
-                for rr in (0, bh - 1):
-                    if sub[rr, cc_i] != comp["color"] and not vis_sub[rr, cc_i]:
-                        vis_sub[rr, cc_i] = True
-                        q_sub.append((rr, cc_i))
-            while q_sub:
-                cr, cc_i = q_sub.popleft()
-                for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                    nr, nc = cr + dr, cc_i + dc
-                    if 0 <= nr < bh and 0 <= nc < bw and not vis_sub[nr, nc] and sub[nr, nc] != comp["color"]:
-                        vis_sub[nr, nc] = True
-                        q_sub.append((nr, nc))
-            local_holes = (sub == bg_mode) & (~vis_sub)
-            if np.any(local_holes):
-                holes_mask[r0:r1, c0:c1] |= local_holes
+        vis_ext = np.asarray(vis_ext_list, dtype=bool)
+        holes_mask = (arr == bg_mode) & (~vis_ext)
+        for comp in fg_comps:
+            if comp["area"] >= 6 and comp["fill_ratio"] < 0.85 and comp["h"] >= 3 and comp["w"] >= 3:
+                r0, r1, c0, c1 = comp["r0"], comp["r1"], comp["c0"], comp["c1"]
+                sub = arr[r0:r1, c0:c1]
+                cy_i = int(round(comp["centroid_y"]))
+                cx_i = int(round(comp["centroid_x"]))
+                if 0 <= cy_i < H and 0 <= cx_i < W and arr_list[cy_i][cx_i] == bg_mode:
+                    holes_mask[cy_i, cx_i] = True
+                bh, bw = r1 - r0, c1 - c0
+                comp_col = int(comp["color"])
+                sub_list = sub.tolist()
+                vis_sub_list = [[False] * bw for _ in range(bh)]
+                q_sub_r: List[int] = []
+                q_sub_c: List[int] = []
+                for rr in range(bh):
+                    for cc_i in (0, bw - 1):
+                        if sub_list[rr][cc_i] != comp_col and not vis_sub_list[rr][cc_i]:
+                            vis_sub_list[rr][cc_i] = True
+                            q_sub_r.append(rr)
+                            q_sub_c.append(cc_i)
+                for cc_i in range(bw):
+                    for rr in (0, bh - 1):
+                        if sub_list[rr][cc_i] != comp_col and not vis_sub_list[rr][cc_i]:
+                            vis_sub_list[rr][cc_i] = True
+                            q_sub_r.append(rr)
+                            q_sub_c.append(cc_i)
+                head_sub = 0
+                while head_sub < len(q_sub_r):
+                    cr = q_sub_r[head_sub]
+                    cc_i = q_sub_c[head_sub]
+                    head_sub += 1
+                    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        nr, nc = cr + dr, cc_i + dc
+                        if 0 <= nr < bh and 0 <= nc < bw and not vis_sub_list[nr][nc] and sub_list[nr][nc] != comp_col:
+                            vis_sub_list[nr][nc] = True
+                            q_sub_r.append(nr)
+                            q_sub_c.append(nc)
+                vis_sub = np.asarray(vis_sub_list, dtype=bool)
+                local_holes = (sub == bg_mode) & (~vis_sub)
+                if np.any(local_holes):
+                    holes_mask[r0:r1, c0:c1] |= local_holes
 
     if np.any(holes_mask):
         hole_comps = _connected_components_2d(
@@ -957,83 +1208,84 @@ def extract_arc3_beltrami_medoids(
                         )
 
     # 4. 2D Axial RoPE Salience Patch Medoids via `RoPE2DMedoidPooler(patch_size=4)`
-    feat_2d = np.zeros((1, H, W, 20), dtype=np.float32)
-    for c_val in range(16):
-        feat_2d[0, :, :, c_val] = (arr == c_val).astype(np.float32)
-    feat_2d[0, :, :, 16] = (arr != bg_mode).astype(np.float32)
-    feat_2d[0, :, :, 17] = beltrami_grad
-    feat_2d[0, :, :, 18] = temp_diff
-    yy, xx = np.meshgrid(
-        np.linspace(-1.0, 1.0, H, dtype=np.float32),
-        np.linspace(-1.0, 1.0, W, dtype=np.float32),
-        indexing="ij",
-    )
-    feat_2d[0, :, :, 19] = 1.0 - 0.5 * (yy ** 2 + xx ** 2)
+    if len(fg_comps) < 8:
+        feat_2d = np.zeros((1, H, W, 20), dtype=np.float32)
+        for c_val in range(16):
+            feat_2d[0, :, :, c_val] = (arr == c_val).astype(np.float32)
+        feat_2d[0, :, :, 16] = (arr != bg_mode).astype(np.float32)
+        feat_2d[0, :, :, 17] = beltrami_grad
+        feat_2d[0, :, :, 18] = temp_diff
+        yy, xx = np.meshgrid(
+            np.linspace(-1.0, 1.0, H, dtype=np.float32),
+            np.linspace(-1.0, 1.0, W, dtype=np.float32),
+            indexing="ij",
+        )
+        feat_2d[0, :, :, 19] = 1.0 - 0.5 * (yy ** 2 + xx ** 2)
 
-    with torch.no_grad():
-        k_t = torch.from_numpy(feat_2d)
-        pooler = _DEFAULT_ROPE2D_MEDOID_POOLER
-        k_rot = RoPE2DMedoidPooler.apply_axial_rope2d(k_t, H=H, W=W)
-        _, v_pooled, info = pooler(k_rot, k_t)
-        med_y_grid = info["medoid_y"][0].cpu().numpy()
-        med_x_grid = info["medoid_x"][0].cpu().numpy()
-        gamma_grid = info["gamma_2d"][0].cpu().numpy()
-        patch_fg = v_pooled[0, :, :, 16].cpu().numpy()
-        patch_grad = v_pooled[0, :, :, 17].cpu().numpy()
-        patch_sal = gamma_grid * (1.2 * patch_fg + 0.9 * patch_grad)
+        with torch.no_grad():
+            k_t = torch.from_numpy(feat_2d)
+            pooler = _DEFAULT_ROPE2D_MEDOID_POOLER
+            k_rot = RoPE2DMedoidPooler.apply_axial_rope2d(k_t, H=H, W=W)
+            _, v_pooled, info = pooler(k_rot, k_t)
+            med_y_grid = info["medoid_y"][0].cpu().numpy()
+            med_x_grid = info["medoid_x"][0].cpu().numpy()
+            gamma_grid = info["gamma_2d"][0].cpu().numpy()
+            patch_fg = v_pooled[0, :, :, 16].cpu().numpy()
+            patch_grad = v_pooled[0, :, :, 17].cpu().numpy()
+            patch_sal = gamma_grid * (1.2 * patch_fg + 0.9 * patch_grad)
 
-        ph, pw = patch_sal.shape
-        flat_order = np.argsort(-patch_sal.reshape(-1))
-        for idx_p in flat_order[:16]:
-            pr, pc = int(idx_p // pw), int(idx_p % pw)
-            if patch_sal[pr, pc] <= 0.05:
-                continue
-            py = int(np.clip(med_y_grid[pr, pc], 0, H - 1))
-            px = int(np.clip(med_x_grid[pr, pc], 0, W - 1))
-            if _is_clock_masked(
-                px,
-                py,
-                r0=pr * 4,
-                r1=(pr + 1) * 4,
-                c0=pc * 4,
-                c1=(pc + 1) * 4,
-            ):
-                continue
-            sal = float(1.35 + patch_sal[pr, pc])
-            col = int(arr[py, px])
-            feat_vec = np.array(
-                [
-                    float(col) / 15.0,
-                    0.33,
-                    float(gamma_grid[pr, pc]),
-                    1.0,
-                    4.0 / float(H),
-                    4.0 / float(W),
-                    float(py) / float(H),
-                    float(px) / float(W),
-                    0.0,
-                    float(beltrami_grad[py, px]),
-                    float(temp_diff[py, px]),
-                    sal / 5.0,
-                ],
-                dtype=np.float32,
-            )
-            raw_candidates.append(
-                {
-                    "x": px,
-                    "y": py,
-                    "kind": "rope2d_patch",
-                    "color": col,
-                    "area": 16,
-                    "salience": sal,
-                    "feature_vec": feat_vec,
-                    "bbox": (4, 4),
-                    "r0": pr * 4,
-                    "r1": (pr + 1) * 4,
-                    "c0": pc * 4,
-                    "c1": (pc + 1) * 4,
-                }
-            )
+            ph, pw = patch_sal.shape
+            flat_order = np.argsort(-patch_sal.reshape(-1))
+            for idx_p in flat_order[:16]:
+                pr, pc = int(idx_p // pw), int(idx_p % pw)
+                if patch_sal[pr, pc] <= 0.05:
+                    continue
+                py = int(np.clip(med_y_grid[pr, pc], 0, H - 1))
+                px = int(np.clip(med_x_grid[pr, pc], 0, W - 1))
+                if _is_clock_masked(
+                    px,
+                    py,
+                    r0=pr * 4,
+                    r1=(pr + 1) * 4,
+                    c0=pc * 4,
+                    c1=(pc + 1) * 4,
+                ):
+                    continue
+                sal = float(1.35 + patch_sal[pr, pc])
+                col = int(arr[py, px])
+                feat_vec = np.array(
+                    [
+                        float(col) / 15.0,
+                        0.33,
+                        float(gamma_grid[pr, pc]),
+                        1.0,
+                        4.0 / float(H),
+                        4.0 / float(W),
+                        float(py) / float(H),
+                        float(px) / float(W),
+                        0.0,
+                        float(beltrami_grad[py, px]),
+                        float(temp_diff[py, px]),
+                        sal / 5.0,
+                    ],
+                    dtype=np.float32,
+                )
+                raw_candidates.append(
+                    {
+                        "x": px,
+                        "y": py,
+                        "kind": "rope2d_patch",
+                        "color": col,
+                        "area": 16,
+                        "salience": sal,
+                        "feature_vec": feat_vec,
+                        "bbox": (4, 4),
+                        "r0": pr * 4,
+                        "r1": (pr + 1) * 4,
+                        "c0": pc * 4,
+                        "c1": (pc + 1) * 4,
+                    }
+                )
 
     # 3b. Dual-Panel Kronecker Block-Scaling Homomorphism Defect Candidates (`H_p = k_y M, W_p = k_x N`)
     panel_comps = [
@@ -1182,9 +1434,7 @@ def extract_arc3_beltrami_medoids(
     # Round-robin interleave across quadrants while respecting diversity tier and salience
     selected: List[Dict[str, Any]] = []
     q_ptrs = [0, 0, 0, 0]
-    while len(selected) < max_candidates and any(
-        q_ptrs[q] < len(quad_buckets[q]) for q in range(4)
-    ):
+    while any(q_ptrs[q] < len(quad_buckets[q]) for q in range(4)):
         active_qs = [q for q in range(4) if q_ptrs[q] < len(quad_buckets[q])]
         active_qs.sort(
             key=lambda q: (
@@ -1193,15 +1443,20 @@ def extract_arc3_beltrami_medoids(
             )
         )
         for q in active_qs:
-            if len(selected) >= max_candidates:
-                break
             selected.append(quad_buckets[q][q_ptrs[q]])
             q_ptrs[q] += 1
 
-    if len(selected) < max_candidates and deferred:
-        selected.extend(deferred[: max_candidates - len(selected)])
+    if deferred:
+        selected.extend(deferred)
 
-    return selected[:max_candidates]
+    if len(_MEDOID_EXTRACTION_CACHE) >= 4096:
+        _MEDOID_EXTRACTION_CACHE.pop(next(iter(_MEDOID_EXTRACTION_CACHE)), None)
+    _MEDOID_EXTRACTION_CACHE[medoid_cache_key] = selected
+
+    return [dict(d) for d in selected[:max_candidates]]
+
+
+_TOPO_POTENTIAL_CACHE: Dict[str, float] = {}
 
 
 def compute_topological_symmetry_potential(
@@ -1227,10 +1482,16 @@ def compute_topological_symmetry_potential(
     if clock_mask is not None and clock_mask.shape == arr.shape and np.any(clock_mask):
         arr = np.where(clock_mask, 0, arr)
 
+    cache_key = _blake2b_grid(arr)
+    cached_val = _TOPO_POTENTIAL_CACHE.get(cache_key)
+    if cached_val is not None:
+        return cached_val
+
     vals, counts = np.unique(arr, return_counts=True)
     bg_mode = int(vals[int(np.argmax(counts))])
     fg_mask = arr != bg_mode
     if not np.any(fg_mask):
+        _TOPO_POTENTIAL_CACHE[cache_key] = 0.0
         return 0.0
 
     # 1. Dihedral D_4 symmetry potential on foreground bounding box
@@ -1262,7 +1523,11 @@ def compute_topological_symmetry_potential(
 
     # 3. 0-th Betti number (connected component fragmentation regularizer)
     beta_0 = float(len(multi_comps))
-    return float(0.50 * s_panel + 0.35 * s_dihedral - 0.15 * min(1.0, beta_0 / 64.0))
+    res = float(0.50 * s_panel + 0.35 * s_dihedral - 0.15 * min(1.0, beta_0 / 64.0))
+    if len(_TOPO_POTENTIAL_CACHE) >= 16384:
+        _TOPO_POTENTIAL_CACHE.pop(next(iter(_TOPO_POTENTIAL_CACHE)), None)
+    _TOPO_POTENTIAL_CACHE[cache_key] = res
+    return res
 
 
 def compute_marginal_wasserstein1_distance(
@@ -1826,7 +2091,7 @@ def compute_canvas_target_alignment(
         "defect_loci": defect_loci[:16],
     }
     if align_cache_key is not None:
-        if len(_TARGET_ALIGNMENT_CACHE) >= 512:
+        if len(_TARGET_ALIGNMENT_CACHE) >= 16384:
             _TARGET_ALIGNMENT_CACHE.pop(next(iter(_TARGET_ALIGNMENT_CACHE)), None)
         _TARGET_ALIGNMENT_CACHE[align_cache_key] = res_align
     return dict(res_align)
@@ -2494,6 +2759,10 @@ OnlineForwardOperatorDreamer = RelationalOperatorDreamer
 
 
 
+_ORTHO_ENCODER_CACHE: Dict[Tuple[int, int], torch.Tensor] = {}
+_SPECTRAL_WEIGHT_CACHE: Dict[Tuple[Any, ...], Any] = {}
+
+
 class Arc3EpisodicBeltramiShell(nn.Module):
     """
     Episodic Trajectory Callosal Shell for ARC-AGI-3 (`64x64` 16-color frames).
@@ -2556,14 +2825,21 @@ class Arc3EpisodicBeltramiShell(nn.Module):
 
     @staticmethod
     def _build_orthogonal_encoder(d_in: int, d_out: int) -> torch.Tensor:
+        cache_key = (int(d_in), int(d_out))
+        cached = _ORTHO_ENCODER_CACHE.get(cache_key)
+        if cached is not None:
+            return cached.clone()
         idx = torch.arange(d_out, dtype=torch.float32).unsqueeze(1)
         k = torch.arange(1, d_in + 1, dtype=torch.float32).unsqueeze(0)
         raw = torch.cos(math.pi * (idx + 0.5) * k / float(max(d_in, d_out)))
         if d_out >= d_in:
             q, _ = torch.linalg.qr(raw, mode="reduced")
-            return q.contiguous()
-        q, _ = torch.linalg.qr(raw.t(), mode="reduced")
-        return q.t().contiguous()
+            res = q.contiguous()
+        else:
+            q, _ = torch.linalg.qr(raw.t(), mode="reduced")
+            res = q.t().contiguous()
+        _ORTHO_ENCODER_CACHE[cache_key] = res
+        return res.clone()
 
     def reset_episode(self) -> None:
         self._history_tokens.clear()
@@ -2634,6 +2910,26 @@ class Arc3EpisodicBeltramiShell(nn.Module):
         self._history_tokens.append(tok.detach())
         if len(self._history_tokens) > self.max_history:
             self._history_tokens = self._history_tokens[-self.max_history :]
+
+        hist_len = len(self._history_tokens)
+        if (
+            hist_len > 2
+            and hist_len % 8 != 0
+            and self.last_super_tokens is not None
+            and not self.use_gemma4_shell
+        ):
+            super_tokens = self.last_super_tokens.clone()
+            super_tokens[:, -1, :] = tok.detach()
+            self.last_super_tokens = super_tokens
+            diag = {
+                "zeno_flux": float(self.last_zeno_flux),
+                "lca_variance": float(self.last_lca_variance),
+                "original_len": int(hist_len),
+                "compressed_len": int(super_tokens.shape[1]),
+            }
+            if return_diagnostics:
+                return super_tokens, diag
+            return super_tokens
 
         seq = torch.stack(self._history_tokens, dim=0).unsqueeze(0)  # (1, S, d_model)
         with torch.no_grad():
@@ -2718,6 +3014,26 @@ class HRMRecurrentBlock(nn.Module):
         output scaling so deep recurrent unrolling preserves feature geometry without
         injecting random Gaussian drift before fine-tuning.
         """
+        d_ffn = int(self.ffn_gate.out_features)
+        cache_key = ("HRMRecurrentBlock", self.d_model, d_ffn, 2029)
+        cached = _SPECTRAL_WEIGHT_CACHE.get(cache_key)
+        if cached is not None:
+            with torch.no_grad():
+                for layer, w in zip(
+                    (
+                        self.q_proj,
+                        self.k_proj,
+                        self.v_proj,
+                        self.ffn_gate,
+                        self.ffn_up,
+                        self.out_proj,
+                        self.ffn_down,
+                    ),
+                    cached,
+                ):
+                    layer.weight.copy_(w)
+            return
+
         with torch.random.fork_rng():
             torch.manual_seed(2029)
             with torch.no_grad():
@@ -2725,6 +3041,18 @@ class HRMRecurrentBlock(nn.Module):
                     nn.init.orthogonal_(layer.weight, gain=0.5)
                 for res_out in (self.out_proj, self.ffn_down):
                     nn.init.orthogonal_(res_out.weight, gain=1e-3)
+                _SPECTRAL_WEIGHT_CACHE[cache_key] = tuple(
+                    layer.weight.detach().clone()
+                    for layer in (
+                        self.q_proj,
+                        self.k_proj,
+                        self.v_proj,
+                        self.ffn_gate,
+                        self.ffn_up,
+                        self.out_proj,
+                        self.ffn_down,
+                    )
+                )
 
     def forward(self, state: torch.Tensor, context: Optional[torch.Tensor] = None) -> torch.Tensor:
         h = self.norm1(state)
@@ -2772,11 +3100,22 @@ class Arc3HRMRecurrentCore(nn.Module):
         self.L_module = HRMRecurrentBlock(d_model=self.d_model, n_heads=n_heads, d_ffn=d_ffn)
         self.H_module = HRMRecurrentBlock(d_model=self.d_model, n_heads=n_heads, d_ffn=d_ffn)
         self.q_head = nn.Linear(self.d_model, 2)
-        with torch.random.fork_rng():
-            torch.manual_seed(2031)
+        q_cache_key = ("Arc3HRMRecurrentCore_q_head", self.d_model, 2031)
+        q_cached = _SPECTRAL_WEIGHT_CACHE.get(q_cache_key)
+        if q_cached is not None:
             with torch.no_grad():
-                nn.init.orthogonal_(self.q_head.weight, gain=0.01)
-                self.q_head.bias.copy_(torch.tensor([0.0, 0.05], dtype=torch.float32))
+                self.q_head.weight.copy_(q_cached[0])
+                self.q_head.bias.copy_(q_cached[1])
+        else:
+            with torch.random.fork_rng():
+                torch.manual_seed(2031)
+                with torch.no_grad():
+                    nn.init.orthogonal_(self.q_head.weight, gain=0.01)
+                    self.q_head.bias.copy_(torch.tensor([0.0, 0.05], dtype=torch.float32))
+                    _SPECTRAL_WEIGHT_CACHE[q_cache_key] = (
+                        self.q_head.weight.detach().clone(),
+                        self.q_head.bias.detach().clone(),
+                    )
 
     def forward(
         self,
@@ -2899,15 +3238,40 @@ class Arc3AffectiveAmygdalaRouter(nn.Module):
         Initializes readout MLPs with orthogonal hidden matrices and `1e-3` output scale
         so untrained neural heads act as smooth perturbations around embodied telemetry.
         """
+        mlp_dim = (
+            int(self.valence_head[0].out_features)
+            if isinstance(self.valence_head[0], nn.Linear)
+            else 256
+        )
+        cache_key = ("Arc3AffectiveAmygdalaRouter", self.hidden_dim, mlp_dim, 2039)
+        cached = _SPECTRAL_WEIGHT_CACHE.get(cache_key)
+        if cached is not None:
+            with torch.no_grad():
+                for head, (w0, w2) in zip(
+                    (self.valence_head, self.threat_head, self.urgency_head), cached
+                ):
+                    if isinstance(head[0], nn.Linear) and isinstance(head[2], nn.Linear):
+                        head[0].weight.copy_(w0)
+                        nn.init.zeros_(head[0].bias)
+                        head[2].weight.copy_(w2)
+                        nn.init.zeros_(head[2].bias)
+            return
+
         with torch.random.fork_rng():
             torch.manual_seed(2039)
             with torch.no_grad():
+                saved_weights = []
                 for head in (self.valence_head, self.threat_head, self.urgency_head):
                     if isinstance(head[0], nn.Linear) and isinstance(head[2], nn.Linear):
                         nn.init.orthogonal_(head[0].weight, gain=0.5)
                         nn.init.zeros_(head[0].bias)
                         nn.init.orthogonal_(head[2].weight, gain=1e-3)
                         nn.init.zeros_(head[2].bias)
+                        saved_weights.append(
+                            (head[0].weight.detach().clone(), head[2].weight.detach().clone())
+                        )
+                if len(saved_weights) == 3:
+                    _SPECTRAL_WEIGHT_CACHE[cache_key] = tuple(saved_weights)
 
 
     def forward(
@@ -3122,10 +3486,15 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.last_ttt_diagnostics: Dict[str, Any] = {"ttt_steps": 0, "last_loss": 0.0}
         self._ttt_step_count: int = 0
 
-        gen = torch.zeros(1, 8192, dtype=torch.float32)
-        torch.manual_seed(1729)
-        gen[:, 4810:5322] = torch.randn(1, 512, dtype=torch.float32) * 0.15
-        self.register_buffer("default_delta_z", gen, persistent=False)
+        dz_key = ("default_delta_z", 8192, 1729)
+        cached_dz = _SPECTRAL_WEIGHT_CACHE.get(dz_key)
+        if cached_dz is None:
+            gen = torch.zeros(1, 8192, dtype=torch.float32)
+            torch.manual_seed(1729)
+            gen[:, 4810:5322] = torch.randn(1, 512, dtype=torch.float32) * 0.15
+            _SPECTRAL_WEIGHT_CACHE[dz_key] = gen
+            cached_dz = gen
+        self.register_buffer("default_delta_z", cached_dz.clone(), persistent=False)
 
         self.reset_level(clear_morphology_priors=True)
 
@@ -3192,12 +3561,14 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.state_first_step: Dict[str, int] = {}
         self.state_entry_action: Dict[str, ActionKey] = {}
         self.transitions: Dict[Tuple[str, ActionKey], TransitionRecord] = {}
+        self.tried_actions_by_state: Dict[str, Set[ActionKey]] = {}
         self.out_edges: Dict[str, Dict[ActionKey, str]] = {}
         self.self_loops: Dict[str, Set[ActionKey]] = {}
         self.game_over_actions: Dict[str, Set[ActionKey]] = {}
         self.step_history: List[
             Tuple[np.ndarray, np.ndarray, ActionKey, int, bool, bool, bool, Optional[Dict[str, Any]]]
         ] = []
+        self._dreamer_step_flags: Dict[Tuple[int, bool], Tuple[bool, bool]] = {}
         self.initial_state_hash: Optional[str] = None
         self.z_H: Optional[torch.Tensor] = None
         self.z_L: Optional[torch.Tensor] = None
@@ -3726,29 +4097,33 @@ class DarkSnailArc3WorldModel(nn.Module):
 
         with torch.enable_grad():
             z_H_in = z_H_super.detach().float()
-            z_L_in = z_L_token.detach().view(1, 1, self.d_reasoner).float()
             z_H_mean = z_H_in.mean(dim=1, keepdim=True)
-            z_L_coupled = self.cascade(
-                z_H_mean,
-                z_L_in,
-                delta_z=self.default_delta_z,
-                return_diagnostics=False,
-                unroll_steps=1,
-            )
-            if isinstance(z_L_coupled, tuple):
-                z_L_coupled = z_L_coupled[0]
-            u_s = self.cascade.project_to_shell(z_H_mean).squeeze(0).squeeze(0)
-            v_s = self.cascade.project_to_shell(z_L_coupled).squeeze(0).squeeze(0)
-            triad_vec = self.action_triad(u_s.unsqueeze(0), v_s.unsqueeze(0)).squeeze(0)
-            pred_act = torch.tanh(triad_vec[act_id])
-            loss_triad = (pred_act - float(target_sign)) ** 2
-
             q_logits = self.hrm_core.q_head(z_H_mean.squeeze(1)).squeeze(0)
             q_diff = q_logits[0] - q_logits[1]
             loss_q = F.binary_cross_entropy_with_logits(
                 q_diff, torch.tensor(float(halt_target), dtype=torch.float32, device=q_diff.device)
             )
-            total_loss = (loss_triad + 0.5 * loss_q) if adapt_triad else loss_q
+            if adapt_triad:
+                z_L_in = z_L_token.detach().view(1, 1, self.d_reasoner).float()
+                z_L_coupled = self.cascade(
+                    z_H_mean,
+                    z_L_in,
+                    delta_z=self.default_delta_z,
+                    return_diagnostics=False,
+                    unroll_steps=1,
+                )
+                if isinstance(z_L_coupled, tuple):
+                    z_L_coupled = z_L_coupled[0]
+                u_s = self.cascade.project_to_shell(z_H_mean).squeeze(0).squeeze(0)
+                v_s = self.cascade.project_to_shell(z_L_coupled).squeeze(0).squeeze(0)
+                triad_vec = self.action_triad(u_s.unsqueeze(0), v_s.unsqueeze(0)).squeeze(0)
+                pred_act = torch.tanh(triad_vec[act_id])
+                loss_triad = (pred_act - float(target_sign)) ** 2
+                total_loss = loss_triad + 0.5 * loss_q
+            else:
+                u_s = None
+                v_s = None
+                total_loss = loss_q
             total_loss.backward()
 
         with torch.no_grad():
@@ -3760,16 +4135,19 @@ class DarkSnailArc3WorldModel(nn.Module):
                     p.clamp_(-3.0, 3.0)
                     p.grad.zero_()
 
-            ortho_err = float(
-                verify_pointwise_orthogonality(
-                    u_s.detach().unsqueeze(0),
-                    v_s.detach().unsqueeze(0),
-                    self.action_triad.weight.detach(),
+            if adapt_triad and u_s is not None and v_s is not None:
+                ortho_err = float(
+                    verify_pointwise_orthogonality(
+                        u_s.detach().unsqueeze(0),
+                        v_s.detach().unsqueeze(0),
+                        self.action_triad.weight.detach(),
+                    )
+                    .abs()
+                    .max()
+                    .item()
                 )
-                .abs()
-                .max()
-                .item()
-            )
+            else:
+                ortho_err = 0.0
 
         self._ttt_step_count += 1
         self.last_ttt_diagnostics = {
@@ -3846,6 +4224,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.state_first_step.clear()
         self.state_entry_action.clear()
         self.transitions.clear()
+        self.tried_actions_by_state.clear()
         self.out_edges.clear()
         self.self_loops.clear()
         self.game_over_actions.clear()
@@ -3891,12 +4270,15 @@ class DarkSnailArc3WorldModel(nn.Module):
             self.state_frames[self.initial_state_hash] = self.splitter.initial_frame.copy()
             self.state_first_step[self.initial_state_hash] = 0
 
+        last_meaningful_nonclick: Dict[ActionKey, Tuple[np.ndarray, np.ndarray, ActionKey, Optional[Dict[str, Any]]]] = {}
         for idx, step_tuple in enumerate(self.step_history):
             f_prev, f_next, act_key, sf_cnt, lvl_up, game_ov, is_respawn = step_tuple[:7]
             cand_info = step_tuple[7] if len(step_tuple) > 7 else None
 
-            sh_prev = self.splitter.hash_nope(f_prev)
-            sh_next = self.splitter.hash_nope(f_next)
+            nope_prev = self.splitter.project_nope(f_prev)
+            nope_next = self.splitter.project_nope(f_next)
+            sh_prev = _blake2b_grid(nope_prev)
+            sh_next = _blake2b_grid(nope_next)
             if sh_prev not in self.state_frames:
                 self.state_frames[sh_prev] = f_prev.copy()
                 self.state_first_step[sh_prev] = idx
@@ -3910,8 +4292,6 @@ class DarkSnailArc3WorldModel(nn.Module):
             self.state_visit_counts[sh_next] += 1
 
             raw_d = int(np.sum(f_prev != f_next))
-            nope_prev = self.splitter.project_nope(f_prev)
-            nope_next = self.splitter.project_nope(f_next)
             nope_d = int(np.sum(nope_prev != nope_next))
             is_click = isinstance(act_key, tuple) and len(act_key) == 3 and act_key[0] == 6
             is_ver = act_key in saved_verifiers
@@ -3943,19 +4323,43 @@ class DarkSnailArc3WorldModel(nn.Module):
                 is_phase_reset=is_respawn,
             )
             self.transitions[(sh_prev, act_key)] = rec
+            self.tried_actions_by_state.setdefault(sh_prev, set()).add(act_key)
             if hasattr(self, "relational_dreamer") and not is_respawn:
-                self.relational_dreamer.observe_transition(
-                    nope_prev,
-                    nope_next,
-                    act_key,
-                    sh_prev=sh_prev,
-                    sh_next=sh_next,
-                    nope_d=nope_d,
-                    is_game_over=game_ov,
-                    is_phase_reset=is_respawn,
-                    candidate_info=cand_info,
-                    state_hash_next=sh_next,
+                has_kin = bool(
+                    isinstance(act_key, int) and act_key in self.relational_dreamer.kinematic_generators
                 )
+                flag_key = (int(idx), bool(nope_d > 0), has_kin)
+                cached_flags = self._dreamer_step_flags.get(flag_key)
+                if cached_flags is not None:
+                    was_hl, was_adj = cached_flags
+                    if was_hl:
+                        self.relational_dreamer.active_contact_highlight_states.add(sh_next)
+                    if was_adj:
+                        self.relational_dreamer.contact_adjacent_state_hashes.add(sh_next)
+                    self.relational_dreamer.last_transition_highlighted = was_hl
+                    if isinstance(act_key, int) and act_key == 5 and nope_d > 0:
+                        if sh_prev in self.relational_dreamer.active_contact_highlight_states:
+                            self.relational_dreamer.action5_is_contact_operator = True
+                else:
+                    self.relational_dreamer.observe_transition(
+                        nope_prev,
+                        nope_next,
+                        act_key,
+                        sh_prev=sh_prev,
+                        sh_next=sh_next,
+                        nope_d=nope_d,
+                        is_game_over=game_ov,
+                        is_phase_reset=is_respawn,
+                        candidate_info=cand_info,
+                        state_hash_next=sh_next,
+                    )
+                    was_hl = bool(sh_next in self.relational_dreamer.active_contact_highlight_states)
+                    was_adj = bool(sh_next in self.relational_dreamer.contact_adjacent_state_hashes)
+                    self._dreamer_step_flags[flag_key] = (was_hl, was_adj)
+                    has_kin_after = bool(
+                        isinstance(act_key, int) and act_key in self.relational_dreamer.kinematic_generators
+                    )
+                    self._dreamer_step_flags[(int(idx), bool(nope_d > 0), has_kin_after)] = (was_hl, was_adj)
             if not is_respawn:
                 if game_ov:
                     self.game_over_actions.setdefault(sh_prev, set()).add(act_key)
@@ -3975,9 +4379,12 @@ class DarkSnailArc3WorldModel(nn.Module):
                 self.action_type_stats[act_id][0] += 1.0
                 if meaningful:
                     self.action_type_stats[act_id][1] += 1.0
-                    self._induce_spatial_operator(
-                        nope_prev, nope_next, act_key, cand_info, _from_record=True
-                    )
+                    if is_click:
+                        self._induce_spatial_operator(
+                            nope_prev, nope_next, act_key, cand_info, _from_record=True
+                        )
+                    else:
+                        last_meaningful_nonclick[act_key] = (nope_prev, nope_next, act_key, cand_info)
                     self.edits_since_last_verify += 1
 
             if is_click and not is_respawn:
@@ -4028,6 +4435,9 @@ class DarkSnailArc3WorldModel(nn.Module):
                     ckst[0] += 1.0
                     if meaningful:
                         ckst[1] += 1.0
+
+        for np_p, np_n, ak_nc, ci_nc in last_meaningful_nonclick.values():
+            self._induce_spatial_operator(np_p, np_n, ak_nc, ci_nc, _from_record=True)
 
     def record_transition(
         self,
@@ -4136,6 +4546,10 @@ class DarkSnailArc3WorldModel(nn.Module):
         )
 
         if hasattr(self, "relational_dreamer") and not is_phase_reset:
+            step_idx = len(self.step_history) - 1
+            has_kin_before = bool(
+                isinstance(action_key, int) and action_key in self.relational_dreamer.kinematic_generators
+            )
             self.relational_dreamer.observe_transition(
                 nope_prev,
                 nope_next,
@@ -4149,6 +4563,13 @@ class DarkSnailArc3WorldModel(nn.Module):
                 candidate_info=candidate_info,
                 state_hash_next=sh_next,
             )
+            was_hl = bool(sh_next in self.relational_dreamer.active_contact_highlight_states)
+            was_adj = bool(sh_next in self.relational_dreamer.contact_adjacent_state_hashes)
+            has_kin_after = bool(
+                isinstance(action_key, int) and action_key in self.relational_dreamer.kinematic_generators
+            )
+            self._dreamer_step_flags[(step_idx, bool(nope_d > 0), has_kin_before)] = (was_hl, was_adj)
+            self._dreamer_step_flags[(step_idx, bool(nope_d > 0), has_kin_after)] = (was_hl, was_adj)
 
         if is_excitable_verifier and not is_phase_reset:
             self.verifier_actuators.add(action_key)
@@ -4161,6 +4582,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         # Always record `(sh_prev, action_key)` in `transitions` so no action at `sh_prev`
         # ever remains permanently untried, while keeping `out_edges` free of respawns.
         self.transitions[(sh_prev, action_key)] = rec
+        self.tried_actions_by_state.setdefault(sh_prev, set()).add(action_key)
         if not is_phase_reset:
             if is_game_over:
                 self.game_over_actions.setdefault(sh_prev, set()).add(action_key)
@@ -4188,11 +4610,17 @@ class DarkSnailArc3WorldModel(nn.Module):
                 self.update_lie_generator(nope_prev, nope_next, act_id)
                 self.edits_since_last_verify += 1
 
+        adapt_triad = getattr(self.goal_distiller, "levels_distilled", 0) > 0
         if (
             self.z_H is not None
             and self.z_L is not None
             and not is_phase_reset
-            and (len(self.step_history) <= 16 or level_up or is_game_over)
+            and (
+                (adapt_triad and len(self.step_history) <= 16)
+                or len(self.step_history) == 1
+                or level_up
+                or is_game_over
+            )
         ):
             self.adapt_online_step(
                 self.z_H,
@@ -4202,7 +4630,7 @@ class DarkSnailArc3WorldModel(nn.Module):
                 is_self_loop=is_loop,
                 is_game_over=is_game_over,
                 lr=1e-4,
-                adapt_triad=(getattr(self.goal_distiller, "levels_distilled", 0) > 0),
+                adapt_triad=adapt_triad,
             )
 
         if is_click and not is_phase_reset:
@@ -4784,87 +5212,88 @@ class DarkSnailArc3WorldModel(nn.Module):
                 num_slots = len(slot_positions)
                 if len(call_tokens) <= num_slots:
                     distinct_call_assigns = set()
+                    distinct_perms = set(permutations(call_tokens))
                     for idxs in combinations(range(num_slots), len(call_tokens)):
-                        for perm in set(permutations(call_tokens)):
+                        for perm in distinct_perms:
                             distinct_call_assigns.add(tuple(zip(idxs, perm)))
 
-                        slot_id_lookup = {
-                            (bcol, idx): s_i
-                            for s_i, (bcol, idx, _) in enumerate(slot_positions)
-                        }
-                        for call_assign in distinct_call_assigns:
-                            call_map = dict(call_assign)
-                            leaves: List[Tuple[str, int]] = []
-                            valid_tree = True
+                    slot_id_lookup = {
+                        (bcol, idx): s_i
+                        for s_i, (bcol, idx, _) in enumerate(slot_positions)
+                    }
+                    for call_assign in distinct_call_assigns:
+                        call_map = dict(call_assign)
+                        leaves: List[Tuple[str, int]] = []
+                        valid_tree = True
 
-                            def _expand_box(bcol: int, depth: int = 0) -> None:
-                                nonlocal valid_tree
-                                if not valid_tree or len(leaves) >= len(target_seq):
+                        def _expand_box(bcol: int, depth: int = 0) -> None:
+                            nonlocal valid_tree
+                            if not valid_tree or len(leaves) >= len(target_seq):
+                                return
+                            if depth > 8 or bcol not in boxes:
+                                valid_tree = False
+                                return
+                            for idx_i, it_i in enumerate(boxes[bcol]):
+                                if len(leaves) >= len(target_seq):
                                     return
-                                if depth > 8 or bcol not in boxes:
-                                    valid_tree = False
-                                    return
-                                for idx_i, it_i in enumerate(boxes[bcol]):
-                                    if len(leaves) >= len(target_seq):
-                                        return
-                                    if it_i["type"] == "solid":
-                                        leaves.append(("fixed", int(it_i["color"])))
-                                    elif it_i["type"] == "call":
-                                        _expand_box(int(it_i["color"]), depth + 1)
-                                    else:
-                                        s_i = slot_id_lookup[(bcol, idx_i)]
-                                        if s_i in call_map:
-                                            _expand_box(int(call_map[s_i][1]), depth + 1)
-                                        else:
-                                            leaves.append(("var", int(s_i)))
-
-                            _expand_box(root_col)
-                            if not valid_tree or len(leaves) != len(target_seq):
-                                continue
-
-                            var_color: Dict[int, int] = {}
-                            consistent = True
-                            for (l_kind, l_val), targ_c in zip(leaves, target_seq):
-                                if l_kind == "fixed":
-                                    if l_val != targ_c:
-                                        consistent = False
-                                        break
+                                if it_i["type"] == "solid":
+                                    leaves.append(("fixed", int(it_i["color"])))
+                                elif it_i["type"] == "call":
+                                    _expand_box(int(it_i["color"]), depth + 1)
                                 else:
-                                    if l_val in var_color and var_color[l_val] != targ_c:
-                                        consistent = False
-                                        break
-                                    var_color[l_val] = targ_c
-                            if not consistent:
-                                continue
+                                    s_i = slot_id_lookup[(bcol, idx_i)]
+                                    if s_i in call_map:
+                                        _expand_box(int(call_map[s_i][1]), depth + 1)
+                                    else:
+                                        leaves.append(("var", int(s_i)))
 
-                            used_counts: Counter = Counter()
-                            for _, tk in call_map.items():
-                                used_counts[tk] += 1
-                            for _, col_v in var_color.items():
-                                used_counts[("solid", col_v)] += 1
+                        _expand_box(root_col)
+                        if not valid_tree or len(leaves) != len(target_seq):
+                            continue
 
-                            if (
-                                used_counts <= avail_counts
-                                and len(var_color) + len(call_map) == num_slots
-                            ):
-                                plan_seq: List[ActionKey] = []
-                                pal_queues = {k: list(v) for k, v in pal_by_token.items()}
-                                for s_i, (_, _, s_comp) in enumerate(slot_positions):
-                                    tk = (
-                                        call_map[s_i]
-                                        if s_i in call_map
-                                        else ("solid", var_color[s_i])
-                                    )
-                                    p_comp = pal_queues[tk].pop(0)
-                                    plan_seq.append(
-                                        (6, int(p_comp["medoid_x"]), int(p_comp["medoid_y"]))
-                                    )
-                                    plan_seq.append(
-                                        (6, int(s_comp["medoid_x"]), int(s_comp["medoid_y"]))
-                                    )
-                                if available_actions is None or 5 in available_actions:
-                                    plan_seq.append(5)
-                                return plan_seq
+                        var_color: Dict[int, int] = {}
+                        consistent = True
+                        for (l_kind, l_val), targ_c in zip(leaves, target_seq):
+                            if l_kind == "fixed":
+                                if l_val != targ_c:
+                                    consistent = False
+                                    break
+                            else:
+                                if l_val in var_color and var_color[l_val] != targ_c:
+                                    consistent = False
+                                    break
+                                var_color[l_val] = targ_c
+                        if not consistent:
+                            continue
+
+                        used_counts: Counter = Counter()
+                        for _, tk in call_map.items():
+                            used_counts[tk] += 1
+                        for _, col_v in var_color.items():
+                            used_counts[("solid", col_v)] += 1
+
+                        if (
+                            used_counts <= avail_counts
+                            and len(var_color) + len(call_map) == num_slots
+                        ):
+                            plan_seq: List[ActionKey] = []
+                            pal_queues = {k: list(v) for k, v in pal_by_token.items()}
+                            for s_i, (_, _, s_comp) in enumerate(slot_positions):
+                                tk = (
+                                    call_map[s_i]
+                                    if s_i in call_map
+                                    else ("solid", var_color[s_i])
+                                )
+                                p_comp = pal_queues[tk].pop(0)
+                                plan_seq.append(
+                                    (6, int(p_comp["medoid_x"]), int(p_comp["medoid_y"]))
+                                )
+                                plan_seq.append(
+                                    (6, int(s_comp["medoid_x"]), int(s_comp["medoid_y"]))
+                                )
+                            if available_actions is None or 5 in available_actions:
+                                plan_seq.append(5)
+                            return plan_seq
 
         if not allow_generic_triplets:
             return []
@@ -5104,37 +5533,58 @@ class DarkSnailArc3WorldModel(nn.Module):
             self.z_H = z_H_in.detach()
             self.z_L = z_L_in.detach()
             h_steps = 1 if bypass_active else (int(hrm_steps) if hrm_steps is not None else int(unroll_steps))
-            z_H_ref, z_L_ref, hrm_diag = self.hrm_core(
-                z_H_in, z_L_in, max_steps=max(1, min(8, h_steps))
-            )
-            z_H_mean = (
-                z_H_in.mean(dim=1, keepdim=True).float()
-                + 1e-3 * (z_H_ref - z_H_in).mean(dim=1, keepdim=True).float()
-            )
-            z_L_eff = z_L_in + 1e-3 * (z_L_ref - z_L_in)
-            live_delta_z = self.default_delta_z.clone()
-            live_delta_z[:, 4810:5322] = (
-                self.default_delta_z[:, 4810:5322]
-                + 1e-3 * (z_L_ref - z_L_in).detach().view(1, self.d_reasoner)
-            )
+            if bypass_active or h_steps <= 2:
+                z_H_mean = z_H_in.mean(dim=1, keepdim=True).float()
+                z_L_eff = z_L_in
+                live_delta_z = self.default_delta_z
+                q_vals = self.hrm_core.q_head(z_H_mean.squeeze(1))
+                last_q_halt = float(q_vals[0, 0].item())
+                last_q_cont = float(q_vals[0, 1].item())
+                hrm_diag = {
+                    "hrm_steps_taken": 1,
+                    "hrm_halted_early": False,
+                    "hrm_should_halt": False,
+                    "q_halt": last_q_halt,
+                    "q_continue": last_q_cont,
+                    "hrm_q_halt": last_q_halt,
+                    "hrm_q_continue": last_q_cont,
+                }
+            else:
+                z_H_ref, z_L_ref, hrm_diag = self.hrm_core(
+                    z_H_in, z_L_in, max_steps=max(1, min(8, h_steps))
+                )
+                z_H_mean = (
+                    z_H_in.mean(dim=1, keepdim=True).float()
+                    + 1e-3 * (z_H_ref - z_H_in).mean(dim=1, keepdim=True).float()
+                )
+                z_L_eff = z_L_in + 1e-3 * (z_L_ref - z_L_in)
+                live_delta_z = self.default_delta_z.clone()
+                live_delta_z[:, 4810:5322] = (
+                    self.default_delta_z[:, 4810:5322]
+                    + 1e-3 * (z_L_ref - z_L_in).detach().view(1, self.d_reasoner)
+                )
+            eff_unroll = 1 if (bypass_active or h_steps <= 2) else int(unroll_steps)
             z_L_coupled, cas_diag = self.cascade(
                 z_H_mean,
                 z_L_eff,
                 delta_z=live_delta_z,
                 return_diagnostics=True,
-                unroll_steps=unroll_steps,
+                unroll_steps=eff_unroll,
             )
             u_shell = self.cascade.project_to_shell(z_H_mean).squeeze(0).squeeze(0)
             v_shell = self.cascade.project_to_shell(z_L_coupled).squeeze(0).squeeze(0)
             triad_shift = self.action_triad(u_shell.unsqueeze(0), v_shell.unsqueeze(0)).squeeze(0)
-            ortho_res = float(
-                verify_pointwise_orthogonality(
-                    u_shell.unsqueeze(0), v_shell.unsqueeze(0), self.action_triad.weight
+            if bypass_active or h_steps <= 2:
+                ortho_res = 0.0
+            else:
+                ortho_res = float(
+                    verify_pointwise_orthogonality(
+                        u_shell.unsqueeze(0), v_shell.unsqueeze(0), self.action_triad.weight
+                    )
+                    .abs()
+                    .max()
+                    .item()
                 )
-                .abs()
-                .max()
-                .item()
-            )
             cas_diag["action_triad_orthogonality_error"] = ortho_res
             cas_diag.update(hrm_diag)
             priors = torch.tanh(triad_shift).cpu().numpy()
@@ -5982,9 +6432,12 @@ class DarkSnailArc3Agent:
 
         avail_set = [int(a) for a in available_actions if int(a) != 0]
         simple_non_undo = [a for a in avail_set if a not in (6, 7)]
-        tried_at_state = {
-            act for (sh, act) in self.world_model.transitions.keys() if sh == state_hash
-        }
+        if not self.world_model.tried_actions_by_state and self.world_model.transitions:
+            tried_at_state = {
+                act for (sh, act) in self.world_model.transitions.keys() if sh == state_hash
+            }
+        else:
+            tried_at_state = self.world_model.tried_actions_by_state.get(state_hash, set())
         dead_at_state = self.world_model.self_loops.get(
             state_hash, set()
         ) | self.world_model.game_over_actions.get(state_hash, set())
@@ -6269,6 +6722,75 @@ class DarkSnailArc3Agent:
             if (isinstance(self.prev_action_key, tuple) and len(self.prev_action_key) == 3)
             else None
         )
+
+        # Fast-path planned BFS queue or planned action sequence before full deliberation
+        if self.planned_bfs_queue:
+            if self.planned_bfs_queue[0][0] == cur_hash:
+                _, next_bfs_act = self.planned_bfs_queue.popleft()
+                tok = self.episodic_shell.encode_frame_token(
+                    frame_2d,
+                    prev_frame_2d=self.prev_frame_2d,
+                    action_id=prev_act_id,
+                    click_xy=prev_xy,
+                )
+                self.episodic_shell._history_tokens.append(tok.detach())
+                if len(self.episodic_shell._history_tokens) > self.episodic_shell.max_history:
+                    self.episodic_shell._history_tokens = self.episodic_shell._history_tokens[
+                        -self.episodic_shell.max_history :
+                    ]
+                schedule = self.last_schedule
+                if schedule is None:
+                    visit_cnt = self.world_model.state_visit_counts.get(cur_hash, 1)
+                    schedule = self.controller(
+                        zeno_flux=float(self.episodic_shell.last_zeno_flux),
+                        lca_variance=float(self.episodic_shell.last_lca_variance),
+                        step0_demo_loss=min(5.0, 1.5 + 0.65 * float(visit_cnt - 1)),
+                        step0_grad_norm=1.0 + 0.2 * float(visit_cnt),
+                        s1_demo_fit=max(0.05, 1.0 / float(visit_cnt)),
+                        test_entropy=0.45,
+                        canvas_cells=64 * 64,
+                        has_occlusion_tie=(visit_cnt > 1),
+                    )
+                    self.last_schedule = schedule
+                self._record_chosen_action(frame_2d, cur_hash, next_bfs_act, None)
+                return self._build_game_action(
+                    next_bfs_act, schedule, mode_desc="bfs_frontier_navigation"
+                )
+            else:
+                self.planned_bfs_queue.clear()
+
+        if self.planned_action_sequence:
+            next_plan_act = self.planned_action_sequence.popleft()
+            tok = self.episodic_shell.encode_frame_token(
+                frame_2d,
+                prev_frame_2d=self.prev_frame_2d,
+                action_id=prev_act_id,
+                click_xy=prev_xy,
+            )
+            self.episodic_shell._history_tokens.append(tok.detach())
+            if len(self.episodic_shell._history_tokens) > self.episodic_shell.max_history:
+                self.episodic_shell._history_tokens = self.episodic_shell._history_tokens[
+                    -self.episodic_shell.max_history :
+                ]
+            schedule = self.last_schedule
+            if schedule is None:
+                visit_cnt = self.world_model.state_visit_counts.get(cur_hash, 1)
+                schedule = self.controller(
+                    zeno_flux=float(self.episodic_shell.last_zeno_flux),
+                    lca_variance=float(self.episodic_shell.last_lca_variance),
+                    step0_demo_loss=min(5.0, 1.5 + 0.65 * float(visit_cnt - 1)),
+                    step0_grad_norm=1.0 + 0.2 * float(visit_cnt),
+                    s1_demo_fit=max(0.05, 1.0 / float(visit_cnt)),
+                    test_entropy=0.45,
+                    canvas_cells=64 * 64,
+                    has_occlusion_tie=(visit_cnt > 1),
+                )
+                self.last_schedule = schedule
+            self._record_chosen_action(frame_2d, cur_hash, next_plan_act, None)
+            return self._build_game_action(
+                next_plan_act, schedule, mode_desc="sheaf_bijection_plan"
+            )
+
         z_H_super, shell_diag = self.episodic_shell(
             frame_2d,
             prev_frame_2d=self.prev_frame_2d,
@@ -6376,24 +6898,6 @@ class DarkSnailArc3Agent:
         if z_H_callosal is not None:
             self.world_model.z_H = z_H_callosal.detach()
         self.last_cascade_diagnostics = cas_diag
-
-        # Execute planned BFS path if still aligned with expected state
-        if self.planned_bfs_queue:
-            expected_state, next_bfs_act = self.planned_bfs_queue.popleft()
-            if cur_hash == expected_state:
-                self._record_chosen_action(frame_2d, cur_hash, next_bfs_act, None)
-                return self._build_game_action(
-                    next_bfs_act, schedule, mode_desc="bfs_frontier_navigation"
-                )
-            else:
-                self.planned_bfs_queue.clear()
-
-        if self.planned_action_sequence:
-            next_plan_act = self.planned_action_sequence.popleft()
-            self._record_chosen_action(frame_2d, cur_hash, next_plan_act, None)
-            return self._build_game_action(
-                next_plan_act, schedule, mode_desc="sheaf_bijection_plan"
-            )
 
         if 6 in avail and cur_hash == init_hash and cur_hash not in self.math_plan_attempted_states:
             sheaf_plan = self.world_model.synthesize_sheaf_bijection_plan(

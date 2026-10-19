@@ -170,6 +170,9 @@ def resolve_default_hook_layer(
     return max(0, min(total_layers - 1, idx))
 
 
+_HAAR_QR_BRIDGE_CACHE: Dict[Tuple[int, int, int], torch.Tensor] = {}
+
+
 def build_isometric_haar_qr_bridge(
     d_in: int,
     d_out: int = 4096,
@@ -190,13 +193,19 @@ def build_isometric_haar_qr_bridge(
     """
     d_in = int(d_in)
     d_out = int(d_out)
+    seed_i = int(seed)
     dev = torch.device(device) if device is not None else torch.device("cpu")
 
     if d_in == d_out:
         return torch.eye(d_out, dtype=torch.float32, device=dev)
 
+    cache_key = (d_in, d_out, seed_i)
+    cached = _HAAR_QR_BRIDGE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached.clone() if dev.type == "cpu" else cached.to(dev)
+
     with torch.random.fork_rng(devices=[]):
-        torch.manual_seed(int(seed))
+        torch.manual_seed(seed_i)
         if max(d_in, d_out) <= 256:
             g = torch.randn((max(d_in, d_out), min(d_in, d_out)), dtype=torch.float32)
             q, r = torch.linalg.qr(g, mode="reduced")
@@ -204,7 +213,8 @@ def build_isometric_haar_qr_bridge(
             diag_sign = torch.where(diag_sign == 0.0, torch.ones_like(diag_sign), diag_sign)
             q = q * diag_sign.unsqueeze(0)
             p_iso = q.t().contiguous() if d_in >= d_out else q.contiguous()
-            return p_iso.to(dev)
+            _HAAR_QR_BRIDGE_CACHE[cache_key] = p_iso
+            return p_iso.clone() if dev.type == "cpu" else p_iso.to(dev)
 
         if d_in > d_out:
             # Step 1: Seeded signed Haar reduction H in R^(d_out x d_in) with H @ H^T == I_{d_out}
@@ -258,11 +268,14 @@ def build_isometric_haar_qr_bridge(
                     p_iso = h_rot.contiguous()
             else:
                 p_iso = h_mat.contiguous()
-            return p_iso.to(dev)
+            _HAAR_QR_BRIDGE_CACHE[cache_key] = p_iso
+            return p_iso.clone() if dev.type == "cpu" else p_iso.to(dev)
         else:
             # d_in < d_out: transpose of (d_in, d_out) row-orthonormal bridge -> column-orthonormal
-            p_t = build_isometric_haar_qr_bridge(d_out, d_in, seed=seed, device="cpu")
-            return p_t.t().contiguous().to(dev)
+            p_t = build_isometric_haar_qr_bridge(d_out, d_in, seed=seed_i, device="cpu")
+            p_iso = p_t.t().contiguous()
+            _HAAR_QR_BRIDGE_CACHE[cache_key] = p_iso
+            return p_iso.clone() if dev.type == "cpu" else p_iso.to(dev)
 
 
 # ============================================================================
@@ -852,17 +865,19 @@ class SphericalLieSteeringHook(nn.Module):
                 cur_sub_sq_d = (v_cur.double() * v_cur.double()).sum(dim=-1, keepdim=True)
                 res_sub_d = target_sub_sq_d - cur_sub_sq_d
                 vj = v_cur[..., j : j + 1]
+                best_vj = vj.clone()
                 vj_d = vj.double()
                 sgn_v = torch.where(vj >= 0.0, torch.ones_like(vj), -torch.ones_like(vj))
                 vj_base = (sgn_v.double() * torch.sqrt((vj_d * vj_d + res_sub_d).clamp(min=0.0))).float()
                 ulp_j = (torch.nextafter(vj_base, inf_v) - vj_base).abs()
                 for k in (0, 1, -1, 2, -2, 3, -3, 4, -4, 6, -6, 8, -8):
-                    cand_v = v_cur.clone()
-                    cand_v[..., j : j + 1] = vj_base if k == 0 else (vj_base + k * ulp_j)
-                    cand_err = (torch.norm(cand_v, p=2, dim=-1, keepdim=True) - target_sub_norm).abs()
+                    c_vj = vj_base if k == 0 else (vj_base + k * ulp_j)
+                    v_cur[..., j : j + 1] = c_vj
+                    cand_err = (torch.norm(v_cur, p=2, dim=-1, keepdim=True) - target_sub_norm).abs()
                     imp = cand_err < sub_err
-                    v_cur = torch.where(imp, cand_v, v_cur)
+                    best_vj = torch.where(imp, c_vj, best_vj)
                     sub_err = torch.minimum(sub_err, cand_err)
+                v_cur[..., j : j + 1] = best_vj
             h_out[..., sl] = v_cur
             # Next resolve any 1-ULP reduction-tree rounding in torch.norm(h_out, p=2, dim=-1)
             D_full = h_out.shape[-1]
@@ -876,17 +891,19 @@ class SphericalLieSteeringHook(nn.Module):
                 cur_full_sq_d = (h_out.double() * h_out.double()).sum(dim=-1, keepdim=True)
                 res_full_d = target_full_sq_d - cur_full_sq_d
                 hj = h_out[..., j : j + 1]
+                best_hj = hj.clone()
                 hj_d = hj.double()
                 sgn_h = torch.where(hj >= 0.0, torch.ones_like(hj), -torch.ones_like(hj))
                 hj_base = (sgn_h.double() * torch.sqrt((hj_d * hj_d + res_full_d).clamp(min=0.0))).float()
                 ulp_j = (torch.nextafter(hj_base, inf_v) - hj_base).abs()
                 for k in (0, 1, -1, 2, -2, 3, -3, 4, -4, 6, -6, 8, -8, 12, -12, 16, -16):
-                    cand_h = h_out.clone()
-                    cand_h[..., j : j + 1] = hj_base if k == 0 else (hj_base + k * ulp_j)
-                    cand_full_err = (torch.norm(cand_h, p=2, dim=-1, keepdim=True) - target_full_norm).abs()
+                    c_hj = hj_base if k == 0 else (hj_base + k * ulp_j)
+                    h_out[..., j : j + 1] = c_hj
+                    cand_full_err = (torch.norm(h_out, p=2, dim=-1, keepdim=True) - target_full_norm).abs()
                     imp = cand_full_err < full_err
-                    h_out = torch.where(imp, cand_h, h_out)
+                    best_hj = torch.where(imp, c_hj, best_hj)
                     full_err = torch.minimum(full_err, cand_full_err)
+                h_out[..., j : j + 1] = best_hj
             v_cur = h_out[..., sl]
 
         with torch.no_grad():

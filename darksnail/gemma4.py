@@ -328,6 +328,8 @@ class ProportionalRoPESubspaceSplitter(nn.Module):
 # 3. DarkSnailGemma4GlobalHook (Upgraded from scripts/gemini-code-1792152508835.py)
 # ============================================================================
 
+_NOPE_SHELL_BASIS_CACHE: Dict[Tuple[int, int], Tuple[torch.Tensor, torch.Tensor]] = {}
+
 
 class DarkSnailGemma4GlobalHook(nn.Module):
     """
@@ -397,6 +399,11 @@ class DarkSnailGemma4GlobalHook(nn.Module):
 
     @staticmethod
     def _build_nope_shell_bases(d_nope: int, d_shell: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        cache_key = (int(d_nope), int(d_shell))
+        cached = _NOPE_SHELL_BASIS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached[0].clone(), cached[1].clone()
+
         idx = torch.arange(d_nope, dtype=torch.float32).unsqueeze(0)
         k_c = torch.arange(1, d_shell + 1, dtype=torch.float32).unsqueeze(1)
         k_f = torch.arange(d_shell + 1, 2 * d_shell + 1, dtype=torch.float32).unsqueeze(1)
@@ -408,8 +415,13 @@ class DarkSnailGemma4GlobalHook(nn.Module):
         stacked = torch.cat([raw_c, raw_f], dim=0).t()
         if d_nope >= 2 * d_shell:
             q, _ = torch.linalg.qr(stacked, mode="reduced")
-            return q[:, :d_shell].t().contiguous(), q[:, d_shell : 2 * d_shell].t().contiguous()
-        return F.normalize(raw_c, p=2, dim=-1), F.normalize(raw_f, p=2, dim=-1)
+            p_c = q[:, :d_shell].t().contiguous()
+            p_f = q[:, d_shell : 2 * d_shell].t().contiguous()
+        else:
+            p_c = F.normalize(raw_c, p=2, dim=-1).contiguous()
+            p_f = F.normalize(raw_f, p=2, dim=-1).contiguous()
+        _NOPE_SHELL_BASIS_CACHE[cache_key] = (p_c, p_f)
+        return p_c.clone(), p_f.clone()
 
     def get_skew_triad(self) -> torch.Tensor:
         gen_f = self.triad_gen.float()
@@ -694,6 +706,10 @@ class Gemma4BeltramiCallosalShell(nn.Module):
     def _build_isometric_callosal_bridge(d_in: int, d_out: int) -> torch.Tensor:
         if d_in == d_out:
             return torch.eye(d_out, dtype=torch.float32)
+        cache_key = (int(d_in), int(d_out))
+        cached = _CALLOSAL_BRIDGE_PROJ_CACHE.get(cache_key)
+        if cached is not None:
+            return cached.clone()
         proj = torch.zeros((d_out, d_in), dtype=torch.float32)
         if d_in > d_out:
             rem = d_in - d_out
@@ -708,21 +724,53 @@ class Gemma4BeltramiCallosalShell(nn.Module):
         else:
             idx = torch.arange(d_in)
             proj[idx, idx] = 1.0
-        return proj.contiguous()
+        proj = proj.contiguous()
+        _CALLOSAL_BRIDGE_PROJ_CACHE[cache_key] = proj
+        return proj.clone()
 
     def project_to_callosal_4096(self, shell_5376: torch.Tensor) -> torch.Tensor:
-        if shell_5376.shape[-1] == self.callosal_cond_dim:
+        d_in = shell_5376.shape[-1]
+        d_out = self.callosal_cond_dim
+        if d_in == d_out:
             return shell_5376.float()
+        x_f = shell_5376.float()
+        rms_scale = math.sqrt(float(self.d_model) / float(d_out))
+        if d_in == self.d_model and d_in < d_out:
+            return F.pad(x_f * rms_scale, (0, d_out - d_in))
+        if d_in == self.d_model and d_in > d_out and (d_in - d_out) <= d_out:
+            rem = d_in - d_out
+            direct = d_out - rem
+            inv_sqrt2 = 1.0 / math.sqrt(2.0)
+            paired = (
+                x_f[..., direct : direct + rem] * inv_sqrt2
+                + x_f[..., direct + rem : direct + 2 * rem] * inv_sqrt2
+            )
+            out = torch.cat([x_f[..., :direct], paired], dim=-1) if direct > 0 else paired
+            return out * rms_scale
         proj = self.callosal_bridge_proj.to(device=shell_5376.device, dtype=torch.float32)
-        rms_scale = math.sqrt(float(self.d_model) / float(self.callosal_cond_dim))
-        return F.linear(shell_5376.float(), proj) * rms_scale
+        return F.linear(x_f, proj) * rms_scale
 
     def lift_from_callosal_4096(self, shell_4096: torch.Tensor) -> torch.Tensor:
-        if shell_4096.shape[-1] == self.d_model:
+        d_in = self.d_model
+        d_out = self.callosal_cond_dim
+        if shell_4096.shape[-1] == d_in:
             return shell_4096.float()
+        inv_scale = math.sqrt(float(d_out) / float(d_in))
+        x_s = shell_4096.float() * inv_scale
+        if shell_4096.shape[-1] == d_out and d_in < d_out:
+            return x_s[..., :d_in].contiguous()
+        if shell_4096.shape[-1] == d_out and d_in > d_out and (d_in - d_out) <= d_out:
+            rem = d_in - d_out
+            direct = d_out - rem
+            inv_sqrt2 = 1.0 / math.sqrt(2.0)
+            half_p = x_s[..., direct:] * inv_sqrt2
+            return (
+                torch.cat([x_s[..., :direct], half_p, half_p], dim=-1)
+                if direct > 0
+                else torch.cat([half_p, half_p], dim=-1)
+            )
         proj = self.callosal_bridge_proj.to(device=shell_4096.device, dtype=torch.float32)
-        inv_scale = math.sqrt(float(self.callosal_cond_dim) / float(self.d_model))
-        return torch.matmul(shell_4096.float() * inv_scale, proj)
+        return torch.matmul(x_s, proj)
 
     def forward(
         self,
@@ -752,14 +800,21 @@ class Gemma4BeltramiCallosalShell(nn.Module):
 # 5. SurgicalGemma4Attention (Gemma 4 Global Layer Ultrametric + DarkSnail Surgery)
 # ============================================================================
 
+_CALLOSAL_BRIDGE_PROJ_CACHE: Dict[Tuple[int, int], torch.Tensor] = {}
+_ROUTER_BB_CACHE: Dict[int, torch.Tensor] = {}
+_ROUTER_RH_CACHE: Dict[Tuple[int, int, int], torch.Tensor] = {}
+
 
 def _get_topology_module() -> Any:
     """
     Audit Fix #1: Loads `llama_surgery.topology` without triggering `llama_surgery/__init__.py`
     (which eagerly imports `transformers.Trainer`), with zero recursive self-calls or temp paths.
+    Also registers a lazy-loading `llama_surgery` package entry in `sys.modules` so subsequent
+    `from llama_surgery.topology import ...` statements across the codebase resolve instantaneously.
     """
     import importlib.util
     import sys
+    import types
 
     if "_darksnail_ls_topology" in sys.modules:
         return sys.modules["_darksnail_ls_topology"]
@@ -775,10 +830,48 @@ def _get_topology_module() -> Any:
                     mod = importlib.util.module_from_spec(spec)
                     sys.modules["_darksnail_ls_topology"] = mod
                     spec.loader.exec_module(mod)
+                    if sub == "llama_surgery":
+                        sys.modules.setdefault("llama_surgery.topology", mod)
+                        if "llama_surgery" not in sys.modules:
+                            pkg_dir = cand.parent
+                            init_py = pkg_dir / "__init__.py"
+                            pkg = types.ModuleType("llama_surgery")
+                            pkg.__path__ = [str(pkg_dir)]
+                            pkg.__file__ = str(init_py)
+                            pkg.__package__ = "llama_surgery"
+                            pkg.topology = mod  # type: ignore[attr-defined]
+
+                            def _lazy_ls_getattr(
+                                name: str,
+                                _pkg: types.ModuleType = pkg,
+                                _init_py: Path = init_py,
+                            ) -> Any:
+                                _pkg.__dict__.pop("__getattr__", None)
+                                if _init_py.exists():
+                                    init_spec = importlib.util.spec_from_file_location(
+                                        "llama_surgery",
+                                        str(_init_py),
+                                        submodule_search_locations=[str(_init_py.parent)],
+                                    )
+                                    if init_spec and init_spec.loader:
+                                        init_spec.loader.exec_module(_pkg)
+                                if name in _pkg.__dict__:
+                                    return _pkg.__dict__[name]
+                                raise AttributeError(f"module 'llama_surgery' has no attribute {name!r}")
+
+                            pkg.__getattr__ = _lazy_ls_getattr  # type: ignore[attr-defined]
+                            sys.modules["llama_surgery"] = pkg
                     return mod
 
     from llama_surgery import topology as mod
     return mod
+
+
+# Pre-register lightweight `llama_surgery.topology` on import so downstream imports avoid Trainer stall
+try:
+    _get_topology_module()
+except Exception:
+    pass
 
 
 def _init_router_haar_dct_spectral_hash(router: nn.Module, seed: int = 0) -> None:
@@ -804,15 +897,18 @@ def _init_router_haar_dct_spectral_hash(router: nn.Module, seed: int = 0) -> Non
     with torch.no_grad():
         in_dim = int(router.in_dim)
         half_d = in_dim // 2
-        # Make backbone symmetric across [q_nope, k_nope] halves so Q and K share a common metric space
-        w_bb = torch.zeros((in_dim, in_dim), dtype=torch.float32)
         if 2 * half_d == in_dim and half_d > 0:
-            eye_h = torch.eye(half_d, dtype=torch.float32) * (1.0 / math.sqrt(2.0))
-            w_bb[:half_d, :half_d] = eye_h
-            w_bb[:half_d, half_d:] = eye_h
-            w_bb[half_d:, :half_d] = eye_h
-            w_bb[half_d:, half_d:] = -eye_h
+            w_bb = _ROUTER_BB_CACHE.get(in_dim)
+            if w_bb is None:
+                w_bb = torch.zeros((in_dim, in_dim), dtype=torch.float32)
+                eye_h = torch.eye(half_d, dtype=torch.float32) * (1.0 / math.sqrt(2.0))
+                w_bb[:half_d, :half_d] = eye_h
+                w_bb[:half_d, half_d:] = eye_h
+                w_bb[half_d:, :half_d] = eye_h
+                w_bb[half_d:, half_d:] = -eye_h
+                _ROUTER_BB_CACHE[in_dim] = w_bb
         else:
+            w_bb = torch.zeros((in_dim, in_dim), dtype=torch.float32)
             nn.init.orthogonal_(w_bb, gain=1.0)
         router.backbone.weight.copy_(w_bb.to(router.backbone.weight.dtype))
         if router.backbone.bias is not None:
@@ -820,12 +916,15 @@ def _init_router_haar_dct_spectral_hash(router: nn.Module, seed: int = 0) -> Non
 
         # Build deterministic DCT/Haar hyperplane projections per head
         total_out = router.route_heads.weight.shape[0]
-        idx = torch.arange(in_dim, dtype=torch.float32).unsqueeze(0)
-        k_freq = torch.arange(1, total_out + 1, dtype=torch.float32).unsqueeze(1)
-        haar = torch.where(((torch.arange(in_dim) + int(seed)) % 2) == 0, 1.0, -1.0).float().unsqueeze(0)
-        raw = torch.cos(math.pi * (idx + 0.5) * k_freq / float(in_dim)) * haar
-        # Row-normalize so logits have unit variance
-        w_rh = F.normalize(raw, p=2, dim=-1) * 1.5
+        rh_key = (in_dim, int(total_out), int(seed) % 2)
+        w_rh = _ROUTER_RH_CACHE.get(rh_key)
+        if w_rh is None:
+            idx = torch.arange(in_dim, dtype=torch.float32).unsqueeze(0)
+            k_freq = torch.arange(1, total_out + 1, dtype=torch.float32).unsqueeze(1)
+            haar = torch.where(((torch.arange(in_dim) + int(seed)) % 2) == 0, 1.0, -1.0).float().unsqueeze(0)
+            raw = torch.cos(math.pi * (idx + 0.5) * k_freq / float(in_dim)) * haar
+            w_rh = (F.normalize(raw, p=2, dim=-1) * 1.5).contiguous()
+            _ROUTER_RH_CACHE[rh_key] = w_rh
         router.route_heads.weight.copy_(w_rh.to(router.route_heads.weight.dtype))
         if router.route_heads.bias is not None:
             nn.init.zeros_(router.route_heads.bias)
@@ -843,6 +942,49 @@ def _repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
         batch, num_key_value_heads, n_rep, slen, head_dim
     )
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
+
+def _prune_donor_mask_inplace(
+    mask_4d: torch.Tensor,
+    added: torch.Tensor,
+    donor_start: int,
+    n_donor: int,
+    tail_start: int,
+    w_q: int,
+    seq_len: int,
+    L_kv: int,
+    local_window: int,
+) -> None:
+    """
+    Vectorized iso-budget donor pruning across `(B, H, Q, K)`:
+    Removes up to `add_bh + max(8, round(0.55 * add_bh))` non-local, non-sink `True` entries
+    per `(b, h)` in the exact visitation order `(donor_end-1 .. donor_start, tail_start .. tail_start+max(1, w_q-1)-1)`
+    and ascending key index `1 <= k < q_abs - local_window`.
+    """
+    if not bool((added > 0).any().item()):
+        return
+    dev = mask_4d.device
+    donor_rows = torch.arange(donor_start + n_donor - 1, donor_start - 1, -1, device=dev, dtype=torch.long)
+    tail_count = min(max(1, w_q - 1), max(0, seq_len - tail_start))
+    tail_rows = torch.arange(tail_start, tail_start + tail_count, device=dev, dtype=torch.long)
+    row_order = torch.cat([donor_rows, tail_rows], dim=0)
+    if row_order.numel() == 0:
+        return
+    q_abs = (L_kv - seq_len) + row_order
+    k_lim = (q_abs - local_window).clamp(min=1)
+    k_idx = torch.arange(L_kv, device=dev, dtype=torch.long).unsqueeze(0)
+    eligible = (k_idx >= 1) & (k_idx < k_lim.unsqueeze(1))
+
+    m_vis = mask_4d[:, :, row_order, :]
+    cand = m_vis & eligible.unsqueeze(0).unsqueeze(0)
+    B, H, N_vis, _ = cand.shape
+    cand_flat = cand.view(B, H, N_vis * L_kv)
+    csum = cand_flat.to(torch.int32).cumsum(dim=-1)
+
+    extra = torch.round(added.to(torch.float64) * 0.55).to(torch.int32).clamp(min=8)
+    rem = torch.where(added > 0, added.to(torch.int32) + extra, torch.zeros_like(extra))
+    to_clear = cand_flat & (csum <= rem.unsqueeze(-1))
+    mask_4d[:, :, row_order, :] = m_vis & (~to_clear.view(B, H, N_vis, L_kv))
 
 
 class SurgicalGemma4Attention(nn.Module):
@@ -1814,43 +1956,18 @@ class SurgicalGemma4Attention(nn.Module):
                         sh_exp = sh_tokens[:, h0:h1, :].unsqueeze(2).expand(-1, -1, w_q, -1).clamp(0, L_kv - 1)
                         m_chunk[:, :, tail_start:, :].scatter_(-1, sh_exp, True)
                         after_causal = (m_chunk[:, :, tail_start:, :] & causal_tail).sum(dim=(-2, -1))
-                        added_cpu = (after_causal - before_causal).clamp(min=0).cpu()
-                        if int(added_cpu.max().item()) > 0:
-                            win_slice = m_chunk[:, :, donor_start:seq_len, :].cpu()
-                            for b_i in range(batch_size):
-                                for h_rel in range(hc):
-                                    add_bh = int(added_cpu[b_i, h_rel].item())
-                                    if add_bh <= 0:
-                                        continue
-                                    rem = add_bh + max(8, int(round(0.55 * float(add_bh))))
-                                    for d_rel in range(n_donor - 1, -1, -1):
-                                        if rem <= 0:
-                                            break
-                                        r_d = donor_start + d_rel
-                                        k_lim = max(1, (L_kv - seq_len + r_d) - local_window)
-                                        if k_lim <= 1:
-                                            continue
-                                        row_d = win_slice[b_i, h_rel, d_rel, 1:k_lim]
-                                        true_pos = torch.nonzero(row_d, as_tuple=False).reshape(-1)
-                                        if true_pos.numel() > 0:
-                                            take = min(rem, int(true_pos.numel()))
-                                            win_slice[b_i, h_rel, d_rel, 1 + true_pos[:take]] = False
-                                            rem -= take
-                                    if rem > 0:
-                                        for r_t in range(max(1, w_q - 1)):
-                                            if rem <= 0:
-                                                break
-                                            q_abs = L_kv - seq_len + tail_start + r_t
-                                            k_lim_t = max(1, q_abs - local_window)
-                                            if k_lim_t <= 1:
-                                                continue
-                                            row_t = win_slice[b_i, h_rel, n_donor + r_t, 1:k_lim_t]
-                                            true_pos_t = torch.nonzero(row_t, as_tuple=False).reshape(-1)
-                                            if true_pos_t.numel() > 0:
-                                                take_t = min(rem, int(true_pos_t.numel()))
-                                                win_slice[b_i, h_rel, n_donor + r_t, 1 + true_pos_t[:take_t]] = False
-                                                rem -= take_t
-                            m_chunk[:, :, donor_start:seq_len, :] = win_slice.to(m_chunk.device)
+                        added = (after_causal - before_causal).clamp(min=0)
+                        _prune_donor_mask_inplace(
+                            m_chunk,
+                            added,
+                            donor_start=donor_start,
+                            n_donor=n_donor,
+                            tail_start=tail_start,
+                            w_q=w_q,
+                            seq_len=seq_len,
+                            L_kv=L_kv,
+                            local_window=local_window,
+                        )
                     elif mask_override == "oracle":
                         W = int(getattr(self.config, "surgical_window_size", 256) or 256)
                         recent_w = min(128, W)
@@ -1961,44 +2078,18 @@ class SurgicalGemma4Attention(nn.Module):
 
                 donor_end = tail_start
                 donor_start = max(1 + local_window, donor_end - 96)
-                added_cpu = added.cpu()
-                if int(added_cpu.max().item()) > 0:
-                    win_slice = um_mask_bool[:, :, donor_start:seq_len, :].cpu()
-                    n_donor = max(0, donor_end - donor_start)
-                    for b_i in range(batch_size):
-                        for h_i in range(self.num_heads):
-                            add_bh = int(added_cpu[b_i, h_i].item())
-                            if add_bh <= 0:
-                                continue
-                            rem = add_bh + max(8, int(round(0.55 * float(add_bh))))
-                            for d_rel in range(n_donor - 1, -1, -1):
-                                if rem <= 0:
-                                    break
-                                r_d = donor_start + d_rel
-                                k_lim = max(1, (L_kv - seq_len + r_d) - local_window)
-                                if k_lim <= 1:
-                                    continue
-                                row_d = win_slice[b_i, h_i, d_rel, 1:k_lim]
-                                true_pos = torch.nonzero(row_d, as_tuple=False).reshape(-1)
-                                if true_pos.numel() > 0:
-                                    take = min(rem, int(true_pos.numel()))
-                                    win_slice[b_i, h_i, d_rel, 1 + true_pos[:take]] = False
-                                    rem -= take
-                            if rem > 0:
-                                for r_t in range(max(1, w_q - 1)):
-                                    if rem <= 0:
-                                        break
-                                    q_abs = L_kv - seq_len + tail_start + r_t
-                                    k_lim_t = max(1, q_abs - local_window)
-                                    if k_lim_t <= 1:
-                                        continue
-                                    row_t = win_slice[b_i, h_i, n_donor + r_t, 1:k_lim_t]
-                                    true_pos_t = torch.nonzero(row_t, as_tuple=False).reshape(-1)
-                                    if true_pos_t.numel() > 0:
-                                        take_t = min(rem, int(true_pos_t.numel()))
-                                        win_slice[b_i, h_i, n_donor + r_t, 1 + true_pos_t[:take_t]] = False
-                                        rem -= take_t
-                    um_mask_bool[:, :, donor_start:seq_len, :] = win_slice.to(um_mask_bool.device)
+                n_donor = max(0, donor_end - donor_start)
+                _prune_donor_mask_inplace(
+                    um_mask_bool,
+                    added,
+                    donor_start=donor_start,
+                    n_donor=n_donor,
+                    tail_start=tail_start,
+                    w_q=w_q,
+                    seq_len=seq_len,
+                    L_kv=L_kv,
+                    local_window=local_window,
+                )
 
         if mask_override == "window":
             W = int(getattr(self.config, "surgical_window_size", 256) or 256)

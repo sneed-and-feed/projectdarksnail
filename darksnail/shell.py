@@ -110,6 +110,8 @@ class BeltramiCallosalShell(nn.Module):
         self.last_zeno_flux: float = 0.0
         self.last_lca_variance: float = 0.0
 
+    _SHELL_PROJECTION_CACHE: Dict[Tuple[int, int], Tuple[torch.Tensor, torch.Tensor]] = {}
+
     @staticmethod
     def _build_deterministic_shell_projections(
         d_model: int, d_shell: int
@@ -118,6 +120,11 @@ class BeltramiCallosalShell(nn.Module):
         Constructs deterministic orthogonal low-frequency (coarse) and high-frequency (fine)
         multi-scale Haar/DCT shell basis matrices in R^(d_shell x d_model).
         """
+        cache_key = (int(d_model), int(d_shell))
+        cached = BeltramiCallosalShell._SHELL_PROJECTION_CACHE.get(cache_key)
+        if cached is not None:
+            return cached[0].clone(), cached[1].clone()
+
         idx = torch.arange(d_model, dtype=torch.float32).unsqueeze(0)  # (1, D)
         k_coarse = torch.arange(1, d_shell + 1, dtype=torch.float32).unsqueeze(1)  # (M, 1)
         k_fine = torch.arange(d_shell + 1, 2 * d_shell + 1, dtype=torch.float32).unsqueeze(1)
@@ -135,9 +142,10 @@ class BeltramiCallosalShell(nn.Module):
             p_coarse = q[:, :d_shell].t().contiguous()
             p_fine = q[:, d_shell : 2 * d_shell].t().contiguous()
         else:
-            p_coarse = F.normalize(raw_coarse, p=2, dim=-1)
-            p_fine = F.normalize(raw_fine, p=2, dim=-1)
-        return p_coarse, p_fine
+            p_coarse = F.normalize(raw_coarse, p=2, dim=-1).contiguous()
+            p_fine = F.normalize(raw_fine, p=2, dim=-1).contiguous()
+        BeltramiCallosalShell._SHELL_PROJECTION_CACHE[cache_key] = (p_coarse, p_fine)
+        return p_coarse.clone(), p_fine.clone()
 
     def load_sidecar_projections(self, sidecar_path: str, layer_idx: int = 16) -> bool:
         """
@@ -295,6 +303,37 @@ class BeltramiCallosalShell(nn.Module):
         C = int(num_blocks)
         device = x.device
         x_f = x.float()
+        pos_scale = max(float(S_rem) / 10.0, 1.0)
+
+        if S_rem >= C and (S_rem % C) == 0:
+            blk_len = S_rem // C
+            blks = x_f.view(B, C, blk_len, D)
+            mean_h = blks.mean(dim=2, keepdim=True)  # (B, C, 1, D)
+            dists = torch.norm(blks - mean_h, p=2, dim=-1)  # (B, C, blk_len)
+            local_medoid_idx = dists.argmin(dim=-1)  # (B, C)
+            starts = torch.arange(0, S_rem, blk_len, device=device, dtype=local_medoid_idx.dtype).unsqueeze(0)
+            medoid_indices = local_medoid_idx + starts  # (B, C)
+            medoid_tokens = torch.gather(
+                blks, dim=2, index=local_medoid_idx.view(B, C, 1, 1).expand(B, C, 1, D)
+            ).squeeze(2)
+
+            norms = torch.norm(blks, p=2, dim=-1)  # (B, C, blk_len)
+            peak_idx = norms.argmax(dim=-1).view(B, C, 1, 1).expand(B, C, 1, D)
+            peak_h = torch.gather(blks, dim=2, index=peak_idx).squeeze(2)
+            pooled_values = 0.5 * (mean_h.squeeze(2) + peak_h)
+
+            if blk_len > 1:
+                pos_c = torch.arange(S_rem, device=device, dtype=torch.float32).view(1, C, blk_len) / pos_scale
+                tok_weights = (norms + 1e-6) / (norms.sum(dim=-1, keepdim=True) + 1e-6 * blk_len)
+                mean_pos = (pos_c * tok_weights).sum(dim=-1, keepdim=True)
+                pos_var = ((pos_c - mean_pos) ** 2 * tok_weights).sum(dim=-1) * (
+                    float(blk_len) / float(blk_len - 1)
+                )
+            else:
+                pos_var = torch.zeros((B, C), device=device, dtype=torch.float32)
+
+            block_counts = torch.full((B, C), float(blk_len), device=device, dtype=torch.float32)
+            return medoid_tokens, pooled_values, medoid_indices, pos_var, block_counts
 
         # Partition [0, S_rem) into C contiguous non-empty blocks
         # Use exact integer boundaries floor(c * S_rem / C) .. floor((c+1) * S_rem / C)
@@ -306,8 +345,6 @@ class BeltramiCallosalShell(nn.Module):
         medoid_idx_list = []
         pos_var_list = []
         counts_list = []
-
-        pos_scale = max(float(S_rem) / 10.0, 1.0)
 
         for c in range(C):
             start = boundaries[c]
@@ -533,30 +570,25 @@ def _grid_to_feature_tokens(grid: Sequence[Sequence[int]]) -> np.ndarray:
     clipped = np.clip(arr, 0, 9)
     # Build sequence with row delimiters so 2D spatial structure is preserved in 1D stream
     n_tokens = h * (w + 1)
-    feats = np.zeros((n_tokens, 16), dtype=np.float32)
+    feats_2d = np.zeros((h, w + 1, 16), dtype=np.float32)
 
-    r_idx = np.repeat(np.arange(h, dtype=np.float32) / max(1.0, float(h)), w + 1)
-    c_seq = np.tile(np.arange(w + 1, dtype=np.float32) / max(1.0, float(w)), h)
-    feats[:, 10] = r_idx
-    feats[:, 11] = c_seq
+    feats_2d[:, :, 10] = (np.arange(h, dtype=np.float32) / max(1.0, float(h)))[:, None]
+    feats_2d[:, :, 11] = (np.arange(w + 1, dtype=np.float32) / max(1.0, float(w)))[None, :]
 
-    pos = 0
-    for r in range(h):
-        row_colors = clipped[r]
-        for c in range(w):
-            color = int(row_colors[c])
-            feats[pos, color] = 1.0
-            feats[pos, 12] = 1.0 if color > 0 else 0.0  # foreground indicator
-            # Local 2D gradient indicator
-            up_diff = 1.0 if (r > 0 and clipped[r - 1, c] != color) else 0.0
-            left_diff = 1.0 if (c > 0 and clipped[r, c - 1] != color) else 0.0
-            feats[pos, 13] = 0.5 * (up_diff + left_diff)
-            pos += 1
-        # Row delimiter token
-        feats[pos, 14] = 1.0
-        pos += 1
+    r_grid, c_grid = np.ogrid[:h, :w]
+    feats_2d[r_grid, c_grid, clipped] = 1.0
+    feats_2d[:, :w, 12] = (clipped > 0).astype(np.float32)
 
-    return feats
+    up_diff = np.zeros((h, w), dtype=np.float32)
+    if h > 1:
+        up_diff[1:, :] = (clipped[1:, :] != clipped[:-1, :]).astype(np.float32)
+    left_diff = np.zeros((h, w), dtype=np.float32)
+    if w > 1:
+        left_diff[:, 1:] = (clipped[:, 1:] != clipped[:, :-1]).astype(np.float32)
+    feats_2d[:, :w, 13] = 0.5 * (up_diff + left_diff)
+    feats_2d[:, w, 14] = 1.0
+
+    return feats_2d.reshape(n_tokens, 16)
 
 
 def _compute_prime_shell_flux_and_lca(seq_feats: np.ndarray, p: int) -> Tuple[float, float, float]:
