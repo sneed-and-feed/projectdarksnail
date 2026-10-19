@@ -208,10 +208,10 @@ darksnail/
 │   └── submission_darksnail_v2_pass1.json
 ├── scripts/
 │   ├── audit_gfm_math.py
+│   ├── build_gemma4_surgical_hooks.py   # Standalone Gemma 4 31B global p-RoPE surgical hook reference specification
 │   ├── check_shape_and_pullback_generalization.py
 │   ├── evaluate_darksnail_arc.py        # ARC-AGI-1 evaluator (supports DARKSNAIL_SHARD=k/n)
-│   ├── evaluate_darksnail_arc3.py       # ARC-AGI-3 25-game interactive evaluator + Gemma 4 GPU telemetry
-│   └── gemini-code-1792152508835.py     # Standalone Left-Hemisphere execution & surgical hook reference script
+│   └── evaluate_darksnail_arc3.py       # ARC-AGI-3 25-game interactive evaluator + Gemma 4 GPU telemetry
 └── tests/
     ├── test_darksnail.py            # 10-suite core DarkSnail V2 + CDS pytest verification
     ├── test_darksnail_arc3.py       # 11-suite ARC-AGI-3 interactive agent, Argon integrity & Callosal verification
