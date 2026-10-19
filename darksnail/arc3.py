@@ -208,6 +208,18 @@ def _connected_components_2d(
                         np.abs(rs_f - cy) + np.abs(cs_f - cx)
                     )
                     med_idx = int(np.argmin(dists))
+                    tied = np.flatnonzero(dists == dists[med_idx])
+                    if tied.size > 1:
+                        sr, sc = int(rs[0]), int(cs[0])
+                        med_idx = int(
+                            min(
+                                tied,
+                                key=lambda i: (
+                                    abs(int(rs[i]) - sr) + abs(int(cs[i]) - sc),
+                                    -abs(int(rs[i]) - sr),
+                                ),
+                            )
+                        )
                     med_y = int(rs[med_idx])
                     med_x = int(cs[med_idx])
                 comps.append(
@@ -271,6 +283,18 @@ def _connected_components_2d(
                             np.abs(rs_f - cy) + np.abs(cs_f - cx)
                         )
                         med_idx = int(np.argmin(dists))
+                        tied = np.flatnonzero(dists == dists[med_idx])
+                        if tied.size > 1:
+                            sr, sc = int(rs[0]), int(cs[0])
+                            med_idx = int(
+                                min(
+                                    tied,
+                                    key=lambda i: (
+                                        abs(int(rs[i]) - sr) + abs(int(cs[i]) - sc),
+                                        -abs(int(rs[i]) - sr),
+                                    ),
+                                )
+                            )
                         med_y = int(rs[med_idx])
                         med_x = int(cs[med_idx])
                     comps.append(
@@ -792,6 +816,7 @@ _DEFAULT_ROPE2D_MEDOID_POOLER = RoPE2DMedoidPooler(
     patch_size=4, viscous_nu=0.05, viscous_p=2, shell_level=1
 )
 _MEDOID_EXTRACTION_CACHE: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+_RADIAL_PRIOR_CACHE: Dict[Tuple[int, int], np.ndarray] = {}
 
 
 def extract_arc3_beltrami_medoids(
@@ -1208,84 +1233,86 @@ def extract_arc3_beltrami_medoids(
                         )
 
     # 4. 2D Axial RoPE Salience Patch Medoids via `RoPE2DMedoidPooler(patch_size=4)`
-    if len(fg_comps) < 8:
-        feat_2d = np.zeros((1, H, W, 20), dtype=np.float32)
-        for c_val in range(16):
-            feat_2d[0, :, :, c_val] = (arr == c_val).astype(np.float32)
-        feat_2d[0, :, :, 16] = (arr != bg_mode).astype(np.float32)
-        feat_2d[0, :, :, 17] = beltrami_grad
-        feat_2d[0, :, :, 18] = temp_diff
+    feat_2d = np.zeros((1, H, W, 20), dtype=np.float32)
+    feat_2d[0, :, :, :16] = (arr[:, :, None] == np.arange(16, dtype=arr.dtype)).astype(np.float32)
+    feat_2d[0, :, :, 16] = (arr != bg_mode).astype(np.float32)
+    feat_2d[0, :, :, 17] = beltrami_grad
+    feat_2d[0, :, :, 18] = temp_diff
+    rad_prior = _RADIAL_PRIOR_CACHE.get((H, W))
+    if rad_prior is None:
         yy, xx = np.meshgrid(
             np.linspace(-1.0, 1.0, H, dtype=np.float32),
             np.linspace(-1.0, 1.0, W, dtype=np.float32),
             indexing="ij",
         )
-        feat_2d[0, :, :, 19] = 1.0 - 0.5 * (yy ** 2 + xx ** 2)
+        rad_prior = (1.0 - 0.5 * (yy ** 2 + xx ** 2)).astype(np.float32)
+        _RADIAL_PRIOR_CACHE[(H, W)] = rad_prior
+    feat_2d[0, :, :, 19] = rad_prior
 
-        with torch.no_grad():
-            k_t = torch.from_numpy(feat_2d)
-            pooler = _DEFAULT_ROPE2D_MEDOID_POOLER
-            k_rot = RoPE2DMedoidPooler.apply_axial_rope2d(k_t, H=H, W=W)
-            _, v_pooled, info = pooler(k_rot, k_t)
-            med_y_grid = info["medoid_y"][0].cpu().numpy()
-            med_x_grid = info["medoid_x"][0].cpu().numpy()
-            gamma_grid = info["gamma_2d"][0].cpu().numpy()
-            patch_fg = v_pooled[0, :, :, 16].cpu().numpy()
-            patch_grad = v_pooled[0, :, :, 17].cpu().numpy()
-            patch_sal = gamma_grid * (1.2 * patch_fg + 0.9 * patch_grad)
+    with torch.no_grad():
+        k_t = torch.from_numpy(feat_2d)
+        pooler = _DEFAULT_ROPE2D_MEDOID_POOLER
+        k_rot = RoPE2DMedoidPooler.apply_axial_rope2d(k_t, H=H, W=W)
+        _, v_pooled, info = pooler(k_rot, k_t)
+        med_y_grid = info["medoid_y"][0].cpu().numpy()
+        med_x_grid = info["medoid_x"][0].cpu().numpy()
+        gamma_grid = info["gamma_2d"][0].cpu().numpy()
+        patch_fg = v_pooled[0, :, :, 16].cpu().numpy()
+        patch_grad = v_pooled[0, :, :, 17].cpu().numpy()
+        patch_sal = gamma_grid * (1.2 * patch_fg + 0.9 * patch_grad)
 
-            ph, pw = patch_sal.shape
-            flat_order = np.argsort(-patch_sal.reshape(-1))
-            for idx_p in flat_order[:16]:
-                pr, pc = int(idx_p // pw), int(idx_p % pw)
-                if patch_sal[pr, pc] <= 0.05:
-                    continue
-                py = int(np.clip(med_y_grid[pr, pc], 0, H - 1))
-                px = int(np.clip(med_x_grid[pr, pc], 0, W - 1))
-                if _is_clock_masked(
-                    px,
-                    py,
-                    r0=pr * 4,
-                    r1=(pr + 1) * 4,
-                    c0=pc * 4,
-                    c1=(pc + 1) * 4,
-                ):
-                    continue
-                sal = float(1.35 + patch_sal[pr, pc])
-                col = int(arr[py, px])
-                feat_vec = np.array(
-                    [
-                        float(col) / 15.0,
-                        0.33,
-                        float(gamma_grid[pr, pc]),
-                        1.0,
-                        4.0 / float(H),
-                        4.0 / float(W),
-                        float(py) / float(H),
-                        float(px) / float(W),
-                        0.0,
-                        float(beltrami_grad[py, px]),
-                        float(temp_diff[py, px]),
-                        sal / 5.0,
-                    ],
-                    dtype=np.float32,
-                )
-                raw_candidates.append(
-                    {
-                        "x": px,
-                        "y": py,
-                        "kind": "rope2d_patch",
-                        "color": col,
-                        "area": 16,
-                        "salience": sal,
-                        "feature_vec": feat_vec,
-                        "bbox": (4, 4),
-                        "r0": pr * 4,
-                        "r1": (pr + 1) * 4,
-                        "c0": pc * 4,
-                        "c1": (pc + 1) * 4,
-                    }
-                )
+        ph, pw = patch_sal.shape
+        flat_order = np.argsort(-patch_sal.reshape(-1))
+        for idx_p in flat_order[:16]:
+            pr, pc = int(idx_p // pw), int(idx_p % pw)
+            if patch_sal[pr, pc] <= 0.05:
+                continue
+            py = int(np.clip(med_y_grid[pr, pc], 0, H - 1))
+            px = int(np.clip(med_x_grid[pr, pc], 0, W - 1))
+            if _is_clock_masked(
+                px,
+                py,
+                r0=pr * 4,
+                r1=(pr + 1) * 4,
+                c0=pc * 4,
+                c1=(pc + 1) * 4,
+            ):
+                continue
+            sal = float(1.35 + patch_sal[pr, pc])
+            col = int(arr[py, px])
+            feat_vec = np.array(
+                [
+                    float(col) / 15.0,
+                    0.33,
+                    float(gamma_grid[pr, pc]),
+                    1.0,
+                    4.0 / float(H),
+                    4.0 / float(W),
+                    float(py) / float(H),
+                    float(px) / float(W),
+                    0.0,
+                    float(beltrami_grad[py, px]),
+                    float(temp_diff[py, px]),
+                    sal / 5.0,
+                ],
+                dtype=np.float32,
+            )
+            raw_candidates.append(
+                {
+                    "x": px,
+                    "y": py,
+                    "kind": "rope2d_patch",
+                    "color": col,
+                    "area": 16,
+                    "salience": sal,
+                    "feature_vec": feat_vec,
+                    "bbox": (4, 4),
+                    "r0": pr * 4,
+                    "r1": (pr + 1) * 4,
+                    "c0": pc * 4,
+                    "c1": (pc + 1) * 4,
+                }
+            )
 
     # 3b. Dual-Panel Kronecker Block-Scaling Homomorphism Defect Candidates (`H_p = k_y M, W_p = k_x N`)
     panel_comps = [
@@ -2911,26 +2938,6 @@ class Arc3EpisodicBeltramiShell(nn.Module):
         if len(self._history_tokens) > self.max_history:
             self._history_tokens = self._history_tokens[-self.max_history :]
 
-        hist_len = len(self._history_tokens)
-        if (
-            hist_len > 2
-            and hist_len % 8 != 0
-            and self.last_super_tokens is not None
-            and not self.use_gemma4_shell
-        ):
-            super_tokens = self.last_super_tokens.clone()
-            super_tokens[:, -1, :] = tok.detach()
-            self.last_super_tokens = super_tokens
-            diag = {
-                "zeno_flux": float(self.last_zeno_flux),
-                "lca_variance": float(self.last_lca_variance),
-                "original_len": int(hist_len),
-                "compressed_len": int(super_tokens.shape[1]),
-            }
-            if return_diagnostics:
-                return super_tokens, diag
-            return super_tokens
-
         seq = torch.stack(self._history_tokens, dim=0).unsqueeze(0)  # (1, S, d_model)
         with torch.no_grad():
             if self.use_gemma4_shell:
@@ -4325,10 +4332,15 @@ class DarkSnailArc3WorldModel(nn.Module):
             self.transitions[(sh_prev, act_key)] = rec
             self.tried_actions_by_state.setdefault(sh_prev, set()).add(act_key)
             if hasattr(self, "relational_dreamer") and not is_respawn:
-                has_kin = bool(
-                    isinstance(act_key, int) and act_key in self.relational_dreamer.kinematic_generators
+                flag_key = (
+                    sh_prev,
+                    act_key,
+                    sh_next,
+                    bool(game_ov),
+                    len(self.relational_dreamer.kinematic_generators),
+                    len(self.relational_dreamer.ego_colors),
+                    len(self.relational_dreamer.wall_colors),
                 )
-                flag_key = (int(idx), bool(nope_d > 0), has_kin)
                 cached_flags = self._dreamer_step_flags.get(flag_key)
                 if cached_flags is not None:
                     was_hl, was_adj = cached_flags
@@ -4355,11 +4367,16 @@ class DarkSnailArc3WorldModel(nn.Module):
                     )
                     was_hl = bool(sh_next in self.relational_dreamer.active_contact_highlight_states)
                     was_adj = bool(sh_next in self.relational_dreamer.contact_adjacent_state_hashes)
-                    self._dreamer_step_flags[flag_key] = (was_hl, was_adj)
-                    has_kin_after = bool(
-                        isinstance(act_key, int) and act_key in self.relational_dreamer.kinematic_generators
+                    flag_key_after = (
+                        sh_prev,
+                        act_key,
+                        sh_next,
+                        bool(game_ov),
+                        len(self.relational_dreamer.kinematic_generators),
+                        len(self.relational_dreamer.ego_colors),
+                        len(self.relational_dreamer.wall_colors),
                     )
-                    self._dreamer_step_flags[(int(idx), bool(nope_d > 0), has_kin_after)] = (was_hl, was_adj)
+                    self._dreamer_step_flags[flag_key_after] = (was_hl, was_adj)
             if not is_respawn:
                 if game_ov:
                     self.game_over_actions.setdefault(sh_prev, set()).add(act_key)
@@ -4546,10 +4563,6 @@ class DarkSnailArc3WorldModel(nn.Module):
         )
 
         if hasattr(self, "relational_dreamer") and not is_phase_reset:
-            step_idx = len(self.step_history) - 1
-            has_kin_before = bool(
-                isinstance(action_key, int) and action_key in self.relational_dreamer.kinematic_generators
-            )
             self.relational_dreamer.observe_transition(
                 nope_prev,
                 nope_next,
@@ -4565,11 +4578,16 @@ class DarkSnailArc3WorldModel(nn.Module):
             )
             was_hl = bool(sh_next in self.relational_dreamer.active_contact_highlight_states)
             was_adj = bool(sh_next in self.relational_dreamer.contact_adjacent_state_hashes)
-            has_kin_after = bool(
-                isinstance(action_key, int) and action_key in self.relational_dreamer.kinematic_generators
+            flag_key_after = (
+                sh_prev,
+                action_key,
+                sh_next,
+                bool(is_game_over),
+                len(self.relational_dreamer.kinematic_generators),
+                len(self.relational_dreamer.ego_colors),
+                len(self.relational_dreamer.wall_colors),
             )
-            self._dreamer_step_flags[(step_idx, bool(nope_d > 0), has_kin_before)] = (was_hl, was_adj)
-            self._dreamer_step_flags[(step_idx, bool(nope_d > 0), has_kin_after)] = (was_hl, was_adj)
+            self._dreamer_step_flags[flag_key_after] = (was_hl, was_adj)
 
         if is_excitable_verifier and not is_phase_reset:
             self.verifier_actuators.add(action_key)
@@ -5563,13 +5581,12 @@ class DarkSnailArc3WorldModel(nn.Module):
                     self.default_delta_z[:, 4810:5322]
                     + 1e-3 * (z_L_ref - z_L_in).detach().view(1, self.d_reasoner)
                 )
-            eff_unroll = 1 if (bypass_active or h_steps <= 2) else int(unroll_steps)
             z_L_coupled, cas_diag = self.cascade(
                 z_H_mean,
                 z_L_eff,
                 delta_z=live_delta_z,
                 return_diagnostics=True,
-                unroll_steps=eff_unroll,
+                unroll_steps=unroll_steps,
             )
             u_shell = self.cascade.project_to_shell(z_H_mean).squeeze(0).squeeze(0)
             v_shell = self.cascade.project_to_shell(z_L_coupled).squeeze(0).squeeze(0)
