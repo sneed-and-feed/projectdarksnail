@@ -325,7 +325,7 @@ class ProportionalRoPESubspaceSplitter(nn.Module):
 
 
 # ============================================================================
-# 3. DarkSnailGemma4GlobalHook (Upgraded from scripts/build_gemma4_surgical_hooks.py)
+# 3. DarkSnailGemma4GlobalHook (Global p-RoPE Surgical KV & Callosal Hook)
 # ============================================================================
 
 _NOPE_SHELL_BASIS_CACHE: Dict[Tuple[int, int], Tuple[torch.Tensor, torch.Tensor]] = {}

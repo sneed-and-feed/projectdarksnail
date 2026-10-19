@@ -27,7 +27,7 @@ Ground-truth architectural parameters are codified in `Gemma4_31B_Spec` (`GEMMA4
 ### 2.1 The HuggingFace `rotate_half` p-RoPE Channel Split (`[0:64] U [256:320]`) & 3D/Position-Indexed `apply_gemma4_prope`
 In HuggingFace [`modeling_rope_utils._compute_proportional_rope_parameters`](https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_rope_utils.py), `partial_rotary_factor = 0.25` on `global_head_dim = 512` computes `rope_angles = 64` non-zero frequencies and pads `nope_angles = 192` zeros into `inv_freq` (length `256`), then duplicates `emb = cat([freqs, freqs], dim=-1)` (length `512`). Because `apply_rotary_pos_emb` uses `rotate_half(x)` (which pairs `x[..., :256]` with `x[..., 256:]`):
 * Under HuggingFace's native `Gemma4RotaryEmbedding` (`layout="hf_split_half"`), the `128` rotated channels are **`[0:64]` and `[256:320]`**, while the `384` unrotated channels are **`[64:256]` and `[320:512]`**.
-* Under contiguous prefix slicing (`layout="contiguous_prefix"`, used in [`scripts/build_gemma4_surgical_hooks.py`](../scripts/build_gemma4_surgical_hooks.py)), the `128` rotated channels are **`[0:128]`** and the `384` unrotated channels are **`[128:512]`**.
+* Under contiguous prefix slicing (`layout="contiguous_prefix"`, supported by `ProportionalRoPESubspaceSplitter` in [`darksnail/gemma4.py`](../darksnail/gemma4.py)), the `128` rotated channels are **`[0:128]`** and the `384` unrotated channels are **`[128:512]`**.
 * `ProportionalRoPESubspaceSplitter` supports both layouts losslessly (`||merge(*split(k)) - k||_inf == 0.0`), guaranteeing `0.000e+00` positional phase drift on `k_nope` across the full `256K` context window.
 * `apply_gemma4_prope` handles 2D `(max_seq_len, head_dim)`, 3D `(B, S, head_dim)`, and 4D `(B, 1, S, head_dim)` `cos/sin` tables indexed by `position_ids` or `position_offset` during single-token autoregressive decoding (`seq_len == 1, past_len > 0`).
 
@@ -274,7 +274,7 @@ agent.attach_gemma4_system2(model, tokenizer=tokenizer, hook_layer=29)
 result = agent.play_game(env, max_actions=1000)
 ```
 
-### 6.3 Standalone Surgical Hook Usage (`scripts/build_gemma4_surgical_hooks.py` Contract)
+### 6.3 Standalone Surgical KV Hook Usage (`darksnail/gemma4.py`)
 ```python
 from darksnail.gemma4 import DarkSnailGemma4GlobalHook
 
