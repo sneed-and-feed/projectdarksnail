@@ -1,5 +1,6 @@
 # Project DarkSnail V2 — Bi-Hemispheric $\times$ Ultrametric Triad Synthesis
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23497692.svg)](https://doi.org/10.5281/zenodo.23497692)
 [![Lean 4 Verified](https://img.shields.io/badge/Lean_4-Zero_Sorry_Verified-brightgreen)](#lean-4-formal-verification-occlusiontriadlean)
 [![Pytest](https://img.shields.io/badge/pytest-32%2F32_passed-brightgreen)](#unit-test-suite)
 [![ARC-AGI-1](https://img.shields.io/badge/ARC--AGI--1_Eval-38.00_%2F_400_(9.50%25)-blue)](#empirical-evaluation-on-arc-agi-1-n--400)
@@ -257,5 +258,23 @@ python -m pytest tests/test_darksnail_arc3.py tests/test_darksnail_gemma4.py tes
 ### Google Colab GPU Execution
 - **ARC-AGI-3 Interactive Benchmark (25 Games, 183 Levels) + Live Gemma 4 31B Callosal Telemetry:** Open [`notebooks/darksnail_arc3_colab.ipynb`](notebooks/darksnail_arc3_colab.ipynb) in Google Colab (A100 / L4 runtime).
 - **ARC-AGI-1** ($N=400$) **+ LongBench QASPER** ($n=200$) **& Banal NIAH** ($50$ positions): Open [`notebooks/darksnail_v2_colab.ipynb`](notebooks/darksnail_v2_colab.ipynb) in Google Colab.
+
+---
+
+## Citation
+
+If you use **Project DarkSnail** in your research or engineering workflows, please cite:
+
+```bibtex
+@software{projectdarksnail_2026,
+  author       = {Cohen, Noah},
+  title        = {projectdarksnail: Bi-Hemispheric Synthesis of Ultrametric p-RoPE Sparse Attention and Neuromorphic Test-Time Reasoning},
+  year         = {2026},
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.23497692},
+  url          = {https://doi.org/10.5281/zenodo.23497692}
+}
+```
+
 
 

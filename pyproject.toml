@@ -15,6 +15,11 @@ dependencies = [
     "safetensors",
 ]
 
+[project.urls]
+Homepage = "https://github.com/sneed-and-feed/projectdarksnail"
+Repository = "https://github.com/sneed-and-feed/projectdarksnail"
+DOI = "https://doi.org/10.5281/zenodo.23497692"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["darksnail*", "llama_surgery*", "ultrametric*"]

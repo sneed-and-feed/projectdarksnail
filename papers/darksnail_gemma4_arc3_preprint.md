@@ -5,6 +5,7 @@
 **Authors:** Sneed & Feed Research, Antigravity AI Team  
 **Contact:** `{research, engineering}@sneed-feed.ai`  
 **Repository:** [https://github.com/sneed-and-feed/projectdarksnail](https://github.com/sneed-and-feed/projectdarksnail)  
+**Zenodo DOI:** [https://doi.org/10.5281/zenodo.23497692](https://doi.org/10.5281/zenodo.23497692) (`10.5281/zenodo.23497692`)  
 **Formal Verification:** Lean 4 ([`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean), `0` `sorry`, `0` compiler warnings)  
 **Interactive Notebooks:** [`notebooks/darksnail_v2_colab.ipynb`](../notebooks/darksnail_v2_colab.ipynb) & [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb)  
 
