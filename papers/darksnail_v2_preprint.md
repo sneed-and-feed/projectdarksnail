@@ -878,7 +878,7 @@ The tree routes the context. The triad breaks the occlusion. The callosum unites
 ### 8.2 References
 
 1. Akyürek, E., et al. (2024). The Surprising Effectiveness of Test-Time Training for Abstract Reasoning. *arXiv:2411.07279*.
-2. Aquino-Michaels (2026). Learning to Skip Blocks: Self-Discovered Ultrametric Routing for Hardware-Accelerated Sparse Attention. *Preprint*.
+2. sneed-and-feed (2026). Learning to Skip Blocks: Self-Discovered Ultrametric Routing for Hardware-Accelerated Sparse Attention. *Preprint*.
 3. Bai, Y., et al. (2024). LongBench: A Bilingual, Multitask Benchmark for Long Context Understanding. *ACL 2024*.
 4. Bradley, P. E. (2010). Mumford Dendrograms. *Computer Journal*, 53(4), 393–404.
 5. Cai, Z. (2026). Open-Jev: Affective Salience Routing for Language Models. *GitHub Repository*.
