@@ -11,15 +11,15 @@
 
 ## 1. Machine-Checked Lean 4 Formalization (`formalization/OcclusionTriad.lean`)
 
-All multi-step continuous dynamical rollout invariants are machine-checked in Lean 4 with **0 `sorry` axioms and 0 compiler warnings** in [`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean#L313-L511) (`lake build`: `3242 jobs`, `0` warnings) and empirically verified on CUDA `float32` across $N = 3,600$ spatial cells ($B = 4$ grids of size $30 \times 30$):
+All multi-step continuous dynamical rollout invariants are machine-checked in Lean 4 with **0 `sorry` axioms and 0 compiler warnings** in [`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean#L310-L472) and empirically verified on CUDA `float32` across $N = 3,600$ spatial cells ($B = 4$ grids of size $30 \times 30$):
 
 | Invariant / Theorem | Lean 4 Declaration (`OcclusionTriad.lean`) | Mathematical Statement | Empirical CUDA `float32` Residual ($N = 3,600$ Cells) |
 | :--- | :--- | :--- | :---: |
-| 1. Pointwise Readout Orthogonality | `darksnail_readout_energy_conservation` ([`L177-L185`](../formalization/OcclusionTriad.lean#L177-L185)) | $\langle v, B_W(u, v) \rangle = \sum_{k=0}^{11} v_k B_W(u, v, k) = 0$ | `0.000e+00` ($\le 7.451 \times 10^{-9}$) |
-| 2. Multi-Step Spherical Invariance ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | `darksnail_multistep_spherical_invariance` ([`L436-L461`](../formalization/OcclusionTriad.lean#L436-L461)) | $\lVert \tilde v_L^{(T)} \rVert_2^2 = \lVert v_L^{(0)} \rVert_2^2 \;\land\; \forall t < T, \, \langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$ | Radial Drift: `0.000e+00`<br>Max Tangent Ortho: `3.725e-09` ($K=1$), `0.000e+00` ($K=4$), `7.451e-09` ($K=8, 16$) |
-| 3. Multi-Step Step-0 System 1 Homotopy | `darksnail_multistep_step0_homotopy` ([`L494-L509`](../formalization/OcclusionTriad.lean#L494-L509)) | $W_{\mathrm{rec}} = \mathbf{0} \implies \mathrm{darksnailCarryTrajectory}(T) = \mathrm{system1CarryTrajectory}(T)$ | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
-| 4. Step-0 Canvas & Spectral Readout Homotopy | `darksnail_step0_system1_homotopy` ([`L198-L202`](../formalization/OcclusionTriad.lean#L198-L202)) | $\delta z = \mathbf{0} \implies \ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, \mathbf{0}) = \ell_{\mathrm{S1}}$ | `0.000e+00` |
-| 5. 2D Axial RoPE Medoid Relative Invariance | `rope2d_medoid_relative_invariance` ([`L253-L258`](../formalization/OcclusionTriad.lean#L253-L258)) | $\langle \mathrm{rope2d}(y_q, x_q, q), \mathrm{rope2d}(y^\ast, x^\ast, k) \rangle_{2\mathrm{D}}$ depends solely on `(y* - y_q, x* - x_q)` | `< 1.0e-06` |
+| 1. Pointwise Readout Orthogonality | `darksnail_readout_energy_conservation` ([`L186-L191`](../formalization/OcclusionTriad.lean#L186-L191)) | $\langle v, B_W(u, v) \rangle = \sum_{k=0}^{11} v_k B_W(u, v, k) = 0$ | `0.000e+00` ($\le 7.451 \times 10^{-9}$) |
+| 2. Multi-Step Spherical Invariance ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | `darksnail_multistep_spherical_invariance` ([`L409-L421`](../formalization/OcclusionTriad.lean#L409-L421)) | $\lVert \tilde v_L^{(T)} \rVert_2^2 = \lVert v_L^{(0)} \rVert_2^2 \;\land\; \forall t < T, \, \langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$ | Radial Drift: `0.000e+00`<br>Max Tangent Ortho: `3.725e-09` ($K=1$), `0.000e+00` ($K=4$), `7.451e-09` ($K=8, 16$) |
+| 3. Multi-Step Step-0 System 1 Homotopy | `darksnail_multistep_step0_homotopy` ([`L462-L472`](../formalization/OcclusionTriad.lean#L462-L472)) | $W_{\mathrm{rec}} = \mathbf{0} \implies \mathrm{darksnailCarryTrajectory}(T) = \mathrm{system1CarryTrajectory}(T)$ | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
+| 4. Step-0 Canvas & Spectral Readout Homotopy | `darksnail_step0_system1_homotopy` ([`L206-L209`](../formalization/OcclusionTriad.lean#L206-L209)) | $\delta z = \mathbf{0} \implies \ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, \mathbf{0}) = \ell_{\mathrm{S1}}$ | `0.000e+00` |
+| 5. 2D Axial RoPE Medoid Relative Invariance | `rope2d_medoid_relative_invariance` ([`L258-L262`](../formalization/OcclusionTriad.lean#L258-L262)) | $\langle \mathrm{rope2d}(y_q, x_q, q), \mathrm{rope2d}(y^\ast, x^\ast, k) \rangle_{2\mathrm{D}}$ depends solely on `(y* - y_q, x* - x_q)` | `< 1.0e-06` |
 
 ---
 

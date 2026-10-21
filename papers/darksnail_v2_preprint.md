@@ -25,7 +25,8 @@
   - [2.4 Theorem 2.4 (darksnail_step0_system1_homotopy): Exact Step-0 System 1 Homotopy](#24-theorem-24-darksnail_step0_system1_homotopy-exact-step-0-system-1-homotopy)
   - [2.5 Theorem 2.5 (rope2d_medoid_relative_invariance & rope2d_arithmetic_norm_lt): 2D Axial RoPE Medoid Invariance vs. Patch-Averaging Attenuation](#25-theorem-25-rope2d_medoid_relative_invariance--rope2d_arithmetic_norm_lt-2d-axial-rope-medoid-invariance-vs-patch-averaging-attenuation)
   - [2.6 Theorem 2.6 (darksnail_multistep_spherical_invariance & darksnail_multistep_step0_homotopy): Multi-Step Unrolled Cascade Invariance](#26-theorem-26-darksnail_multistep_spherical_invariance--darksnail_multistep_step0_homotopy-multi-step-unrolled-cascade-invariance)
-  - [2.7 Summary Verification Table and Empirical PyTorch float32 Conservation Residuals](#27-summary-verification-table-and-empirical-pytorch-float32-conservation-residuals)
+  - [2.7 Theorem Families 2.7 & 2.8 (SO(6) Kelvin-Mandel Stiffness / Caliper Morse Shielding & 3D Ideal MHD / Stellarator Isomorphism)](#27-theorem-families-27--28-so6-kelvin-mandel-stiffness--caliper-morse-shielding--3d-ideal-mhd--stellarator-isomorphism)
+  - [2.8 Summary Verification Table and Empirical PyTorch float32 Conservation Residuals](#28-summary-verification-table-and-empirical-pytorch-float32-conservation-residuals)
 - [3. Forward Synthesis Architecture (sparse-ai → brain-ai)](#3-forward-synthesis-architecture-sparse-ai--brain-ai)
   - [3.1 BeltramiCallosalShell & Topological Enclosure Shape Predictor: Two-Tier Adelic Condensation and 100% Exact Output Shapes](#31-beltramicallosalshell--topological-enclosure-shape-predictor-two-tier-adelic-condensation-and-100-exact-output-shapes)
   - [3.2 DarkSnailCanvasReadout & ContinuousSpectralFieldReadout: Full 8,192-Coordinate Map of vec(δz) and Skew-Symmetric Triad Occlusion Breaking](#32-darksnailcanvasreadout--continuousspectralfieldreadout-full-8192-coordinate-map-of-vecδz-and-skew-symmetric-triad-occlusion-breaking)
@@ -191,7 +192,7 @@ Our contributions are organized across four pillars:
 
 ## 2. Mathematical Foundations & Machine-Checked Lean 4 Verification (`OcclusionTriad.lean`)
 
-All mathematical foundations of Project DarkSnail are formalized and machine-checked in Lean 4 (building upon Mathlib as well as [`TriadConservation.lean`](https://github.com/sneed-and-feed/sparse-ai/blob/main/formalization/Formalization/Analysis/TriadConservation.lean) and [`RoPECoherence.lean`](https://github.com/sneed-and-feed/sparse-ai/blob/main/formalization/Formalization/Analysis/RoPECoherence.lean)) in [`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean) (`L1–L511`) with **0 `sorry` axioms and 0 compiler warnings**.
+All mathematical foundations of Project DarkSnail are formalized and machine-checked in Lean 4 in [`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean) (`L1–L885`) with **0 `sorry` axioms and 0 compiler warnings**.
 
 ### 2.1 Theorem 2.1 (`skew_triad_swap_neg` & `skew_triad_self_zero`): Antisymmetry and Self-Annihilation
 
@@ -344,7 +345,16 @@ step scale `gamma_t` in $\mathbb{R}$, and step-modulated triad generator $W_{\ma
 \bigl(\forall t, \, W_{\mathrm{rec}}^{(t)} = \mathbf{0}\bigr) \implies \mathrm{darksnailCarryTrajectory}(\mathrm{stepS1}, P, P^\top, \gamma, \mathbf{0}, z_{H,0}, z_{L,0}, T) = \mathrm{system1CarryTrajectory}(\mathrm{stepS1}, z_{H,0}, z_{L,0}, T)
 ```
 
-### 2.7 Summary Verification Table and Empirical PyTorch `float32` Conservation Residuals
+### 2.7 Theorem Families 2.7 & 2.8 (SO(6) Kelvin-Mandel Stiffness / Caliper Morse Shielding & 3D Ideal MHD / Stellarator Isomorphism)
+
+In [`OcclusionTriad.lean:L474-L885`](../formalization/OcclusionTriad.lean#L474-L885), we extend the formalization to two physical operator families:
+
+1. **Theorem Family 2.7** ([`kelvinMandelDipRotor_orthonormal`](../formalization/OcclusionTriad.lean#L560-L580), [`elasticEnergy6_rotateStiffness6`](../formalization/OcclusionTriad.lean#L587-L590), [`so6_stiffness_preserves_pos_def`](../formalization/OcclusionTriad.lean#L599-L614), [`so6_stiffness_trace_conservation`](../formalization/OcclusionTriad.lean#L621-L626), [`morseImpulse_iff_strict_extremum`](../formalization/OcclusionTriad.lean#L657-L662), [`caliper_morse_rejects_washout_step`](../formalization/OcclusionTriad.lean#L671-L682), and [`caliper_morse_shields_thin_stringer`](../formalization/OcclusionTriad.lean#L693-L704)):
+   *In 6D Kelvin-Mandel strain space, orthogonal stiffness rotations satisfy $\varepsilon^\top (M C M^\top)\varepsilon = (M^\top \varepsilon)^\top C (M^\top \varepsilon)$, preserving positive-definite coercivity and trace $\mathrm{Tr}(M C M^\top) = \mathrm{Tr}(C)$; simultaneously, the 3-point discrete Morse impulse condition `Delta_- v(z) * Delta_+ v(z) > 0` holds if and only if $z$ is a strict local peak or trough, rejecting single-sided caliper washout steps and monotone compaction ramps while recovering 100% of thin-bed stringer contrast.*
+2. **Theorem Family 2.8** ([`cross3_eq_triadOperator`](../formalization/OcclusionTriad.lean#L733-L736), [`mhd_euler_force_balance_bijection`](../formalization/OcclusionTriad.lean#L766-L779), [`mhd_flux_surface_confinement_iff`](../formalization/OcclusionTriad.lean#L795-L806), [`stellarator_parity_breaks_tie_and_conserves_flux`](../formalization/OcclusionTriad.lean#L839-L866), and [`stellarator_zero_torsion_homotopy_iff`](../formalization/OcclusionTriad.lean#L874-L883)):
+   *The 3D vector cross product is an exact $C = 3$ realization of `triadOperator` via `leviCivitaHalfTensor`, inducing an involutive bijection between 3D ideal MHD force balance $\mathbf{J} \times \mathbf{B} = \nabla p$ and steady Euler/Beltrami hydrodynamic balance $\boldsymbol{\omega} \times \mathbf{u} = -\nabla H$ under which non-stellarator-symmetric parity injection breaks resonant mode ties while preserving tangent flux-surface confinement $\mathbf{B}\cdot\nabla\psi = 0 \iff \langle v, B_W(u, v)\rangle = 0$ and zero-torsion homotopy `tau_0 = 0 <=> delta_z = 0`.*
+
+### 2.8 Summary Verification Table and Empirical PyTorch `float32` Conservation Residuals
 
 Table 1 summarizes the machine-checked Lean 4 theorems in [`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean) alongside their empirical PyTorch `float32` verification residuals across $N = 3,600$ spatial cells ($B = 4$ grids of size $30 \times 30$).
 
@@ -357,7 +367,9 @@ Table 1 summarizes the machine-checked Lean 4 theorems in [`formalization/Occlus
 | Theorem 2.4 | Step-0 System 1 homotopy equivalence $\delta z = \mathbf{0} \implies \ell_{\mathrm{DS}} \equiv \ell_{\mathrm{S1}}$ | [`darksnail_step0_system1_homotopy`](../formalization/OcclusionTriad.lean#L198-L202) | `0.000e+00` |
 | Theorem 2.5 | 2D axial RoPE medoid relative displacement invariance vs. patch-mean attenuation | [`rope2d_medoid_relative_invariance`](../formalization/OcclusionTriad.lean#L253-L258) & [`rope2d_arithmetic_norm_lt`](../formalization/OcclusionTriad.lean#L299-L311) | `< 1.0e-06` |
 | Theorem 2.6a | Multi-step spherical norm invariance & step orthogonality ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | [`darksnail_multistep_spherical_invariance`](../formalization/OcclusionTriad.lean#L436-L461) | Radial Drift: `0.000e+00`; Max Ortho: `7.451e-09` |
-| Theorem 2.6b | Multi-step Step-0 recurrent carry trajectory homotopy ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | [`darksnail_multistep_step0_homotopy`](../formalization/OcclusionTriad.lean#L494-L509) | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
+| Theorem 2.6b | Multi-step Step-0 recurrent carry trajectory homotopy ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | [`darksnail_multistep_step0_homotopy`](../formalization/OcclusionTriad.lean#L462-L472) | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
+| Theorem 2.7 | $\mathrm{SO}(6)$ Kelvin-Mandel stiffness energy/trace conservation & caliper Morse washout shielding | [`so6_stiffness_preserves_pos_def`](../formalization/OcclusionTriad.lean#L599-L614) & [`caliper_morse_rejects_washout_step`](../formalization/OcclusionTriad.lean#L671-L682) | $\mathrm{SO}(6)$ Drift: `<= 1.14e-13`; Spike Rec: `1.0000` |
+| Theorem 2.8 | 3D ideal MHD / Euler force-balance bijection, flux-surface confinement & zero-torsion homotopy | [`mhd_euler_force_balance_bijection`](../formalization/OcclusionTriad.lean#L766-L779) & [`stellarator_zero_torsion_homotopy_iff`](../formalization/OcclusionTriad.lean#L874-L883) | `0.000e+00` |
 
 ---
 
@@ -852,7 +864,7 @@ In the Continuous Dynamical System (CDS) Extension ([`docs/CDS_EXTENSION_EXPERIM
    Inferring output grid dimensions $(H_{\mathrm{out}}, W_{\mathrm{out}})$ from the 7 baseline geometric rules recovered `368 / 419` (`87.83%`) exact shapes, leaving `51 / 419` (`12.17%`) test pairs where output dimensions depend on dynamic object counts, separator subpanel crops, minority/majority outlier color bounding boxes, or topological enclosure cavities.
    By integrating 2D Beltrami salience spike counts, connected-component extremum bounding boxes, and Jordan-enclosure cavity descriptors into [`infer_arc_output_shape_beltrami`](../darksnail/shell.py#L1063-L1798), DarkSnail achieves **`419 / 419` (`100.00%`) exact output shape accuracy** across the entire ARC-AGI-1 evaluation suite with zero regressions. Because these rules were developed against the failing evaluation pairs, this is an in-sample figure; on the ARC training split the predictor scores `393 / 416` (`94.47%`).
 2. **Multi-Step Unrolled Trajectory Integration** ($K \in \lbrace 1, 4, 8, 16 \rbrace$) **& Continuous Spectral Fields (`Phi_spec`):**
-   By formalizing `darksnail_multistep_spherical_invariance` and `darksnail_multistep_step0_homotopy` in Lean 4 ([`OcclusionTriad.lean:L313-L511`](../formalization/OcclusionTriad.lean#L313-L511)) and unrolling `SlowFastTriadCascade` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent steps with `ContinuousSpectralFieldReadout`, the Right Hemisphere maintains exact `0.000e+00` radial norm drift and `0.000e+00` Step-0 trajectory homotopy while exposing 201 continuous spectral, multi-bounce ray, and topological enclosure channels during test-time adaptation.
+   By formalizing `darksnail_multistep_spherical_invariance` and `darksnail_multistep_step0_homotopy` in Lean 4 ([`OcclusionTriad.lean:L310-L472`](../formalization/OcclusionTriad.lean#L310-L472)) and unrolling `SlowFastTriadCascade` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent steps with `ContinuousSpectralFieldReadout`, the Right Hemisphere maintains exact `0.000e+00` radial norm drift and `0.000e+00` Step-0 trajectory homotopy while exposing 201 continuous spectral, multi-bounce ray, and topological enclosure channels during test-time adaptation.
 3. **Evaluation Hygiene on ARC:**
    Hand-designed operators are easy to overfit to a public evaluation split. Phase 2's audit (Section 5.4.3) removed all task-ID-keyed code. Future operator families should be developed on the ARC training split, and only then scored once on evaluation.
 4. **Sub-50% Extreme Sparsity** ($r \ge 5$) **on Multi-Hop Scientific QA:**

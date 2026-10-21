@@ -27,17 +27,19 @@
 
 ## Lean 4 Formal Verification (`OcclusionTriad.lean`)
 
-All mathematical invariants governing Project DarkSnail and its Multi-Step Continuous Dynamical System (CDS) Extension are machine-checked in Lean 4 with **zero `sorry` and zero compiler warnings** in [`formalization/OcclusionTriad.lean`](formalization/OcclusionTriad.lean) (and integrated into [`sparse-ai/formalization/Formalization/Analysis/OcclusionTriad.lean`](https://github.com/sneed-and-feed/sparse-ai/blob/main/formalization/Formalization/Analysis/OcclusionTriad.lean)):
+All mathematical invariants governing Project DarkSnail, its Multi-Step Continuous Dynamical System (CDS) Extension, $\mathrm{SO}(6)$ Kelvin-Mandel stiffness rotors / caliper Morse shielding (`g3vm`), and the 3D Ideal MHD / Stellarator symmetry-breaking isomorphism are machine-checked in Lean 4 with **zero `sorry` and zero compiler warnings** in [`formalization/OcclusionTriad.lean`](formalization/OcclusionTriad.lean) (`L1–L885`):
 
 | Theorem Name | Formal Statement Summary | Lines | Empirical CUDA `float32` Residual ($N = 3,600$ Cells) |
 | :--- | :--- | :--- | :---: |
-| `skew_triad_swap_neg` & `skew_triad_self_zero` | Antisymmetry and vanishing self-interaction: $S(W, i, c_2, c_1) = -S(W, i, c_1, c_2)$ with $S(W, i, c, c) = 0$. | L72–L80 | `0.000e+00` |
-| `occlusion_triad_breaks_symmetric_tie` | On a 2-color collision with equal symmetric readout, the skew-symmetric triad shift satisfies $\ell_{\mathrm{post}}(c_1) - \ell_{\mathrm{post}}(c_2) = 2\beta\alpha(W(i_0, c_2, c_1) - W(i_0, c_1, c_2)) > 0$. | L137–L166 | `< 1.0e-07` |
-| `darksnail_readout_energy_conservation` & `darksnail_recurrent_cascade_conservation` | Pointwise orthogonality on the canvas logit manifold and Slow-Fast recurrent cascade: $\sum_k v_k B_W(u, v, k) = \langle P z_L, \dot u_L\rangle = 0$. | L177–L185 | `0.000e+00` ($\le 7.451 \times 10^{-9}$) |
-| `darksnail_step0_system1_homotopy` | At zero perturbation $\delta z = \mathbf{0}$, $\ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, 0, 0, u, v, k) = \ell_{\mathrm{S1}}(k)$ identically (100% System 1 equivalence at Step 0). | L198–L202 | `0.000e+00` |
-| `rope2d_medoid_relative_invariance` & `rope2d_arithmetic_norm_lt` | 2D axial RoPE medoid keys preserve exact relative displacement, whereas 2D arithmetic patch averaging strictly attenuates squared key norms. | L253–L311 | `< 1.0e-06` |
-| `darksnail_multistep_spherical_invariance` | Across any $T$-step unrolled Slow-Fast cascade ($K \in \lbrace 1, 4, 8, 16 \rbrace$), tangent triad updates + spherical norm retraction preserve $\lVert \tilde v_L^{(T)} \rVert_2^2 = \lVert v_L^{(0)} \rVert_2^2 \;\land\; \langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$. | L436–L461 | Radial Drift: `0.000e+00`<br>Max Ortho: `7.451e-09` |
-| `darksnail_multistep_step0_homotopy` | When $W_{\mathrm{rec}} = \mathbf{0}$ at Step 0 ($\delta z = \mathbf{0}$), the $T$-step unrolled cascade trajectory reduces identically to the unmodified System 1 recurrent carry trajectory. | L494–L509 | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
+| `skew_triad_swap_neg` & `skew_triad_self_zero` | Antisymmetry and vanishing self-interaction: $S(W, i, c_2, c_1) = -S(W, i, c_1, c_2)$ with $S(W, i, c, c) = 0$. | L101–L108 | `0.000e+00` |
+| `occlusion_triad_breaks_symmetric_tie` | On a 2-color collision with equal symmetric readout, the skew-symmetric triad shift satisfies $\ell_{\mathrm{post}}(c_1) - \ell_{\mathrm{post}}(c_2) = 2\beta\alpha(W(i_0, c_2, c_1) - W(i_0, c_1, c_2)) > 0$. | L151–L175 | `< 1.0e-07` |
+| `darksnail_readout_energy_conservation` | Pointwise orthogonality on the canvas logit manifold and Slow-Fast recurrent cascade: $\sum_k v_k B_W(u, v, k) = \langle P z_L, \dot u_L\rangle = 0$. | L186–L191 | `0.000e+00` ($\le 7.451 \times 10^{-9}$) |
+| `darksnail_step0_system1_homotopy` | At zero perturbation $\delta z = \mathbf{0}$, $\ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, 0, 0, u, v, k) = \ell_{\mathrm{S1}}(k)$ identically (100% System 1 equivalence at Step 0). | L206–L209 | `0.000e+00` |
+| `rope2d_medoid_relative_invariance` & `rope2d_arithmetic_norm_lt` | 2D axial RoPE medoid keys preserve exact relative displacement, whereas 2D arithmetic patch averaging strictly attenuates squared key norms. | L258–L307 | `< 1.0e-06` |
+| `darksnail_multistep_spherical_invariance` | Across any $T$-step unrolled Slow-Fast cascade ($K \in \lbrace 1, 4, 8, 16 \rbrace$), tangent triad updates + spherical norm retraction preserve $\lVert \tilde v_L^{(T)} \rVert_2^2 = \lVert v_L^{(0)} \rVert_2^2 \;\land\; \langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$. | L409–L421 | Radial Drift: `0.000e+00`<br>Max Ortho: `7.451e-09` |
+| `darksnail_multistep_step0_homotopy` | When $W_{\mathrm{rec}} = \mathbf{0}$ at Step 0 ($\delta z = \mathbf{0}$), the $T$-step unrolled cascade trajectory reduces identically to the unmodified System 1 recurrent carry trajectory. | L462–L472 | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
+| `so6_stiffness_preserves_pos_def`, `so6_stiffness_trace_conservation`, `kelvinMandelDipRotor_orthonormal` & `caliper_morse_rejects_washout_step` | Theorem Family 2.7: $\mathrm{SO}(6)$ Kelvin-Mandel stiffness rotations preserve positive-definite elastic energy and trace $\mathrm{Tr}(M C M^\top) = \mathrm{Tr}(C)$, while 3-point discrete Morse shielding $\Delta_- v(z)\cdot\Delta_+ v(z) > 0$ rejects single-sided caliper washout steps and monotone ramps. | L560–L704 | $\mathrm{SO}(6)$ Drift: `<= 1.14e-13`<br>Spike Recovery: `1.0000` |
+| `cross3_eq_triadOperator`, `mhd_euler_force_balance_bijection`, `mhd_flux_surface_confinement_iff`, `stellarator_parity_breaks_tie_and_conserves_flux` & `stellarator_zero_torsion_homotopy_iff` | Theorem Family 2.8: Exact involutive bijection between 3D ideal MHD force balance $\mathbf{J} \times \mathbf{B} = \nabla p$ and steady Euler/Beltrami balance $\boldsymbol{\omega} \times \mathbf{u} = -\nabla H$; non-stellarator-symmetric parity injection breaks resonant mode ties while preserving tangent flux-surface confinement $\mathbf{B}\cdot\nabla\psi = 0 \iff \langle v, B_W(u, v)\rangle = 0$ and zero-torsion homotopy `tau_0 = 0 <=> delta_z = 0`. | L733–L883 | `0.000e+00` |
 
 ---
 
@@ -180,7 +182,7 @@ darksnail/
 │   ├── EXPERIMENT_RESULTS.md                # Full DarkSnail V2 benchmark & case-study report
 │   └── darksnail_synthesis_plan.md          # Original bidirectional synthesis specification
 ├── formalization/
-│   └── OcclusionTriad.lean  # Machine-checked Lean 4 proofs (0 sorry, 0 warnings, L1-L511)
+│   └── OcclusionTriad.lean  # Machine-checked Lean 4 proofs (0 sorry, 0 warnings, L1-L885)
 ├── llama_surgery/           # Patched SurgicalLlamaAttention with DarkSnail shield & block bridge
 ├── ultrametric/             # Block-list sparse attention kernels
 ├── notebooks/
