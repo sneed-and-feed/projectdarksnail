@@ -197,13 +197,13 @@ All mathematical foundations of Project DarkSnail are formalized and machine-che
 ### 2.1 Theorem 2.1 (`skew_triad_swap_neg` & `skew_triad_self_zero`): Antisymmetry and Self-Annihilation
 
 Let $C \in \mathbb{N}$ denote the dimension of the discrete canvas color space ($C = 12$ in `TRM`, corresponding to `0: PAD`, `1: EOS`, `2: Background-0`, and `3..11: Foreground Colors 1..9`), and let $W : \mathrm{Fin}\,C \to \mathrm{Fin}\,C \to \mathrm{Fin}\,C \to \mathbb{R}$ be a 3-tensor parameterizing color-pair interactions under structural mode $i \in \mathrm{Fin}\,C$.
-In [`OcclusionTriad.lean:L54-L62`](../formalization/OcclusionTriad.lean#L54-L62), we define the skew-symmetrized color-occlusion interaction tensor and the induced bilinear triad operator:
+In [`OcclusionTriad.lean:L90-L92`](../formalization/OcclusionTriad.lean#L90-L92), we define the skew-symmetrized color-occlusion interaction tensor and the induced bilinear triad operator:
 
 ```math
 S_W(i, c_1, c_2) = W(i, c_1, c_2) - W(i, c_2, c_1), \qquad B_W(u, v, k) = \sum_{i \in \mathrm{Fin}\,C} \sum_{j \in \mathrm{Fin}\,C} u_i \, v_j \, \bigl(W(i, j, k) - W(i, k, j)\bigr)
 ```
 
-**Theorem 2.1** ([`skew_triad_swap_neg`](../formalization/OcclusionTriad.lean#L72-L75) and [`skew_triad_self_zero`](../formalization/OcclusionTriad.lean#L78-L80)):
+**Theorem 2.1** ([`skew_triad_swap_neg`](../formalization/OcclusionTriad.lean#L101-L104) and [`skew_triad_self_zero`](../formalization/OcclusionTriad.lean#L106-L109)):
 *For any 3-tensor $W$, structural mode $i$, and candidate colors $c_1, c_2 \in \mathrm{Fin}\,C$,*
 *swapping competing colors $c_1 \leftrightarrow c_2$ strictly negates the interaction, and self-occlusion vanishes identically:*
 
@@ -228,7 +228,7 @@ v(c_1) = v(c_2) = \alpha > 0, \quad v(c) = 0 \;\; (c \notin \lbrace c_1, c_2 \rb
 
 Define the post-readout logit $\ell_{\mathrm{post}}(k) = \ell_{\mathrm{sym}}(k) + B_W(u, v, k)$.
 
-**Theorem 2.2** ([`occlusion_triad_breaks_symmetric_tie`](../formalization/OcclusionTriad.lean#L137-L166), with strict winner projection `occlusion_triad_strict_winner` via `.2`):
+**Theorem 2.2** ([`occlusion_triad_breaks_symmetric_tie`](../formalization/OcclusionTriad.lean#L151-L175), with strict winner projection `occlusion_triad_strict_winner` via `.2`):
 *Under the 2-color collision hypotheses above, the post-readout margin between the competing colors $(c_1, c_2)$ evaluates in closed form to:*
 
 ```math
@@ -242,7 +242,7 @@ Define the post-readout logit $\ell_{\mathrm{post}}(k) = \ell_{\mathrm{sym}}(k) 
 W(i_0, c_2, c_1) > W(i_0, c_1, c_2) \implies \ell_{\mathrm{post}}(c_1) > \ell_{\mathrm{post}}(c_2)
 ```
 
-*Proof Intuition:* Using helper lemma [`triadOperator_two_color_eval`](../formalization/OcclusionTriad.lean#L92-L125), we isolate the single active structural index $i_0$ via `Finset.sum_eq_single i₀` and decompose the inner sum over $\mathrm{Fin}\,C$ by erasing the two competing colors (`Finset.add_sum_erase`).
+*Proof Intuition:* Using helper lemma [`triadOperator_two_color_eval`](../formalization/OcclusionTriad.lean#L120-L140), we isolate the single active structural index $i_0$ via `Finset.sum_eq_single i₀` and decompose the inner sum over $\mathrm{Fin}\,C$ by erasing the two competing colors (`Finset.add_sum_erase`).
 At the two competing color indices, the self-terms vanish and the cross-terms take opposite signs:
 
 ```math
@@ -255,7 +255,7 @@ Subtracting the two equations and canceling the equal symmetric logits yields th
 
 A critical risk of injecting high-gain logit perturbations during 30-step test-time adaptation is radial norm explosion on unoccluded background cells (`0` padding), which caused unconstrained Phase 2 TTA to degrade to `5.61%` accuracy.
 
-**Theorem 2.3** ([`darksnail_readout_energy_conservation`](../formalization/OcclusionTriad.lean#L177-L185), with recurrent projection `darksnail_recurrent_cascade_conservation` via `.2`):
+**Theorem 2.3** ([`darksnail_readout_energy_conservation`](../formalization/OcclusionTriad.lean#L186-L192), with recurrent projection `darksnail_recurrent_cascade_conservation` via `.2`):
 *For any structural context vector $u : \mathrm{Fin}\,C \to \mathbb{R}$, active color state $v : \mathrm{Fin}\,C \to \mathbb{R}$, and readout tensor $W$, the inner product of $v$ with the triad logit shift vanishes identically at every pixel:*
 
 ```math
@@ -275,13 +275,13 @@ In [`SkewSymmetricTriadOperator.forward`](../darksnail/readout.py#L112-L162), we
 
 ### 2.4 Theorem 2.4 (`darksnail_step0_system1_homotopy`): Exact Step-0 System 1 Homotopy
 
-In [`OcclusionTriad.lean:L190-L192`](../formalization/OcclusionTriad.lean#L190-L192), we define the complete DarkSnail readout:
+In [`OcclusionTriad.lean:L198-L200`](../formalization/OcclusionTriad.lean#L198-L200), we define the complete DarkSnail readout:
 
 ```math
 \ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, \Delta_{\mathrm{sym}}, W, u, v, k) = \ell_{\mathrm{S1}}(k) + \Delta_{\mathrm{sym}}(k) + B_W(u, v, k)
 ```
 
-**Theorem 2.4** ([`darksnail_step0_system1_homotopy`](../formalization/OcclusionTriad.lean#L198-L202)):
+**Theorem 2.4** ([`darksnail_step0_system1_homotopy`](../formalization/OcclusionTriad.lean#L206-L209)):
 *At the Step-0 initialization $\delta z = \mathbf{0}$ (where both `delta_sym = 0` and $W = \mathbf{0}$), the DarkSnail canvas readout reduces identically to the pretrained System 1 logit across all colors $k \in \mathrm{Fin}\,C$:*
 
 ```math
@@ -293,7 +293,7 @@ setting $\delta z = \mathbf{0}$ zeroes every term in $B_{\mathbf 0}(u, v, k)$, g
 
 ### 2.5 Theorem 2.5 (`rope2d_medoid_relative_invariance` & `rope2d_arithmetic_norm_lt`): 2D Axial RoPE Medoid Invariance vs. Patch-Averaging Attenuation
 
-In [`OcclusionTriad.lean:L207-L239`](../formalization/OcclusionTriad.lean#L207-L239), we formalize 2D axial Rotary Position Embeddings on $(\mathbb{R} \times \mathbb{R}) \times (\mathbb{R} \times \mathbb{R})$ via:
+In [`OcclusionTriad.lean:L213-L250`](../formalization/OcclusionTriad.lean#L213-L250), we formalize 2D axial Rotary Position Embeddings on $(\mathbb{R} \times \mathbb{R}) \times (\mathbb{R} \times \mathbb{R})$ via:
 
 ```math
 \mathrm{rope2d}(\theta_y, \theta_x, q_y, q_x) = (\mathcal R_{\theta_y} q_y, \, \mathcal R_{\theta_x} q_x)
@@ -301,7 +301,7 @@ In [`OcclusionTriad.lean:L207-L239`](../formalization/OcclusionTriad.lean#L207-L
 
 where $\mathcal R_\theta \in \mathrm{SO}(2)$ rotates by angle $\theta$.
 
-**Theorem 2.5** ([`rope2d_medoid_relative_invariance`](../formalization/OcclusionTriad.lean#L253-L258) and [`rope2d_arithmetic_norm_lt`](../formalization/OcclusionTriad.lean#L299-L311)):
+**Theorem 2.5** ([`rope2d_medoid_relative_invariance`](../formalization/OcclusionTriad.lean#L258-L262) and [`rope2d_arithmetic_norm_lt`](../formalization/OcclusionTriad.lean#L299-L307)):
 *For any query at 2D angular coordinate $(y_q, x_q)$ and 2D patch medoid key at $(y^\ast, x^\ast)$,*
 *the 2D axial rotary inner product is strictly invariant under global 2D translation and depends solely on the relative displacement $(y^\ast - y_q, x^\ast - x_q)$:*
 
@@ -309,7 +309,7 @@ where $\mathcal R_\theta \in \mathrm{SO}(2)$ rotates by angle $\theta$.
 \bigl\langle \mathrm{rope2d}(y_q, x_q, q_y, q_x), \, \mathrm{rope2d}(y^\ast, x^\ast, k_y, k_x) \bigr\rangle_{2\mathrm{D}} = \langle q_y, \mathcal R_{y^\ast - y_q} k_y \rangle + \langle q_x, \mathcal R_{x^\ast - x_q} k_x \rangle
 ```
 
-*Conversely, for a 2-point arithmetic patch average `rope2dPatchAvg`, each axis norm satisfies ([`normSq2_avg2_rot2`](../formalization/OcclusionTriad.lean#L263-L270)):*
+*Conversely, for a 2-point arithmetic patch average `rope2dPatchAvg`, each axis norm satisfies ([`normSq2_avg2_rot2`](../formalization/OcclusionTriad.lean#L267-L275)):*
 
 ```math
 \Bigl\lVert \frac{1}{2}(\mathcal R_{\theta_1} k + \mathcal R_{\theta_2} k) \Bigr\rVert^2 = \lVert k \rVert^2 \, \frac{1 + \cos(\theta_1 - \theta_2)}{2}
@@ -324,7 +324,7 @@ where $\mathcal R_\theta \in \mathrm{SO}(2)$ rotates by angle $\theta$.
 
 ### 2.6 Theorem 2.6 (`darksnail_multistep_spherical_invariance` & `darksnail_multistep_step0_homotopy`): Multi-Step Unrolled Cascade Invariance
 
-To extend `SlowFastTriadCascade` from a single terminal step ($t = 15$) to an unrolled trajectory across $T \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent steps without energy blow-up or Step-0 homotopy drift, we formalize the multi-step spherical cascade trajectory `cascadeTrajectory` and the full recurrent carry trajectory `darksnailCarryTrajectory` in [`OcclusionTriad.lean:L313-L511`](../formalization/OcclusionTriad.lean#L313-L511).
+To extend `SlowFastTriadCascade` from a single terminal step ($t = 15$) to an unrolled trajectory across $T \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent steps without energy blow-up or Step-0 homotopy drift, we formalize the multi-step spherical cascade trajectory `cascadeTrajectory` and the full recurrent carry trajectory `darksnailCarryTrajectory` in [`OcclusionTriad.lean:L312-L474`](../formalization/OcclusionTriad.lean#L312-L474).
 At each recurrent step $t \in \lbrace 0, \dots, T-1 \rbrace$, given slow context shell $u^{(t)} : \mathrm{Fin}\,M \to \mathbb{R}$, fast state $v_L^{(t)} : \mathrm{Fin}\,M \to \mathbb{R}$,
 step scale `gamma_t` in $\mathbb{R}$, and step-modulated triad generator $W_{\mathrm{rec}}^{(t)}$, the tangent step and exact spherical norm retraction are defined by:
 
@@ -332,7 +332,7 @@ step scale `gamma_t` in $\mathbb{R}$, and step-modulated triad generator $W_{\ma
 \delta v_L^{(t)} = \gamma_t \, B_{W_{\mathrm{rec}}^{(t)}}\bigl(u^{(t)}, \, v_L^{(t)}\bigr), \qquad \tilde v_L^{(t+1)} = \mathrm{sphericalRetract}\bigl(v_L^{(t)}, \, \delta v_L^{(t)}\bigr) = \bigl(v_L^{(t)} + \delta v_L^{(t)}\bigr) \frac{\lVert v_L^{(t)} \rVert_2}{\lVert v_L^{(t)} + \delta v_L^{(t)} \rVert_2}
 ```
 
-**Theorem 2.6** ([`darksnail_multistep_spherical_invariance`](../formalization/OcclusionTriad.lean#L436-L461) and [`darksnail_multistep_step0_homotopy`](../formalization/OcclusionTriad.lean#L494-L509)):
+**Theorem 2.6** ([`darksnail_multistep_spherical_invariance`](../formalization/OcclusionTriad.lean#L409-L421) and [`darksnail_multistep_step0_homotopy`](../formalization/OcclusionTriad.lean#L462-L473)):
 *For any unroll horizon $T \in \mathbb{N}$ and any sequence of slow context states, step scales, and triad tensors $(\gamma_t, W_{\mathrm{rec}}^{(t)})$, the $T$-step unrolled trajectory preserves the initial squared spherical shell norm identically while maintaining pointwise tangent orthogonality at every intermediate step $t < T$:*
 
 ```math
@@ -347,7 +347,7 @@ step scale `gamma_t` in $\mathbb{R}$, and step-modulated triad generator $W_{\ma
 
 ### 2.7 Theorem Families 2.7 & 2.8 (SO(6) Kelvin-Mandel Stiffness / Caliper Morse Shielding & 3D Ideal MHD / Stellarator Isomorphism)
 
-In [`OcclusionTriad.lean:L474-L885`](../formalization/OcclusionTriad.lean#L474-L885), we extend the formalization to two physical operator families:
+In [`OcclusionTriad.lean:L480-L885`](../formalization/OcclusionTriad.lean#L480-L885), we extend the formalization to two physical operator families:
 
 1. **Theorem Family 2.7** ([`kelvinMandelDipRotor_orthonormal`](../formalization/OcclusionTriad.lean#L560-L580), [`elasticEnergy6_rotateStiffness6`](../formalization/OcclusionTriad.lean#L587-L590), [`so6_stiffness_preserves_pos_def`](../formalization/OcclusionTriad.lean#L599-L614), [`so6_stiffness_trace_conservation`](../formalization/OcclusionTriad.lean#L621-L626), [`morseImpulse_iff_strict_extremum`](../formalization/OcclusionTriad.lean#L657-L662), [`caliper_morse_rejects_washout_step`](../formalization/OcclusionTriad.lean#L671-L682), and [`caliper_morse_shields_thin_stringer`](../formalization/OcclusionTriad.lean#L693-L704)):
    *In 6D Kelvin-Mandel strain space, orthogonal stiffness rotations satisfy $\varepsilon^\top (M C M^\top)\varepsilon = (M^\top \varepsilon)^\top C (M^\top \varepsilon)$, preserving positive-definite coercivity and trace $\mathrm{Tr}(M C M^\top) = \mathrm{Tr}(C)$; simultaneously, the 3-point discrete Morse impulse condition `Delta_- v(z) * Delta_+ v(z) > 0` holds if and only if $z$ is a strict local peak or trough, rejecting single-sided caliper washout steps and monotone compaction ramps while recovering 100% of thin-bed stringer contrast.*
@@ -360,14 +360,14 @@ Table 1 summarizes the machine-checked Lean 4 theorems in [`formalization/Occlus
 
 | Theorem ID | Mathematical Invariant | Lean 4 Declaration in `OcclusionTriad.lean` | Empirical PyTorch `float32` Residual ($N = 3,600$ Cells) |
 | :--- | :--- | :--- | :---: |
-| Theorem 2.1 | Skew-symmetric color-occlusion antisymmetry $S_W(i, c_2, c_1) = -S_W(i, c_1, c_2)$ and self-zero | [`skew_triad_swap_neg`](../formalization/OcclusionTriad.lean#L72-L75) & [`skew_triad_self_zero`](../formalization/OcclusionTriad.lean#L78-L80) | `0.000e+00` |
-| Theorem 2.2 | Exact 2-color collision tie-breaking margin $2\beta\alpha(W_{i_0,c_2,c_1} - W_{i_0,c_1,c_2}) > 0$ | [`occlusion_triad_breaks_symmetric_tie`](../formalization/OcclusionTriad.lean#L137-L166) | `< 1.0e-07` |
-| Theorem 2.3a | Canvas readout spherical energy conservation $\sum_{k=0}^{11} v_k B_W(u, v, k) = 0$ | [`darksnail_readout_energy_conservation`](../formalization/OcclusionTriad.lean#L177-L185) (`.1`) | `0.000e+00` ($\le 7.451 \times 10^{-9}$) |
-| Theorem 2.3b | Slow-Fast (`z_H -> z_L`) recurrent triad cascade conservation $\langle P z_L, \dot u_L \rangle = 0$ | [`darksnail_readout_energy_conservation`](../formalization/OcclusionTriad.lean#L177-L185) (`.2`) | `0.000e+00` |
-| Theorem 2.4 | Step-0 System 1 homotopy equivalence $\delta z = \mathbf{0} \implies \ell_{\mathrm{DS}} \equiv \ell_{\mathrm{S1}}$ | [`darksnail_step0_system1_homotopy`](../formalization/OcclusionTriad.lean#L198-L202) | `0.000e+00` |
-| Theorem 2.5 | 2D axial RoPE medoid relative displacement invariance vs. patch-mean attenuation | [`rope2d_medoid_relative_invariance`](../formalization/OcclusionTriad.lean#L253-L258) & [`rope2d_arithmetic_norm_lt`](../formalization/OcclusionTriad.lean#L299-L311) | `< 1.0e-06` |
-| Theorem 2.6a | Multi-step spherical norm invariance & step orthogonality ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | [`darksnail_multistep_spherical_invariance`](../formalization/OcclusionTriad.lean#L436-L461) | Radial Drift: `0.000e+00`; Max Ortho: `7.451e-09` |
-| Theorem 2.6b | Multi-step Step-0 recurrent carry trajectory homotopy ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | [`darksnail_multistep_step0_homotopy`](../formalization/OcclusionTriad.lean#L462-L472) | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
+| Theorem 2.1 | Skew-symmetric color-occlusion antisymmetry $S_W(i, c_2, c_1) = -S_W(i, c_1, c_2)$ and self-zero | [`skew_triad_swap_neg`](../formalization/OcclusionTriad.lean#L101-L104) & [`skew_triad_self_zero`](../formalization/OcclusionTriad.lean#L106-L109) | `0.000e+00` |
+| Theorem 2.2 | Exact 2-color collision tie-breaking margin $2\beta\alpha(W_{i_0,c_2,c_1} - W_{i_0,c_1,c_2}) > 0$ | [`occlusion_triad_breaks_symmetric_tie`](../formalization/OcclusionTriad.lean#L151-L175) | `< 1.0e-07` |
+| Theorem 2.3a | Canvas readout spherical energy conservation $\sum_{k=0}^{11} v_k B_W(u, v, k) = 0$ | [`darksnail_readout_energy_conservation`](../formalization/OcclusionTriad.lean#L186-L192) (`.1`) | `0.000e+00` ($\le 7.451 \times 10^{-9}$) |
+| Theorem 2.3b | Slow-Fast (`z_H -> z_L`) recurrent triad cascade conservation $\langle P z_L, \dot u_L \rangle = 0$ | [`darksnail_readout_energy_conservation`](../formalization/OcclusionTriad.lean#L186-L192) (`.2`) | `0.000e+00` |
+| Theorem 2.4 | Step-0 System 1 homotopy equivalence $\delta z = \mathbf{0} \implies \ell_{\mathrm{DS}} \equiv \ell_{\mathrm{S1}}$ | [`darksnail_step0_system1_homotopy`](../formalization/OcclusionTriad.lean#L206-L209) | `0.000e+00` |
+| Theorem 2.5 | 2D axial RoPE medoid relative displacement invariance vs. patch-mean attenuation | [`rope2d_medoid_relative_invariance`](../formalization/OcclusionTriad.lean#L258-L262) & [`rope2d_arithmetic_norm_lt`](../formalization/OcclusionTriad.lean#L299-L307) | `< 1.0e-06` |
+| Theorem 2.6a | Multi-step spherical norm invariance & step orthogonality ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | [`darksnail_multistep_spherical_invariance`](../formalization/OcclusionTriad.lean#L409-L421) | Radial Drift: `0.000e+00`; Max Ortho: `7.451e-09` |
+| Theorem 2.6b | Multi-step Step-0 recurrent carry trajectory homotopy ($K \in \lbrace 1, 4, 8, 16 \rbrace$) | [`darksnail_multistep_step0_homotopy`](../formalization/OcclusionTriad.lean#L462-L473) | `0.000e+00` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ |
 | Theorem 2.7 | $\mathrm{SO}(6)$ Kelvin-Mandel stiffness energy/trace conservation & caliper Morse washout shielding | [`so6_stiffness_preserves_pos_def`](../formalization/OcclusionTriad.lean#L599-L614) & [`caliper_morse_rejects_washout_step`](../formalization/OcclusionTriad.lean#L671-L682) | $\mathrm{SO}(6)$ Drift: `<= 1.14e-13`; Spike Rec: `1.0000` |
 | Theorem 2.8 | 3D ideal MHD / Euler force-balance bijection, flux-surface confinement & zero-torsion homotopy | [`mhd_euler_force_balance_bijection`](../formalization/OcclusionTriad.lean#L766-L779) & [`stellarator_zero_torsion_homotopy_iff`](../formalization/OcclusionTriad.lean#L874-L883) | `0.000e+00` |
 
@@ -864,7 +864,7 @@ In the Continuous Dynamical System (CDS) Extension ([`docs/CDS_EXTENSION_EXPERIM
    Inferring output grid dimensions $(H_{\mathrm{out}}, W_{\mathrm{out}})$ from the 7 baseline geometric rules recovered `368 / 419` (`87.83%`) exact shapes, leaving `51 / 419` (`12.17%`) test pairs where output dimensions depend on dynamic object counts, separator subpanel crops, minority/majority outlier color bounding boxes, or topological enclosure cavities.
    By integrating 2D Beltrami salience spike counts, connected-component extremum bounding boxes, and Jordan-enclosure cavity descriptors into [`infer_arc_output_shape_beltrami`](../darksnail/shell.py#L1063-L1798), DarkSnail achieves **`419 / 419` (`100.00%`) exact output shape accuracy** across the entire ARC-AGI-1 evaluation suite with zero regressions. Because these rules were developed against the failing evaluation pairs, this is an in-sample figure; on the ARC training split the predictor scores `393 / 416` (`94.47%`).
 2. **Multi-Step Unrolled Trajectory Integration** ($K \in \lbrace 1, 4, 8, 16 \rbrace$) **& Continuous Spectral Fields (`Phi_spec`):**
-   By formalizing `darksnail_multistep_spherical_invariance` and `darksnail_multistep_step0_homotopy` in Lean 4 ([`OcclusionTriad.lean:L310-L472`](../formalization/OcclusionTriad.lean#L310-L472)) and unrolling `SlowFastTriadCascade` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent steps with `ContinuousSpectralFieldReadout`, the Right Hemisphere maintains exact `0.000e+00` radial norm drift and `0.000e+00` Step-0 trajectory homotopy while exposing 201 continuous spectral, multi-bounce ray, and topological enclosure channels during test-time adaptation.
+   By formalizing `darksnail_multistep_spherical_invariance` and `darksnail_multistep_step0_homotopy` in Lean 4 ([`OcclusionTriad.lean:L312-L474`](../formalization/OcclusionTriad.lean#L312-L474)) and unrolling `SlowFastTriadCascade` across $K \in \lbrace 1, 4, 8, 16 \rbrace$ recurrent steps with `ContinuousSpectralFieldReadout`, the Right Hemisphere maintains exact `0.000e+00` radial norm drift and `0.000e+00` Step-0 trajectory homotopy while exposing 201 continuous spectral, multi-bounce ray, and topological enclosure channels during test-time adaptation.
 3. **Evaluation Hygiene on ARC:**
    Hand-designed operators are easy to overfit to a public evaluation split. Phase 2's audit (Section 5.4.3) removed all task-ID-keyed code. Future operator families should be developed on the ARC training split, and only then scored once on evaluation.
 4. **Sub-50% Extreme Sparsity** ($r \ge 5$) **on Multi-Hop Scientific QA:**

@@ -7,7 +7,7 @@ Before formulating the execution steps, four specialized subagents audited `dark
 1. **Dual-Repository Lean 4 Synchronization (`OcclusionTriad.lean`):**
    `darksnail/formalization/OcclusionTriad.lean` is mirrored byte-for-byte in the active Lake project at `sparse-ai/formalization/Formalization/Analysis/OcclusionTriad.lean`. Using the discrete-time Pythagorean identity (`shellEnergy_add_of_orthogonal`), we proved $0 < \|v_L\|_2^2 \implies 0 < \|v_L + \delta v_L\|_2^2$ unconditionally—eliminating any need for external non-zero denominator hypotheses in `darksnail_multistep_spherical_invariance`. Both new theorems have already been pre-verified via `lean_run_code` with `0 sorry` and `0` warnings.
 2. **`SlowFastTriadCascade` Was Instantiated But Disconnected (`antenna.py:L408` & `callosum.py:L897-L967`):**
-   In `darksnail/antenna.py:L408`, `self.cascade = SlowFastTriadCascade()` is initialized with `lm_weight=None` (falling back to a cosine DCT basis instead of the top-8 right singular vectors $P \in \mathbb{R}^{512 \times 8}$ of $\mathbf{W}_{\mathrm{lm}}$) and is never called inside `_extract_terminal_logits` (`callosum.py:L1334-L1484`) or `_darksnail_canvas_readout_hook`. Furthermore, `_get_pre_terminal_carry` (`callosum.py:L897-L967`) overwrites `prev_carry` in-place, caching only step $15$.
+   In `darksnail/antenna.py:L408`, `self.cascade = SlowFastTriadCascade()` is initialized with `lm_weight=None` (falling back to a cosine DCT basis instead of the top-8 right singular vectors $P \in \mathbb{R}^{512 \times 8}$ of $\mathbf W_{\mathrm{lm}}$) and is never called inside `_extract_terminal_logits` (`callosum.py:L1334-L1484`) or `_darksnail_canvas_readout_hook`. Furthermore, `_get_pre_terminal_carry` (`callosum.py:L897-L967`) overwrites `prev_carry` in-place, caching only step $15$.
 3. **Backward Jacobian Distortion in ULP Refinement (`readout.py:L120-L134`):**
    In `SkewSymmetricTriadOperator.forward`, the 12-iteration coordinate-wise ULP refinement loop differentiates through `corr = cur_rem / safe_vj`, which multiplies the backward gradient by an asymmetric rank-1 oblique projection $(I - \frac{1}{v_j} e_j v^\top)$ and adds $M$ sequential clone/where autograd nodes per step (compounding $16\times$ at $K=16$). Wrapping the ULP polish as a **straight-through estimator** (`out = out + (out_corr - out).detach()`) preserves exact forward IEEE-754 orthogonality ($\le 1.0 \times 10^{-8}$) while keeping the exact symmetric tangent-space Jacobian $(I - \hat{v}\hat{v}^\top)$ in the backward pass.
 4. **`2,414` Unwired Coordinates in `flat_dz[:, 5658:8072]` (`readout.py:L790-L805`):**
@@ -46,34 +46,36 @@ Execution runs across **6 specialized subagents** in two coordinated waves (4 pa
   1. `tangentTriadStep`, `sphericalRetract`, `sphericalTriadStep`, and `multistepSphericalTriad`.
   2. Supporting Lemmas: `shellEnergy_nonneg`, `shellEnergy_eq_zero_iff`, `tangentTriadStep_orthogonal`, `shellEnergy_add_of_orthogonal`, `shellEnergy_scale`, `sphericalTriadStep_preserves_energy`, `sphericalTriadStep_zero`.
   3. **`darksnail_multistep_spherical_invariance` (Theorem 3b):**
-     Proves by induction on $T \in \mathbb{N}$ that $\|\tilde{v}_L^{(T)}\|_2^2 = \|v_L^{(0)}\|_2^2$ and $\forall t < T,\; \langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$.
+     Proves by induction on $T \in \mathbb{N}$ that $\|\tilde v_L^{(T)}\|_2^2 = \|v_L^{(0)}\|_2^2 \text{ and } \forall t < T,\; \langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$.
   4. **`darksnail_multistep_step0_homotopy` (Theorem 4b):**
      Proves by induction on $T \in \mathbb{N}$ that at $W_{\mathrm{rec}} = 0$ and $\delta z = (0, 0)$, `multistepSphericalTriad M γ 0 u v₀ T = v₀` and `darksnailCarryTrajectory step_S1 γ 0 0 0 z₀ T = system1CarryTrajectory step_S1 z₀ T`.
 
 ### Workstream B — Multi-Step Unrolled `SlowFastTriadCascade` (`darksnail/readout.py`)
 - **Guard Buffer Allocation (`flat_dz[:, 8072:8192]`, `120` coords):**
-  - `8072:8088` (`16` coords): Per-step temporal modulation weights $\alpha_t \in \mathbb{R}^{16}$ ($t \in \{0,\dots,15\}$), entering as $\gamma_t = \gamma_{\mathrm{cas}}(1 + \alpha_t)$.
+  - `8072:8088` (`16` coords): Per-step temporal modulation weights $\boldsymbol{\alpha} \in \mathbb R^{16}$ ($t \in \{0,\dots,15\}$), entering as $\gamma_t = \gamma_{\mathrm{cas}}(1 + \alpha_t)$.
   - `8088:8104` (`16` coords): Per-step adaptive step-size / Lie-generator mixing scalars $\beta_t \in \mathbb{R}^{16}$.
   - `8104:8168` (`64` coords): Step-specific Lie-algebra skew modulation basis $\Delta W_{\mathrm{step}} \in \mathbb{R}^{8 \times 8}$.
   - `8168:8192` (`24` coords): Continuous spectral phase-space dispersion & horizon damping scalars ($2 \times 12$ color channels).
 - **Lie-Group Tangent Stepping & Zero-Drift Retraction:**
-  - Project onto top $M = 8$ right singular vectors $P \in \mathbb{R}^{512 \times 8}$ ($P^\top P = I_8$) of $\mathbf{W}_{\mathrm{lm}}$.
+  - Project onto top $M = 8$ right singular vectors $P \in \mathbb R^{512 \times 8}$ ($P^\top P = I$) of $\mathbf W_{\mathrm{lm}}$.
   - Apply two-pass Kahan/Parlett tangent re-orthogonalization + straight-through ULP refinement (`out + (out_corr - out).detach()`).
-  - Apply spherical retraction with post-retraction radial polish so $\|\tilde{v}_L^{(T)}\|_2^2 - \|v_L^{(0)}\|_2^2 == 0.000\mathrm{e+}00$ in `float32`.
-  - Lift back via $\tilde{z}_L^{(t)} = z_L^{(t)} + (\tilde{v}_L^{(t)} - z_L^{(t)} P) P^\top$.
+  - Apply spherical retraction with post-retraction radial polish so $\|\tilde v_L^{(T)}\|_2^2 - \|v_L^{(0)}\|_2^2 == 0.000\mathrm{e+}00$ in `float32`.
+  - Lift back via $\tilde z_L^{(t)} = z_L^{(t)} + (\tilde v_L^{(t)} - z_L^{(t)} P) P^\top$.
 
 ### Workstream C — Continuous Dynamical Field Readout & Outlier-Guided Shape Predictor (`darksnail/shell.py` & `darksnail/readout.py`)
 - **Beltrami Outlier Count Wiring (`shell.py`):**
   - Export thresholded salience spike cardinalities (`salience_spike_count`, `raw_spike_count`, `outlier_score`) from `BeltramiCallosalShell.forward` out-of-band without altering the `(B, 32, 4096)` `float32` return tensor.
   - Implement `extract_grid_beltrami_shape_descriptors` and `infer_arc_output_shape_beltrami` (Rules 8a–8d after Rules 1–7) to resolve dynamic object-count and enclosure bounding-box cases.
 - **Continuous Spectral / Phase-Space Readout (`ContinuousSpectralFieldReadout` in `readout.py`):**
-  - Harvest `flat_dz[:, 5658:8072]` (`2,414` coords = `201 * 12 + 2`) and `8168:8192` (`24` coords) together with `[0:5658]` and `RoPE2DMedoidPooler` ($\gamma_{2\mathrm{D}}(S) = \exp(-\nu p^{2\ell}(\sigma_y^2(S) + \sigma_x^2(S))) \in [0.05, 1.0]$).
+  - Harvest `flat_dz[:, 5658:8072]` (`2,414` coords = `201 * 12 + 2`) and `8168:8192` (`24` coords) together with `[0:5658]` and `RoPE2DMedoidPooler`, with $\gamma_{2\mathrm{D}}(S) = \exp(-\nu p^{2\ell}(\sigma_y^2(S) + \sigma_x^2(S))) \in [0.05, 1.0]$.
   - Replace all `data_ptr()` and salted `hash()` cache keys with `hashlib.blake2b`.
 
 ### Workstream D — Adaptive Unroll Dispatch in `ZenoAmygdalaController` (`darksnail/antenna.py`)
-- **Surgical Near-Solved Regime ($\mathcal{L}_0 < 2.5$ or $\mathrm{Fit}_{\mathrm{S1}} \ge 0.90$):**
-  - `unroll_steps = 1`, $N_{\mathrm{TTA}} \in [12, 18]$, $\eta \in [0.022, 0.036]$, $\lambda_{\mathrm{anchor}} \in [0.22, 0.30]$, surgical ray quantiles $[1/N_{\mathrm{cells}}, 2/N_{\mathrm{cells}}, 0.02]$.
-- **High-Turbulence / Multi-Hop Regime ($\mathcal{L}_0 > 4.5$ or $\Phi_{\mathrm{LH}} \ge 0.55 \land \mathcal{T}_{\mathrm{zeno}} \ge 0.55$):**
-  - `unroll_steps` $K \in \{4, 8, 16\}$ based on $\mathcal{T}_{\mathrm{zeno}}$ and $\mathcal{L}_0$, with $N_{\mathrm{TTA}} \in [33, 40]$.
-- **Balanced Deliberation Regime ($2.5 \le \mathcal{L}_0 \le 4.5$):**
+- **Surgical Near-Solved Regime** ($\mathcal L_0 < 2.5$ or S1 Fit $\ge 0.90$):
+  - `unroll_steps = 1`, with schedule parameters $N_{\mathrm{TTA}} \in [12, 18],\; \eta \in [0.022, 0.036],\; \lambda_{\mathrm{anchor}} \in [0.22, 0.30]$.
+  - Surgical ray quantiles: $[1/N_{\mathrm{cells}}, 2/N_{\mathrm{cells}}, 0.02]$.
+- **High-Turbulence / Multi-Hop Regime** ($\mathcal L_0 > 4.5 \text{ or } \Phi_{\mathrm{LH}} \ge 0.55 \land \mathcal T_{\mathrm{zeno}} \ge 0.55$):
+  - `unroll_steps` $K \in \{4, 8, 16\}$ based on $(\mathcal T_{\mathrm{zeno}}, \mathcal L_0)$.
+  - TTA adaptation budget: $N_{\mathrm{TTA}} \in [33, 40]$.
+- **Balanced Deliberation Regime** ($2.5 \le \mathcal L_0 \le 4.5$):
   - `unroll_steps = 4 if (t_zeno >= 0.45 or has_occlusion_tie) else 1`.

@@ -19,7 +19,7 @@ Standard from-scratch gating fails due to "routing absorption" (Aquino-Michaels,
 For each attention layer $\ell$, we inject a `MultiPrimeTopologyRouter`. The modified attention equation is:
 
 ```math
-\mathrm{Attn}_\ell(Q, K, V) = \mathrm{softmax}\left( \frac{QK^\top}{\sqrt{d_k}} + M_{\mathrm{causal}} + \sum_{p \in \mathcal{P}} g_{\ell,h}^{(p)} \cdot \alpha^{(p)} \cdot T_{ij}^{(p)} \right) V
+\mathrm{Attn}^{(\ell)}(Q, K, V) = \mathrm{softmax}\left( \frac{QK^\top}{\sqrt{d_k}} + M_{\mathrm{causal}} + \sum_{p \in \mathcal{P}} g_{\ell,h}^{(p)} \cdot \alpha^{(p)} \cdot T_{ij}^{(p)} \right) V
 ```
 
 Where $T_{ij}^{(p)}$ is the tree distance matrix, and the Gumbel-Sigmoid gate is $g \in [0, 1]$.
@@ -30,11 +30,11 @@ Where $T_{ij}^{(p)}$ is the tree distance matrix, and the Gumbel-Sigmoid gate is
 We optimize the joint loss:
 
 ```math
-\mathcal{L}(t) = \mathcal{L}_{\mathrm{CE}}(\Theta_{\mathrm{frozen}}, \Phi) + \lambda(t) \cdot \frac{1}{L \cdot H \cdot |\mathcal{P}|} \sum_{\ell, h, p} (1 - g_{\ell,h}^{(p)})
+\mathcal L(t) = \mathcal L_{\mathrm{CE}}(\Theta_{\mathrm{frozen}}, \Phi) + \lambda(t) \cdot \frac{1}{L \cdot H \cdot |\mathcal{P}|} \sum_{\ell, h, p} (1 - g_{\ell,h}^{(p)})
 ```
 
-- **Auxiliary Loss Ramp-up $\lambda(t)$:** Slowly monotonically increases the penalty for density.
-- **Temperature Annealing $\tau(t)$:** Anneals from $\tau_{\max} = 1.0$ down to $\tau_{\min} = 0.1$, forcing the continuous gates to polarize into hard binary decisions $g \in \{0, 1\}$.
+- **Auxiliary Loss Ramp-up** $\lambda(t)$: Slowly monotonically increases the penalty for density.
+- **Temperature Annealing** $\tau(t)$: Anneals from $\tau_{\max} = 1.0 \text{ down to } \tau_{\min} = 0.1$, forcing the continuous gates to polarize into hard binary decisions $g \in \{0, 1\}$.
 
 Once polarized, the routing depths $d_h = \mathbb{1}[z > 0]$ are extracted and mapped directly into the Triton block-sparse kernel.
 
@@ -101,7 +101,7 @@ When a block exits the local sliding window $W$, we algorithmically fuse it into
 For arity $p$, when $p$ adjacent blocks exit the sliding window at depth $d$, they are compressed:
 
 ```math
-K^{(d-1)}_{j} = f_\theta \left( K^{(d)}_{p \cdot j}, \dots, K^{(d)}_{p \cdot j + (p-1)} \right)
+K_j^{(d-1)} = f_\theta \left( K_{p \cdot j}^{(d)}, \dots, K_{p \cdot j + (p-1)}^{(d)} \right)
 ```
 
 This recursively ascends the tree hierarchy. The total active footprint is bounded by $W$ at each depth. 

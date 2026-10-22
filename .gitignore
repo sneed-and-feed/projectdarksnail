@@ -12,4 +12,6 @@ results/shards/
 results/eval_shard_*.log
 data/
 environment_files/
+.agents/
+uv.lock
 

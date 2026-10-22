@@ -1561,6 +1561,8 @@ class DarkSnailCanvasReadout(nn.Module):
             ray_d1 = fg_colors.clone()
             ray_d2 = fg_colors.clone()
             for step in (1, 2, 4):
+                if step >= side:
+                    continue
                 ray_h_l = F.pad(ray_h[:, :, :-step], (step, 0), value=0.0) * trans
                 ray_h_r = F.pad(ray_h[:, :, step:], (0, step), value=0.0) * trans
                 ray_h = torch.maximum(ray_h, 0.78 * (ray_h_l + ray_h_r))

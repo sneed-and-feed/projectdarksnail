@@ -734,4 +734,88 @@ def test_beltrami_pullback_canvas_and_pre_triad_spectral_coupling():
     assert torch.allclose(out_a_2d[:, :, 4], out_b_2d[:, :, 9], atol=5e-4)
 
 
+def test_darksnail_all_export_completeness() -> None:
+    """
+    Verifies that darksnail.__all__ is comprehensive, free of duplicates,
+    matches dir(darksnail), exports all key Gemma 4 symbols, and supports wildcard imports cleanly.
+    """
+    import darksnail
+
+    # 1. __all__ structure and uniqueness
+    assert hasattr(darksnail, "__all__"), "darksnail must define __all__"
+    all_symbols = darksnail.__all__
+    assert isinstance(all_symbols, (list, tuple)), "__all__ must be a sequence of strings"
+    assert len(all_symbols) == len(set(all_symbols)), (
+        f"Duplicates found in __all__: {len(all_symbols)} vs {len(set(all_symbols))}"
+    )
+
+    # 2. Every symbol in __all__ must exist in dir(darksnail) and be retrievable
+    dir_symbols = set(dir(darksnail))
+    for sym in all_symbols:
+        assert sym in dir_symbols, f"Symbol {sym!r} listed in __all__ is missing from dir(darksnail)"
+        obj = getattr(darksnail, sym, None)
+        assert obj is not None, f"Symbol {sym!r} resolved to None in darksnail"
+
+    # 3. Explicitly check key Gemma 4 and core neuro-symbolic symbols
+    required_key_symbols = [
+        "GEMMA4_31B_SPEC",
+        "GLOBAL_LAYER_INDICES",
+        "SLIDING_LAYER_INDICES",
+        "DarkSnailGemma4GlobalHook",
+        "Gemma4BeltramiCallosalShell",
+        "ProportionalRoPESubspaceSplitter",
+        "SurgicalGemma4Attention",
+        "apply_gemma4_prope",
+        "attach_gemma4_beltrami_hook",
+        "build_gemma4_prope_cache",
+        "extract_beltrami_lh_latents",
+        "load_gemma4_router_sidecar",
+        "patch_gemma4_model",
+        "prepare_darksnail_gemma4_model",
+        "verify_pointwise_orthogonality",
+        "warmup_gemma4_routers_kl",
+    ]
+    for key_sym in required_key_symbols:
+        assert key_sym in all_symbols, f"Key required symbol {key_sym!r} is missing from darksnail.__all__"
+        assert hasattr(darksnail, key_sym), f"Key required symbol {key_sym!r} is not an attribute of darksnail"
+
+    # 4. Functional wildcard import verification
+    wildcard_ns = {}
+    exec("from darksnail import *", wildcard_ns)
+    for sym in all_symbols:
+        assert sym in wildcard_ns, f"Wildcard import failed to provide {sym!r}"
+
+
+def test_canvas_readout_degenerate_sub4x4_grids() -> None:
+    """Verifies that DarkSnailCanvasReadout gracefully handles degenerate sub-4x4 grids (L in {1, 4, 9}).
+
+    Ensures that when spectral_gain > 0 and ray steps for step in (1, 2, 4) exceed canvas dimensions,
+    ray reflections cleanly skip invalid dimensions without unhandled PyTorch RuntimeError or NaNs.
+    """
+    import math
+
+    torch.manual_seed(42)
+    readout = DarkSnailCanvasReadout(readout_scale=6.0, triad_gain=1.0, asym_gain=1.5, spectral_gain=1.2)
+    assert readout.spectral_gain > 0.0
+
+    for L in (1, 4, 9):
+        side = int(round(math.sqrt(L)))
+        target_hw = (side, side)
+        inputs = torch.zeros(1, L, dtype=torch.long)
+        logits = torch.randn(1, L, 12, dtype=torch.float32)
+        dz = torch.randn(1, 8192, dtype=torch.float32) * 0.1
+
+        # Test with explicit target_hw
+        out_explicit = readout(logits, inputs, dz, target_hw=target_hw)
+        assert out_explicit.shape == (1, L, 12), f"Expected shape (1, {L}, 12), got {out_explicit.shape}"
+        assert torch.isfinite(out_explicit).all(), f"Non-finite values detected for L={L} with explicit target_hw"
+
+        # Test with inferred target_hw
+        out_inferred = readout(logits, inputs, dz)
+        assert out_inferred.shape == (1, L, 12), f"Expected shape (1, {L}, 12), got {out_inferred.shape}"
+        assert torch.isfinite(out_inferred).all(), f"Non-finite values detected for L={L} with inferred target_hw"
+
+
+
+
 

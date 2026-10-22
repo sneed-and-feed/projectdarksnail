@@ -407,6 +407,7 @@ def test_noop_pruning_local_patch_invariance_and_bfs_navigation() -> None:
 
 def test_agent_game_over_reset_and_gemma4_attachment() -> None:
     """Verifies immediate `RESET` on `GAME_OVER` and `attach_gemma4_system2` hook creation."""
+    arcengine = pytest.importorskip("arcengine")
     from arcengine import GameAction, GameState
 
     agent = DarkSnailArc3Agent(max_actions=50, seed=0)
@@ -443,6 +444,7 @@ def test_live_offline_ls20_and_ft09_execution() -> None:
     Runs `DarkSnailArc3Agent` on live `ls20` (navigation + fuel clock), `vc33` (coordinate click
     puzzle), and `ft09` (multi-panel constraint click puzzle) in `OperationMode.OFFLINE`.
     """
+    arc_agi = pytest.importorskip("arc_agi")
     from arc_agi import Arcade, OperationMode
 
     env_dir = Path(__file__).resolve().parent.parent / "data" / "arc_agi_3_environments"
