@@ -1,6 +1,7 @@
 # Project DarkSnail V2 — Bi-Hemispheric $\times$ Ultrametric Triad Synthesis
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23497692.svg)](https://doi.org/10.5281/zenodo.23497692)
+[![CI](https://github.com/sneed-and-feed/projectdarksnail/actions/workflows/ci.yml/badge.svg)](https://github.com/sneed-and-feed/projectdarksnail/actions/workflows/ci.yml)
 [![Lean 4 Verified](https://img.shields.io/badge/Lean_4-Zero_Sorry_Verified-brightgreen)](#lean-4-formal-verification-occlusiontriadlean)
 [![Pytest](https://img.shields.io/badge/tests-34%2F34%20passed-brightgreen)](#unit-test-suite)
 [![ARC-AGI-1](https://img.shields.io/badge/ARC--AGI--1_Eval-38.00_%2F_400_(9.50%25)-blue)](#empirical-evaluation-on-arc-agi-1-n--400)

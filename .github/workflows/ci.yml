@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Test, Stress & Lint Suite (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout projectdarksnail
+        uses: actions/checkout@v4
+        with:
+          path: projectdarksnail
+
+      - name: Checkout companion brain-ai repository
+        uses: actions/checkout@v4
+        with:
+          repository: sneed-and-feed/brain-ai
+          path: brain-ai
+
+      - name: Checkout companion sparse-ai repository
+        uses: actions/checkout@v4
+        with:
+          repository: sneed-and-feed/sparse-ai
+          path: sparse-ai
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: projectdarksnail/pyproject.toml
+
+      - name: Install CPU PyTorch & package dependencies
+        working-directory: projectdarksnail
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e . pytest numpy safetensors
+
+      - name: GFM & KaTeX Math Compliance Audit (21 Rules)
+        working-directory: projectdarksnail
+        run: |
+          python scripts/audit_gfm_math.py \
+            README.md \
+            papers/darksnail_v2_preprint.md \
+            papers/darksnail_gemma4_arc3_preprint.md \
+            docs/EXPERIMENT_RESULTS.md \
+            docs/CDS_EXTENSION_EXPERIMENT_RESULTS.md \
+            docs/CDS_EXTENSION_IMPLEMENTATION_PLAN.md \
+            docs/CDS_PHASE2_EXPERIMENT_RESULTS.md \
+            docs/DARKSNAIL_GEMMA4_31B_ARCHITECTURE.md \
+            docs/darksnail_synthesis_plan.md \
+            ultrametric/v3_roadmap.md
+
+      - name: Static Lean 4 Formalization Gate (Zero Sorry / Admit)
+        working-directory: projectdarksnail
+        run: |
+          python - << 'EOF'
+          import pathlib, re, sys
+          lean_path = pathlib.Path("formalization/OcclusionTriad.lean")
+          text = lean_path.read_text(encoding="utf-8")
+          # Strip line and block comments before scanning for sorry/admit
+          clean = re.sub(r"/-.*?-/", "", text, flags=re.S)
+          clean = re.sub(r"--[^\n]*", "", clean)
+          bad = re.findall(r"\b(?:sorry|admit)\b", clean)
+          decls = re.findall(r"^\s*(?:theorem|lemma|def|structure)\s+\w+", clean, flags=re.M)
+          print(f"OcclusionTriad.lean: {len(text.splitlines())} lines, {len(decls)} declarations, {len(bad)} sorry/admit tokens")
+          if bad or len(decls) < 60:
+              sys.exit(1)
+          EOF
+
+      - name: Run Pytest Unit & Integration Suite
+        working-directory: projectdarksnail
+        run: pytest -v
+
+      - name: Run Adversarial & Numerical Invariant Stress Suite
+        working-directory: projectdarksnail
+        run: python scripts/stress_adversarial.py

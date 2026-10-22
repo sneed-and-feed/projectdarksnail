@@ -459,7 +459,21 @@ class DarkSnailSystem2Adaptor:
         if lm_w is not None:
             return lm_w
 
-        from brain_ai.models.callosum import _unwrap_model
+        try:
+            from brain_ai.models.callosum import _unwrap_model
+        except ImportError:
+            def _unwrap_model(m: nn.Module) -> nn.Module:
+                curr = m
+                visited = set()
+                while curr is not None and id(curr) not in visited:
+                    visited.add(id(curr))
+                    if hasattr(curr, "module") and getattr(curr, "module") is not None:
+                        curr = getattr(curr, "module")
+                    elif hasattr(curr, "_orig_mod") and getattr(curr, "_orig_mod") is not None:
+                        curr = getattr(curr, "_orig_mod")
+                    else:
+                        break
+                return curr
 
         m_inner = _unwrap_model(model)
         m_act = _unwrap_model(getattr(m_inner, "model", m_inner))
