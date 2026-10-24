@@ -343,3 +343,19 @@ Self-contained valid `.ipynb` notebooks ready for remote GPU execution:
 - `quakesnail/results/quakesnail_evaluation_summary.json`: QuakeSnail Mode A/B real-time seismic receipts
 - `bmhd/results/bmhd_stylo_bridge_summary.json`: BMHD to Stylo diagnostic bridge and 5-scenario MHD tomography receipts
 - `oatse/results/oatse_evaluation_summary.json`: OATSE Mode A/B ocean acoustic and SAS impedance inversion receipts
+
+---
+
+## 8. Citation
+
+```bibtex
+@software{projectdarksnail_2026,
+  author       = {Cohen, Noah},
+  title        = {Project DarkSnail: Bi-Hemispheric x Ultrametric Triad Synthesis},
+  year         = {2026},
+  version      = {0.2.0},
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.23497692},
+  url          = {https://doi.org/10.5281/zenodo.23497692}
+}
+```
