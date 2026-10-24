@@ -3,8 +3,8 @@
 > **Sequel to:** (1) *Llama Surgery: Continuous Sparsification of Pre-Trained Language Models via Differentiable Ultrametric Topology Injection* and (2) *Lateralized Neuromorphic Architecture: Architecture Description and Pilot Diagnostics on ARC-AGI*  
 > **Companion Paper IV:** [*Project DarkSnail IV: Scaling Bi-Hemispheric Ultrametric Synthesis to Google Gemma 4 31B and Embodied Interactive Fluid Intelligence on ARC-AGI-3*](darksnail_gemma4_arc3_preprint.md) (`darksnail/arc3.py`, `notebooks/darksnail_arc3_colab.ipynb`)
 
-**Authors:** Sneed & Feed Research, Antigravity AI Team  
-**Contact:** `{research, engineering}@sneed-feed.ai`  
+**Author:** Noah Cohen  
+
 **Repository:** [https://github.com/sneed-and-feed/projectdarksnail](https://github.com/sneed-and-feed/projectdarksnail)  
 **Zenodo DOI:** [https://doi.org/10.5281/zenodo.23497692](https://doi.org/10.5281/zenodo.23497692) (10.5281/zenodo.23497692)  
 **Formal Verification:** Lean 4 (`formalization/OcclusionTriad.lean`, `L1–L982`, 0 `sorry`, 0 compiler warnings)  
@@ -896,7 +896,7 @@ The tree routes the context. The triad breaks the occlusion. The callosum unites
 ### 8.2 References
 
 1. Akyürek, E., et al. (2024). The Surprising Effectiveness of Test-Time Training for Abstract Reasoning. *arXiv:2411.07279*.
-2. sneed-and-feed (2026). Learning to Skip Blocks: Self-Discovered Ultrametric Routing for Hardware-Accelerated Sparse Attention. *Preprint*.
+2. Cohen, N. (2026). Learning to Skip Blocks: Self-Discovered Ultrametric Routing for Hardware-Accelerated Sparse Attention. *Preprint*.
 3. Bai, Y., et al. (2024). LongBench: A Bilingual, Multitask Benchmark for Long Context Understanding. *ACL 2024*.
 4. Bradley, P. E. (2010). Mumford Dendrograms. *Computer Journal*, 53(4), 393–404.
 5. Cai, Z. (2026). Open-Jev: Affective Salience Routing for Language Models. *GitHub Repository*.

@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "darksnail"
 version = "0.1.0"
 description = "Project DarkSnail: Bi-Hemispheric x Ultrametric Triad Synthesis for ARC-AGI"
+authors = [{ name = "Noah Cohen" }]
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

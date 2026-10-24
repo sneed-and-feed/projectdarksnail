@@ -2,8 +2,7 @@
 
 > **Sequel to:** (1) *Llama Surgery: Continuous Sparsification of Pre-Trained Language Models via Differentiable Ultrametric Topology Injection*, (2) *Lateralized Neuromorphic Architecture: Architecture Description and Pilot Diagnostics on ARC-AGI*, and (3) [*Project DarkSnail: Bidirectional Synthesis of Ultrametric Dyadic Hydrodynamics and Lateralized Neuromorphic Reasoning*](darksnail_v2_preprint.md)
 
-**Authors:** Sneed & Feed Research, Antigravity AI Team  
-**Contact:** `{research, engineering}@sneed-feed.ai`  
+**Author:** Noah Cohen  
 **Repository:** [https://github.com/sneed-and-feed/projectdarksnail](https://github.com/sneed-and-feed/projectdarksnail)  
 **Zenodo DOI:** [https://doi.org/10.5281/zenodo.23497692](https://doi.org/10.5281/zenodo.23497692) (`10.5281/zenodo.23497692`)  
 **Formal Verification:** Lean 4 ([`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean), `L1–L982`, `0` `sorry`, `0` compiler warnings)  
@@ -846,9 +845,9 @@ The conservation law filters the clock. The cellular sheaf resolves the cavity. 
 20. Pati, Y. C., Rezaiifar, R., & Krishnaprasad, P. S. (1993). Orthogonal Matching Pursuit: Recursive Function Approximation with Applications to Wavelet Decomposition. *Asilomar Conference on Signals, Systems and Computers*.
 21. Saxe, A. M., McClelland, J. L., & Ganguli, S. (2014). Exact Solutions to the Nonlinear Dynamics of Learning in Deep Linear Neural Networks. *ICLR 2014 (arXiv:1312.6120)*.
 22. Seifert, U. (2012). Stochastic Thermodynamics, Fluctuation Theorems and Molecular Machines. *Reports on Progress in Physics (see also arXiv:1310.1863, arXiv:1708.01289)*.
-23. Sneed & Feed Research (2026a). Llama Surgery: Continuous Sparsification of Pre-Trained Language Models via Differentiable Ultrametric Topology Injection. *Companion Preprint 1*.
-24. Sneed & Feed Research (2026b). Lateralized Neuromorphic Architecture: Architecture Description and Pilot Diagnostics on ARC-AGI. *Companion Preprint 2*.
-25. Sneed & Feed Research (2026c). Project DarkSnail: Bidirectional Synthesis of Ultrametric Dyadic Hydrodynamics and Lateralized Neuromorphic Reasoning. *Companion Preprint 3 (`papers/darksnail_v2_preprint.md`)*.
+23. Cohen, N. (2026a). Llama Surgery: Continuous Sparsification of Pre-Trained Language Models via Differentiable Ultrametric Topology Injection. *Companion Preprint 1*.
+24. Cohen, N. (2026b). Lateralized Neuromorphic Architecture: Architecture Description and Pilot Diagnostics on ARC-AGI. *Companion Preprint 2*.
+25. Cohen, N. (2026c). Project DarkSnail: Bidirectional Synthesis of Ultrametric Dyadic Hydrodynamics and Lateralized Neuromorphic Reasoning. *Companion Preprint 3 (`papers/darksnail_v2_preprint.md`)*.
 26. Sun, Y., et al. (2020). Test-Time Training with Self-Supervision for Generalization under Distribution Shifts. *ICML 2020 (arXiv:2002.06991)*.
 27. Tao, T. (2016). Finite Time Blowup for an Averaged Three-Dimensional Navier-Stokes Equation. *Journal of the American Mathematical Society*, 29(3), 601–674.
 28. Taylor, J., Precup, D., & Panangaden, P. (2009). Bounding Performance Loss in Approximate MDP Homomorphisms. *NeurIPS (see also van der Pol et al., arXiv:2006.16908; Castro, arXiv:1911.12247; Ferns et al., arXiv:1207.4114)*.

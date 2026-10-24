@@ -3,8 +3,8 @@ title: "Project DarkSnail: Bi-Hemispheric x Ultrametric Triad Synthesis"
 message: "If you use this software, please cite it using the metadata from this file."
 type: software
 authors:
-  - family-names: Cohen
-    given-names: Noah
+  - family-names: "Cohen"
+    given-names: "Noah"
 version: 0.2.0
 doi: 10.5281/zenodo.23497692
 date-released: 2026-10-20
