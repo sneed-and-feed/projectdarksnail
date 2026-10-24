@@ -115,10 +115,10 @@ Archived in [`results/darksnail_longbench_summary.json`](../results/darksnail_lo
 | Tree Depth $r$ | `window@r` QASPER F1 [Budget] | `v4_triad@r` QASPER F1 [Budget] | **`darksnail@r` QASPER F1 [Budget]** | Paired $\Delta\text{F1}$ vs. `v4_triad@r` [95% CI] ($p$-value, W/L/T) | `v4_triad@r` Banal NIAH Recall | **`darksnail@r` Banal NIAH Recall** [McNemar $p$] |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | $r = 0$ (`dense`) | — | $49.92\ [100.00\%]$ | $49.92\ [100.00\%]$ | — | $100.0\%$ ($50/50$) | $100.0\%$ ($50/50$) |
-| $r = 2$ | $42.55\ [84.55\%]$ | $44.70\ [84.54\%]$ | $\mathbf{49.89\ [84.54\%]}$ | $\mathbf{+5.18\ [+2.40, +8.14]}\ (p = 0.0002,\ 70 / 37 / 93)$ | $92.0\%$ ($46/50$) | $\mathbf{100.0\%}\ (50/50,\ +8.0\%)$ |
-| $r = 3$ | $37.75\ [72.13\%]$ | $42.04\ [72.11\%]$ | $\mathbf{48.62\ [72.11\%]}$ | $\mathbf{+6.58\ [+3.24, +9.96]}\ (p = 0.0002,\ 84 / 41 / 75)$ | $42.0\%$ ($21/50$) | $\mathbf{94.0\%}\ (47/50,\ \mathbf{+52.0\%},\ p < 10^{-6})$ |
-| $r = 4$ | $34.77\ [62.25\%]$ | $35.81\ [62.23\%]$ | $\mathbf{48.61\ [62.23\%]}$ | $\mathbf{+12.80\ [+8.98, +16.70]}\ (p = 0.0001,\ 103 / 34 / 63)$ | $16.0\%$ ($8/50$) | $\mathbf{84.0\%}\ (42/50,\ \mathbf{+68.0\%},\ p < 10^{-9})$ |
-| $r = 5$ | — | — | — | — | $6.0\%$ ($3/50$) | $\mathbf{68.0\%}\ (34/50,\ \mathbf{+62.0\%},\ p < 10^{-8})$ |
+| $r = 2$ | $41.75\ [84.51\%]$ | $47.80\ [84.50\%]$ | $\mathbf{50.60\ [84.50\%]}$ | $\mathbf{+2.79\ [+1.27, +4.39]}\ (p = 0.0004,\ 59 / 42 / 99)$ | $92.0\%$ ($46/50$) | $\mathbf{100.0\%}\ (50/50,\ +8.0\%)$ |
+| $r = 3$ | $37.73\ [71.25\%]$ | $42.51\ [71.23\%]$ | $\mathbf{49.95\ [71.23\%]}$ | $\mathbf{+7.44\ [+3.80, +11.03]}\ (p = 0.0002,\ 86 / 40 / 74)$ | $42.0\%$ ($21/50$) | $\mathbf{94.0\%}\ (47/50,\ \mathbf{+52.0\%},\ p < 10^{-6})$ |
+| $r = 4$ | $33.88\ [60.87\%]$ | $35.91\ [60.85\%]$ | $\mathbf{49.78\ [60.86\%]}$ | $\mathbf{+13.88\ [+9.81, +17.85]}\ (p = 0.0001,\ 99 / 34 / 67)$ | $16.0\%$ ($8/50$) | $\mathbf{84.0\%}\ (42/50,\ \mathbf{+68.0\%},\ p < 10^{-9})$ |
+| $r = 5$ | $28.34\ [50.15\%]$ | $29.85\ [50.13\%]$ | $\mathbf{49.27\ [50.14\%]}$ | $\mathbf{+19.43\ [+14.67, +24.17]}\ (p = 0.0001,\ 118 / 22 / 60)$ | $6.0\%$ ($3/50$) | $\mathbf{68.0\%}\ (34/50,\ \mathbf{+62.0\%},\ p < 10^{-8})$ |
 
 ![DarkSnail V2 LongBench QASPER & Banal NIAH Retention Curves](../results/darksnail_longbench_curves.png)
 
@@ -154,7 +154,7 @@ In [`SurgicalGemma4Attention._compute_block_kl_lagrangian_loss`](../darksnail/ge
 | **Bridge-Aware Calibration (`bridge_aware=True`)** | **`12.50%`** ($< 35\%$) | **`100.0%` (`True`)** | **`0` blocks (`overlaps_spike = False`)** | **No (`0` redundant overlap)** |
 
 > [!NOTE]
-> **Full-Weight Colab Pro+ Evaluation Status** ($r \ge 5$): Local unit and integration verification of Bridge-Aware Router Calibration (`test_bridge_aware_router_calibration_r5`) is complete (`100%` unshielded needle recall vs. `0%` bridge-blind, `0` redundant branch overlap at `< 35%` budget). Full-weight `google/gemma-4-31B-it` and `Meta-Llama-3.1-8B-Instruct` 40-step sidecar recalibration and $r \ge 5$ Banal NIAH & LongBench QASPER evaluation are staged and pending execution via the dedicated Colab Pro+ notebook [`notebooks/darksnail_bridge_aware_r5_colab.ipynb`](../notebooks/darksnail_bridge_aware_r5_colab.ipynb).
+> **Verified Live Colab Pro+ Full-Weight Evaluation** at $r = 5$ ([`results/darksnail_bridge_aware_r5_summary.json`](../results/darksnail_bridge_aware_r5_summary.json), [`results/darksnail_bridge_aware_qasper_predictions.jsonl`](../results/darksnail_bridge_aware_qasper_predictions.jsonl)): Full-weight `google/gemma-4-31B-it` (`bfloat16`) evaluation across $r \in \lbrace 2, 3, 4, 5 \rbrace$ on $n = 200$ LongBench QASPER achieves **`50.60 / 49.95 / 49.78 / 49.27` F1** (`98.70%` dense F1 retention at $r = 5$, `50.14%` total budget / `< 35%` global routed budget), outperforming `v4_triad@5` (`29.85` F1) by **`+19.43` F1** (`95% CI [+14.67, +24.17]`, $p = 0.0001$, `118W / 22L / 60T`) and `window@5` (`28.34` F1) by **`+20.94` F1** ($p = 0.0001$).
 
 ---
 
@@ -181,7 +181,7 @@ In [`SurgicalGemma4Attention._compute_block_kl_lagrangian_loss`](../darksnail/ge
   4. **Peg-in-Hole Cavity Docking (`detect_peg_docking`)**: Detects exact complementary shape insertion when a translated block fills an open receptor cavity (`cavity_fill_ratio >= 0.50`, `wall_contacts >= max(3, perim // 2)`).
   5. **Multi-Object Surface Clearing (Plow / Broom Sweeps)**: Simultaneously displaces multiple disjoint blocks contacting a wide pusher surface in a single action step.
 
-### 4.2 Offline CPU Progression (`30 / 183` Levels, `18 / 25` Games) & Staged Full-Weight Colab Pro+ Evaluation
+### 4.2 Offline CPU & Live Colab Pro+ `google/gemma-4-31B-it` Progression (`30 / 183` Levels, `18 / 25` Games)
 
 Verified offline CPU benchmark results in [`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json) (paired with the archived pre-contact-sheaf baselines in [`results/darksnail_m5_offline_no_gemma4_25games.json`](../results/darksnail_m5_offline_no_gemma4_25games.json) and [`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json)):
 
