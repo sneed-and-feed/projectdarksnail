@@ -1,7 +1,7 @@
 game_id,win_levels,random_levels,greedy_levels,m4_no_gemma4_levels,m4_rhae_pct,m5_no_gemma4_levels,m5_won,m5_completion_steps,m5_actions_taken,m5_resets_taken,m5_unique_nope_states,m5_clock_px,m5_remote_actuators,m5_rhae_pct,m5_wall_time_sec
 ar25-0c556536,8,0,0,1,0.0506,0,False,,1000,14,310,64,0,0.0000,15.798
 bp35-0a0ad940,9,0,0,1,0.0185,1,False,L1@230,1000,89,329,64,3,0.0185,68.475
-cd82-fb555c5d,6,0,0,1,0.0427,1,False,L1@182,1000,9,224,64,3,0.4349,21.485
+cd82-fb555c5d,6,0,0,1,0.0427,2,False,L1@182;L2@606,1000,9,224,64,19,0.4383,21.485
 cn04-2fe56bfb,6,0,0,0,0.0000,0,False,,1000,13,372,32,84,0.0000,22.563
 dc22-fdcac232,6,0,0,1,0.0479,1,False,L1@692,1000,10,149,64,2,0.0346,20.394
 ft09-0d8bbf25,6,0,0,1,0.0230,1,False,L1@619,1000,24,138,64,0,0.0230,28.026

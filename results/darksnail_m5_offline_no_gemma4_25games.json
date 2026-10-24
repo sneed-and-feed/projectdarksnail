@@ -28,11 +28,11 @@
       "official_rhae_pct": 0.6274
     },
     "darksnail_m5_no_gemma4": {
-      "levels_completed": 29,
-      "level_pct": 15.85,
+      "levels_completed": 30,
+      "level_pct": 16.39,
       "games_ge_1_level": 18,
       "full_games_won": 1,
-      "official_rhae_pct": 4.8124
+      "official_rhae_pct": 4.8125
     }
   },
   "conditions": {
@@ -1248,12 +1248,12 @@
       "max_actions_per_game": 1000,
       "num_games": 25,
       "total_levels_available": 183,
-      "total_levels_completed": 29,
-      "level_completion_rate_pct": 15.85,
+      "total_levels_completed": 30,
+      "level_completion_rate_pct": 16.39,
       "games_with_at_least_1_level_completed": 18,
       "games_with_at_least_1_level_pct": 72.0,
       "full_games_won": 1,
-      "official_rhae_scorecard_score_pct": 4.8124,
+      "official_rhae_scorecard_score_pct": 4.8125,
       "total_actions_taken": 24124,
       "mean_actions_per_completed_level": 831.86,
       "wall_time_sec": 635.51,
@@ -1323,7 +1323,7 @@
           "game_id": "cd82-fb555c5d",
           "state": "NOT_FINISHED",
           "won": false,
-          "levels_completed": 1,
+          "levels_completed": 2,
           "win_levels": 6,
           "actions_taken": 1000,
           "resets_taken": 9,
@@ -1331,11 +1331,15 @@
             [
               1,
               182
+            ],
+            [
+              2,
+              606
             ]
           ],
           "unique_nope_states_visited": 224,
           "clock_pixels_masked": 64,
-          "remote_actuators_discovered": 3,
+          "remote_actuators_discovered": 19,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
             "valence": 0.2607,
@@ -1350,7 +1354,7 @@
             "should_call_gemma4_system2": false
           },
           "wall_time_sec": 21.485,
-          "official_rhae_score": 0.4348738650151523
+          "official_rhae_score": 0.43828342245989305
         },
         {
           "game_id": "cn04-2fe56bfb",
