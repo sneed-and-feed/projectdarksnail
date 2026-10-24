@@ -2420,6 +2420,13 @@ class ContactEdge:
         return self.restriction_map_v(v_v, x_v) - self.restriction_map_u(v_u, x_u)
 
 
+class _ContactNodeMap(dict):
+    """Dict mapping `node_id -> ContactNode` whose direct iterator yields `ContactNode` objects."""
+
+    def __iter__(self):
+        return iter(self.values())
+
+
 class ContactGraphSheaf:
     """
     Kinematic Contact-Chain Sheaf G_contact(F_t) modeling:
@@ -2444,13 +2451,13 @@ class ContactGraphSheaf:
         ego_node_id: Optional[int] = None,
         comp_grid: Optional[np.ndarray] = None,
     ) -> None:
-        self.nodes = nodes
+        self.nodes: Dict[int, ContactNode] = _ContactNodeMap(nodes)
         self.edges = edges
         self.board_shape = board_shape
         self.bg_mode = bg_mode
         self.ego_node_id = ego_node_id
         self.comp_grid = comp_grid
-        self.adj: Dict[int, List[ContactEdge]] = {nid: [] for nid in nodes}
+        self.adj: Dict[int, List[ContactEdge]] = {nid: [] for nid in self.nodes.keys()}
         for edge in edges:
             self.adj[edge.u].append(edge)
             self.adj[edge.v].append(edge)
@@ -2459,12 +2466,15 @@ class ContactGraphSheaf:
     def from_board(
         cls,
         board: np.ndarray,
-        bg_mode: int,
+        bg_mode: int = 0,
         ego_colors: Optional[Set[int]] = None,
         pushable_colors: Optional[Set[int]] = None,
         wall_colors: Optional[Set[int]] = None,
         ego_comp: Optional[Dict[str, Any]] = None,
+        bg_color: Optional[int] = None,
     ) -> ContactGraphSheaf:
+        if bg_color is not None:
+            bg_mode = int(bg_color)
         H, W = board.shape
         ego_colors = ego_colors or set()
         pushable_colors = pushable_colors or set()
@@ -2637,27 +2647,77 @@ class ContactGraphSheaf:
             comp_grid=comp_grid,
         )
 
+    def compute_non_penetration_coboundary(
+        self,
+        node_displacements: Dict[int, Tuple[int, int]],
+    ) -> Dict[Tuple[int, int], float]:
+        """
+        Evaluates the sheaf restriction coboundary (delta v)(e) across all contact edges.
+        If a single actuator/ego node displacement is supplied, first propagates the kinematic
+        contact chain to obtain the induced stalk velocities across all coupled bodies.
+        """
+        disp_map = dict(node_displacements)
+        if len(disp_map) == 1:
+            root_id, act_dir = next(iter(disp_map.items()))
+            ok, prop_map, _ = self.propagate_displacement(action_dir=act_dir, ego_node_id=root_id)
+            if ok and prop_map:
+                disp_map = prop_map
+
+        coboundary: Dict[Tuple[int, int], float] = {}
+        for edge in self.edges:
+            if edge.is_enclosed:
+                continue
+            u_node = self.nodes[edge.u]
+            v_node = self.nodes[edge.v]
+            dy_u, dx_u = disp_map.get(edge.u, (0, 0))
+            dy_v, dx_v = disp_map.get(edge.v, (0, 0))
+            delta_v = edge.compute_coboundary(
+                v_u=(float(dy_u), float(dx_u), 0.0),
+                x_u=(u_node.centroid_y, u_node.centroid_x),
+                v_v=(float(dy_v), float(dx_v), 0.0),
+                x_v=(v_node.centroid_y, v_node.centroid_x),
+            )
+            coboundary[(edge.u, edge.v)] = float(delta_v)
+        return coboundary
+
     def propagate_displacement(
         self,
-        action_dir: Tuple[int, int],
+        action_dir: Any = (0, 0),
         ego_node_id: Optional[int] = None,
         allow_candidate_push: bool = True,
-    ) -> Tuple[bool, Dict[int, Tuple[int, int]], str]:
+        dy: Optional[int] = None,
+        dx: Optional[int] = None,
+        bg_color: Optional[int] = None,
+    ) -> Any:
         """
         Solves topological force and displacement propagation through the contact sheaf.
-        Returns:
-            (success: bool, moving_nodes: Dict[node_id, (dy, dx)], reason: str)
+        Supports both:
+          - `(success, moving_nodes, reason) = sheaf.propagate_displacement((dy, dx), ego_node_id=...)`
+          - `displaced_board = sheaf.propagate_displacement(board, ego_node_id=..., dy=..., dx=..., bg_color=...)`
         """
-        dy, dx = action_dir
-        if dy == 0 and dx == 0:
-            return True, {}, "no_op"
+        board_override: Optional[np.ndarray] = None
+        if isinstance(action_dir, np.ndarray):
+            board_override = action_dir
+            action_dir = (int(dy or 0), int(dx or 0))
+        elif dy is not None or dx is not None:
+            action_dir = (int(dy or 0), int(dx or 0))
+
+        def _finish(ok: bool, mov: Dict[int, Tuple[int, int]], reason: str) -> Any:
+            if board_override is not None:
+                bg = int(bg_color) if bg_color is not None else self.bg_mode
+                return self.apply_displacement_to_board(board_override, bg, mov) if ok else board_override.copy()
+            return ok, mov, reason
+
+        dy_val, dx_val = int(action_dir[0]), int(action_dir[1])
+        if dy_val == 0 and dx_val == 0:
+            return _finish(True, {}, "no_op")
 
         root_id = ego_node_id if ego_node_id is not None else self.ego_node_id
         if root_id is None or root_id not in self.nodes:
-            return False, {}, "no_ego_root"
+            return _finish(False, {}, "no_ego_root")
 
         H, W = self.board_shape
-        moving_nodes: Dict[int, Tuple[int, int]] = {root_id: (dy, dx)}
+        moving_nodes: Dict[int, Tuple[int, int]] = {root_id: (dy_val, dx_val)}
         queue: List[int] = [root_id]
         visited: Set[int] = {root_id}
 
@@ -2699,20 +2759,20 @@ class ContactGraphSheaf:
                 if dot_prod > 0.05:  # Pushing into other_id
                     other_node = self.nodes[other_id]
                     if other_node.is_wall:
-                        return False, {}, "wall_lock"
+                        return _finish(False, {}, "wall_lock")
                     if other_id not in moving_nodes:
                         if other_node.is_pushable or (allow_candidate_push and not other_node.is_wall):
                             moving_nodes[other_id] = curr_disp
                             visited.add(other_id)
                             queue.append(other_id)
                         else:
-                            return False, {}, "unpushable_obstacle"
+                            return _finish(False, {}, "unpushable_obstacle")
 
             # 3. Swept boundary and direct canvas collision check
             n_r = curr_node.rows + curr_disp[0]
             n_c = curr_node.cols + curr_disp[1]
             if np.any((n_r < 0) | (n_r >= H) | (n_c < 0) | (n_c >= W)):
-                return False, {}, "boundary_collision"
+                return _finish(False, {}, "boundary_collision")
 
             if self.comp_grid is not None:
                 for nr, nc in zip(n_r, n_c):
@@ -2720,14 +2780,14 @@ class ContactGraphSheaf:
                     if other_id != -1 and other_id != curr_id:
                         other_node = self.nodes[other_id]
                         if other_node.is_wall:
-                            return False, {}, "wall_collision"
+                            return _finish(False, {}, "wall_collision")
                         if other_id not in moving_nodes:
                             if other_node.is_pushable or (allow_candidate_push and not other_node.is_wall):
                                 moving_nodes[other_id] = curr_disp
                                 visited.add(other_id)
                                 queue.append(other_id)
                             else:
-                                return False, {}, "unpushable_obstacle"
+                                return _finish(False, {}, "unpushable_obstacle")
 
         # Global Non-Penetration Verification Pass
         old_moving_coords: Set[Tuple[int, int]] = set()
@@ -2741,7 +2801,7 @@ class ContactGraphSheaf:
             nr = node.rows + dy_i
             nc = node.cols + dx_i
             if np.any((nr < 0) | (nr >= H) | (nc < 0) | (nc >= W)):
-                return False, {}, "boundary_collision"
+                return _finish(False, {}, "boundary_collision")
             new_set = set(zip(nr.tolist(), nc.tolist()))
             new_coords_by_node[nid] = new_set
 
@@ -2749,7 +2809,7 @@ class ContactGraphSheaf:
         all_new_coords: Set[Tuple[int, int]] = set()
         for nid, new_set in new_coords_by_node.items():
             if all_new_coords.intersection(new_set):
-                return False, {}, "inter_body_penetration"
+                return _finish(False, {}, "inter_body_penetration")
             all_new_coords.update(new_set)
 
         # Check collision with any stationary components
@@ -2758,9 +2818,9 @@ class ContactGraphSheaf:
                 if (nr, nc) not in old_moving_coords:
                     other_id = int(self.comp_grid[nr, nc])
                     if other_id != -1 and other_id not in moving_nodes:
-                        return False, {}, "collision_with_stationary"
+                        return _finish(False, {}, "collision_with_stationary")
 
-        return True, moving_nodes, "success"
+        return _finish(True, moving_nodes, "success")
 
     def apply_displacement_to_board(
         self,
