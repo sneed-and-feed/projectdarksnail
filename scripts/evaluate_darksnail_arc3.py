@@ -378,45 +378,105 @@ def main() -> None:
         default=str(ROOT_DIR / "results" / "darksnail_arc3_evaluation_summary.json"),
         help="Output JSON summary path.",
     )
+    parser.add_argument(
+        "--condition",
+        type=str,
+        default="all",
+        choices=["all", "darksnail_v2_arc3", "random_legal", "unshielded_greedy"],
+        help="Condition to evaluate (default: all).",
+    )
+    parser.add_argument(
+        "--game-ids",
+        type=str,
+        nargs="*",
+        default=None,
+        help="Specific game IDs to evaluate (default: all discovered games).",
+    )
     args = parser.parse_args()
 
     env_dir = Path(args.env_dir)
     probe_arc = Arcade(operation_mode=OperationMode.OFFLINE, environments_dir=str(env_dir))
-    game_ids = sorted({e.game_id.split("-")[0] for e in probe_arc.available_environments})
-    print(f"Discovered {len(game_ids)} offline ARC-AGI-3 games: {game_ids}", flush=True)
+    all_game_ids = sorted({e.game_id.split("-")[0] for e in probe_arc.available_environments})
+    game_ids = [gid for gid in all_game_ids if args.game_ids is None or any(gid.startswith(x) or x.startswith(gid) for x in args.game_ids)]
+    print(f"Discovered {len(all_game_ids)} offline ARC-AGI-3 games, evaluating {len(game_ids)}: {game_ids}", flush=True)
 
-    conditions = ["random_legal", "unshielded_greedy", "darksnail_v2_arc3"]
-    results_by_cond: Dict[str, Dict[str, Any]] = {}
+    out_path = Path(args.output)
+    existing_summary: Dict[str, Any] = {}
+    if out_path.exists():
+        try:
+            existing_summary = json.loads(out_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing_summary = {}
+
+    conditions = (
+        ["random_legal", "unshielded_greedy", "darksnail_v2_arc3"]
+        if args.condition == "all"
+        else [args.condition]
+    )
+    results_by_cond: Dict[str, Dict[str, Any]] = existing_summary.get("conditions", {})
+
     for cond in conditions:
         print(f"\n=== Evaluating Condition: {cond} (max_actions={args.max_actions}) ===", flush=True)
-        results_by_cond[cond] = evaluate_condition(
+        cond_res = evaluate_condition(
             cond, env_dir=env_dir, game_ids=game_ids, max_actions=args.max_actions, seed=args.seed
         )
+        if cond in existing_summary.get("conditions", {}) and len(game_ids) < len(all_game_ids):
+            prev_games = {g["game_id"].split("-")[0]: g for g in existing_summary["conditions"][cond].get("per_game", [])}
+            for g in cond_res["per_game"]:
+                prev_games[g["game_id"].split("-")[0]] = g
+            merged_per_game = [prev_games[gid] for gid in all_game_ids if gid in prev_games]
+            cond_res["per_game"] = merged_per_game
+            cond_res["num_games"] = len(merged_per_game)
+            cond_res["total_levels_completed"] = sum(int(g["levels_completed"]) for g in merged_per_game)
+            cond_res["total_levels_available"] = sum(int(g["win_levels"]) for g in merged_per_game)
+            cond_res["level_completion_rate_pct"] = round(100.0 * float(cond_res["total_levels_completed"]) / float(max(1, cond_res["total_levels_available"])), 2)
+            cond_res["games_with_at_least_1_level_completed"] = sum(1 for g in merged_per_game if int(g["levels_completed"]) >= 1)
+            cond_res["games_with_at_least_1_level_pct"] = round(100.0 * float(cond_res["games_with_at_least_1_level_completed"]) / float(max(1, len(merged_per_game))), 2)
+            cond_res["full_games_won"] = sum(1 for g in merged_per_game if bool(g["won"]))
+            cond_res["total_actions_taken"] = sum(int(g["actions_taken"]) for g in merged_per_game)
+            cond_res["mean_actions_per_completed_level"] = (
+                round(float(cond_res["total_actions_taken"]) / float(cond_res["total_levels_completed"]), 2)
+                if cond_res["total_levels_completed"] > 0
+                else None
+            )
+            cond_res["official_rhae_scorecard_score_pct"] = round(
+                sum(float(g.get("official_rhae_score", 0.0)) for g in merged_per_game)
+                / float(max(1, len(merged_per_game))),
+                4,
+            )
+            cond_res["wall_time_sec"] = round(
+                sum(float(g.get("wall_time_sec", 0.0)) for g in merged_per_game), 2
+            )
+        results_by_cond[cond] = cond_res
 
-    ds_levels = [g["levels_completed"] for g in results_by_cond["darksnail_v2_arc3"]["per_game"]]
-    rnd_levels = [g["levels_completed"] for g in results_by_cond["random_legal"]["per_game"]]
-    grd_levels = [g["levels_completed"] for g in results_by_cond["unshielded_greedy"]["per_game"]]
+    if "darksnail_v2_arc3" in results_by_cond and "random_legal" in results_by_cond and "unshielded_greedy" in results_by_cond:
+        ds_levels = [g["levels_completed"] for g in results_by_cond["darksnail_v2_arc3"]["per_game"]]
+        rnd_levels = [g["levels_completed"] for g in results_by_cond["random_legal"]["per_game"]]
+        grd_levels = [g["levels_completed"] for g in results_by_cond["unshielded_greedy"]["per_game"]]
 
-    ds_rhae = [g["official_rhae_score"] for g in results_by_cond["darksnail_v2_arc3"]["per_game"]]
-    rnd_rhae = [g["official_rhae_score"] for g in results_by_cond["random_legal"]["per_game"]]
-    grd_rhae = [g["official_rhae_score"] for g in results_by_cond["unshielded_greedy"]["per_game"]]
+        ds_rhae = [g["official_rhae_score"] for g in results_by_cond["darksnail_v2_arc3"]["per_game"]]
+        rnd_rhae = [g["official_rhae_score"] for g in results_by_cond["random_legal"]["per_game"]]
+        grd_rhae = [g["official_rhae_score"] for g in results_by_cond["unshielded_greedy"]["per_game"]]
 
-    summary = {
-        "benchmark": "ARC-AGI-3 Public Offline Suite (25 Games, 183 Levels)",
-        "max_actions_per_game": args.max_actions,
-        "seed": args.seed,
-        "conditions": results_by_cond,
-        "paired_statistics": {
+        paired_stats = {
             "darksnail_vs_random_levels_completed": compute_paired_stats(ds_levels, rnd_levels),
             "darksnail_vs_unshielded_greedy_levels_completed": compute_paired_stats(
                 ds_levels, grd_levels
             ),
             "darksnail_vs_random_rhae_score": compute_paired_stats(ds_rhae, rnd_rhae),
             "darksnail_vs_unshielded_greedy_rhae_score": compute_paired_stats(ds_rhae, grd_rhae),
-        },
+        }
+    else:
+        paired_stats = existing_summary.get("paired_statistics", {})
+
+    summary = {
+        "benchmark": "ARC-AGI-3 Public Offline Suite (25 Games, 183 Levels)",
+        "max_actions_per_game": args.max_actions,
+        "seed": args.seed,
+        "conditions": results_by_cond,
+        "paired_statistics": paired_stats,
     }
 
-    out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\nSaved complete evaluation summary to {out_path}", flush=True)

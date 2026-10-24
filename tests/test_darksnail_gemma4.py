@@ -435,6 +435,132 @@ def test_patch_60_layer_gemma4_model_and_audit_fixes():
     assert cached_niah["conditions"]["darksnail@5"]["recall_pct"] == 68.0
 
 
+def test_bridge_aware_router_calibration_r5():
+    """
+    R2 Acceptance Suite: Verifies Bridge-Aware Router Calibration at the sub-35% sparsity frontier (r >= 5).
+
+    Asserts that under deep sparsity r = 5 (< 35% budget):
+    1. Bridge-aware calibration produces strictly higher unshielded needle recall than bridge-blind calibration.
+    2. Bridge-aware calibration produces strictly lower redundant branch overlap with the Beltrami shield.
+    3. Full 60-layer model warmup_gemma4_routers_kl executes bridge-aware with zero backbone gradients.
+    """
+    import torch.nn.functional as F
+    from darksnail.gemma4 import warmup_gemma4_routers_kl
+
+    torch.manual_seed(42)
+    B, H, NB, D = 1, 4, 16, 48
+
+    cfg = _MockGemma4Config(d_model=128, h_q=4, h_kv_gl=2, d_gl=64)
+    cfg.surgical_tree_depth = 5
+    cfg.surgical_req_depth = 5
+    cfg.surgical_local_window = 1
+    cfg.surgical_route_block = 1
+    cfg.surgical_target_density = 0.15
+
+    # Construct synthetic QK context
+    q_blk = torch.randn(B, H, NB, D) * 0.05
+    k_blk = torch.randn(B, H, NB, D) * 0.05
+
+    # Outlier spike block 3: large jump flux and prominent prompt salience
+    spike_vec = torch.randn(B, H, D)
+    spike_vec = spike_vec / spike_vec.norm(dim=-1, keepdim=True)
+    k_blk[:, :, 3, :] = spike_vec * 6.0
+    q_blk[:, :, 3, :] = spike_vec * 4.0
+
+    # Unshielded needle block 7: subtle semantic direction without jump flux
+    needle_vec = torch.randn(B, H, D)
+    needle_vec = needle_vec - (needle_vec * spike_vec).sum(dim=-1, keepdim=True) * spike_vec
+    needle_vec = needle_vec / needle_vec.norm(dim=-1, keepdim=True)
+    k_blk[:, :, 7, :] = needle_vec * 3.0
+    q_blk[:, :, 7, :] = needle_vec * 2.0
+
+    # Query 15 attends to both prompt spike 3 and needle answer 7
+    q_blk[:, :, 15, :] = spike_vec * 4.0 + needle_vec * 1.5
+    k_blk[:, :, 15, :] = needle_vec * 2.0
+
+    eval_results = {}
+    for bridge_aware in (False, True):
+        torch.manual_seed(42)
+        attn = SurgicalGemma4Attention(
+            cfg, layer_idx=5, num_heads_override=4, head_dim_override=64, num_kv_heads_override=2
+        )
+        attn.router.train()
+        optimizer = torch.optim.AdamW(attn.router.parameters(), lr=0.035, weight_decay=0.01)
+
+        num_cal_steps = 45
+        for step in range(num_cal_steps):
+            optimizer.zero_grad()
+            tau = max(0.2, 1.5 - 1.3 * (step / (num_cal_steps - 1)))
+            qk_desc = torch.cat([q_blk, k_blk], dim=-1)
+            blk_assign, lb_loss = attn.router(qk_desc, tau_override=tau)
+
+            loss = attn._compute_block_kl_lagrangian_loss(
+                q_blk, k_blk, blk_assign, block_assignments=blk_assign, bridge_aware=bridge_aware
+            )
+            (loss + 0.01 * lb_loss).backward()
+            optimizer.step()
+
+        attn.router.eval()
+        with torch.no_grad():
+            blk_assign, _ = attn.router(torch.cat([q_blk, k_blk], dim=-1), tau_override=0.2)
+            r = 5
+            powers = 2 ** torch.arange(r)
+            branch_ids = (blk_assign.argmax(dim=-1)[:, :, :, :r] * powers).sum(dim=-1)
+
+            q15_b = branch_ids[0, 0, 15].item()
+            spike3_b = branch_ids[0, 0, 3].item()
+            needle7_b = branch_ids[0, 0, 7].item()
+
+            routed_q15 = [j for j in range(NB) if branch_ids[0, 0, j].item() == q15_b]
+            is_sh = attn._cached_is_shielded
+            sh_q15 = [j for j in range(NB) if is_sh[0, 0, 15, j].item()] if is_sh is not None else [0, 3]
+            overlap = [j for j in routed_q15 if j in sh_q15]
+
+            eval_results[bridge_aware] = {
+                "needle_recalled": (q15_b == needle7_b),
+                "overlaps_spike": (q15_b == spike3_b),
+                "overlap_count": len(overlap),
+                "routed_count": len(routed_q15),
+                "budget_pct": len(routed_q15) / float(NB) * 100.0,
+            }
+
+    res_blind = eval_results[False]
+    res_aware = eval_results[True]
+
+    # Verification assertions:
+    # 1. Budget compliance at r >= 5
+    assert res_aware["budget_pct"] < 35.0, f"Expected budget < 35% at r=5, got {res_aware['budget_pct']:.1f}%"
+    assert res_blind["budget_pct"] < 35.0, f"Expected budget < 35% at r=5, got {res_blind['budget_pct']:.1f}%"
+
+    # 2. Unshielded needle recall: bridge-aware succeeds, bridge-blind starves
+    assert res_aware["needle_recalled"] is True, "Bridge-aware calibration must recall unshielded needle at r>=5"
+    assert res_blind["needle_recalled"] is False, "Bridge-blind calibration starves unshielded needle at r>=5"
+
+    # 3. Redundant overlap: bridge-aware eliminates redundant overlap with the Beltrami shield
+    assert res_aware["overlap_count"] < res_blind["overlap_count"], (
+        f"Expected bridge-aware overlap ({res_aware['overlap_count']}) < bridge-blind ({res_blind['overlap_count']})"
+    )
+    assert res_aware["overlaps_spike"] is False, "Bridge-aware tree must not waste branch on shielded spike"
+    assert res_blind["overlaps_spike"] is True, "Bridge-blind tree redundantly routes shielded spike"
+
+    # 4. Integration test: full 60-layer model warmup_gemma4_routers_kl with bridge_aware=True
+    model = _MockGemma4Model(_MockGemma4Config())
+    model = prepare_darksnail_gemma4_model(model, router_init_mode="haar_dct")
+    cal_ids = [torch.randint(0, 256, (1, 32), dtype=torch.long)]
+    warmup_stats = warmup_gemma4_routers_kl(
+        model,
+        calibration_input_ids=cal_ids,
+        steps=2,
+        lr=2e-3,
+        target_density=0.25,
+        bridge_aware=True,
+    )
+    assert warmup_stats["bridge_aware"] is True
+    assert warmup_stats["bridge_aware_mode"] == "residual"
+    assert warmup_stats["num_steps"] == 2
+    assert "final_mean_block_density" in warmup_stats
+
+
 if __name__ == "__main__":
     test_gemma4_31b_topology_constants()
     print("[PASS] test_gemma4_31b_topology_constants")
@@ -446,4 +572,6 @@ if __name__ == "__main__":
     print("[PASS] test_gemma4_beltrami_callosal_shell_layer29_and_4096_bridge")
     test_patch_60_layer_gemma4_model_and_audit_fixes()
     print("[PASS] test_patch_60_layer_gemma4_model_and_audit_fixes")
-    print("\nAll 5 Gemma 4 31B DarkSnail V2 + 10 Deep Audit verification suites passed!")
+    test_bridge_aware_router_calibration_r5()
+    print("[PASS] test_bridge_aware_router_calibration_r5")
+    print("\nAll 6 Gemma 4 31B DarkSnail V2 + R2 Bridge-Aware verification suites passed!")

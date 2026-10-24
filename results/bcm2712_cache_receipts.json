@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.0.0",
+  "verifier": "Broadcom BCM2712 Cortex-A76 Hardware Cache Verifier (scripts/verify_bcm2712_cache.py)",
+  "timestamp_utc": "2026-10-24T14:41:17Z",
+  "hardware_target": "Broadcom BCM2712 (Raspberry Pi 5)",
+  "cpu_core": "ARM Cortex-A76 (ARMv8.2-A)",
+  "bcm2712_cache_geometry": {
+    "hardware_target": "Broadcom BCM2712 (Raspberry Pi 5)",
+    "cpu_core": "ARM Cortex-A76 (ARMv8.2-A)",
+    "clock_mhz": 2400,
+    "line_size_bytes": 64,
+    "l1d": {
+      "size_bytes": 65536,
+      "size_kb": 64,
+      "ways": 4,
+      "sets": 256,
+      "line_size_bytes": 64,
+      "policy": "Pseudo-LRU / Tree-PLRU (4-way)"
+    },
+    "l2": {
+      "size_bytes": 524288,
+      "size_kb": 512,
+      "ways": 8,
+      "sets": 1024,
+      "line_size_bytes": 64,
+      "policy": "Pseudo-LRU (8-way private per core)"
+    },
+    "l3": {
+      "size_bytes": 4194304,
+      "size_mb": 4.0,
+      "ways": 16,
+      "sets": 4096,
+      "line_size_bytes": 64,
+      "policy": "Pseudo-LRU / True LRU (16-way shared LLd)"
+    }
+  },
+  "arenas": {
+    "stylo": {
+      "arena_struct": "TrackerStateArena",
+      "spoke": "stylo",
+      "description": "High-Speed Optical Tracking & 6-DOF GNC EKF Ring Arena",
+      "arena_size_bytes": 673792,
+      "arena_size_kb": 658.0,
+      "arena_alignment_bytes": 64,
+      "total_references": 50000000,
+      "simulation_wall_time_sec": 0.8674,
+      "throughput_refs_per_sec": 57642317.0,
+      "l1d": {
+        "hits": 42874083,
+        "misses": 7125917,
+        "hit_rate_pct": 85.75
+      },
+      "l2": {
+        "hits": 6236553,
+        "misses": 889364,
+        "hit_rate_pct": 87.52
+      },
+      "l3": {
+        "hits": 878836,
+        "misses": 10528,
+        "hit_rate_pct": 98.82
+      },
+      "lld_miss_rate_pct": 0.02106,
+      "target_lld_miss_rate_pct": 0.1,
+      "target_achieved": true,
+      "allocator_static_audit": {
+        "audited": true,
+        "target_binary": "../stylo/rust/darksnail_tracker_rs/target/release/darksnail_tracker_rs.dll",
+        "heap_allocators_imported": [],
+        "stepping_symbols_verified": [
+          "tracker_step_frame",
+          "innovation_spike_gate_step_f32",
+          "skew_symmetric_triad_cascade_step_f32"
+        ],
+        "dynamic_allocations_detected": 0,
+        "status": "ZERO_DYNAMIC_ALLOCATIONS_VERIFIED"
+      }
+    },
+    "toposnail": {
+      "arena_struct": "TopoStateArena",
+      "spoke": "toposnail",
+      "description": "3D Anisotropic TTI Thermo-Elastic Bionic Optimization Arena",
+      "arena_size_bytes": 1472448,
+      "arena_size_kb": 1437.94,
+      "arena_alignment_bytes": 64,
+      "total_references": 50000000,
+      "simulation_wall_time_sec": 1.1871,
+      "throughput_refs_per_sec": 42119114.7,
+      "l1d": {
+        "hits": 34008742,
+        "misses": 15991258,
+        "hit_rate_pct": 68.02
+      },
+      "l2": {
+        "hits": 5212627,
+        "misses": 10778631,
+        "hit_rate_pct": 32.6
+      },
+      "l3": {
+        "hits": 10755624,
+        "misses": 23007,
+        "hit_rate_pct": 99.79
+      },
+      "lld_miss_rate_pct": 0.04601,
+      "target_lld_miss_rate_pct": 0.1,
+      "target_achieved": true,
+      "allocator_static_audit": {
+        "audited": true,
+        "target_binary": "../toposnail/rust/toposnail_rs/target/release/toposnail_rs.dll",
+        "heap_allocators_imported": [],
+        "stepping_symbols_verified": [
+          "toposnail_step_iter",
+          "ebe_anisotropic_strain_and_so6_rotor_f32",
+          "measure_preserving_donor_prune_and_triad_f32"
+        ],
+        "dynamic_allocations_detected": 0,
+        "status": "ZERO_DYNAMIC_ALLOCATIONS_VERIFIED"
+      }
+    },
+    "robosnail": {
+      "arena_struct": "RoboSnailArena",
+      "spoke": "robosnail",
+      "description": "Embodied Robotics Sheaf & Beltrami Glare Filter Arena",
+      "arena_size_bytes": 731456,
+      "arena_size_kb": 714.31,
+      "arena_alignment_bytes": 64,
+      "total_references": 50000000,
+      "simulation_wall_time_sec": 0.7547,
+      "throughput_refs_per_sec": 66250909.4,
+      "l1d": {
+        "hits": 46962272,
+        "misses": 3037728,
+        "hit_rate_pct": 93.92
+      },
+      "l2": {
+        "hits": 2240355,
+        "misses": 797373,
+        "hit_rate_pct": 73.75
+      },
+      "l3": {
+        "hits": 785944,
+        "misses": 11429,
+        "hit_rate_pct": 98.57
+      },
+      "lld_miss_rate_pct": 0.02286,
+      "target_lld_miss_rate_pct": 0.1,
+      "target_achieved": true,
+      "allocator_static_audit": {
+        "audited": true,
+        "target_binary": "../robosnail/target/release/robosnail_rs.dll",
+        "heap_allocators_imported": [],
+        "stepping_symbols_verified": [
+          "robosnail_process_cable_glare",
+          "robosnail_cayley_rotor_step",
+          "robosnail_solve_contact_sheaf"
+        ],
+        "dynamic_allocations_detected": 0,
+        "status": "ZERO_DYNAMIC_ALLOCATIONS_VERIFIED"
+      }
+    },
+    "lob-triad": {
+      "arena_struct": "LOBStateArena",
+      "spoke": "lob-triad",
+      "description": "Zero-Weight Level-3 Limit Order Book Microstructure Arena",
+      "arena_size_bytes": 254720,
+      "arena_size_kb": 248.75,
+      "arena_alignment_bytes": 64,
+      "total_references": 50000000,
+      "simulation_wall_time_sec": 1.0545,
+      "throughput_refs_per_sec": 47416357.6,
+      "l1d": {
+        "hits": 45875827,
+        "misses": 4124173,
+        "hit_rate_pct": 91.75
+      },
+      "l2": {
+        "hits": 4120193,
+        "misses": 3980,
+        "hit_rate_pct": 99.9
+      },
+      "l3": {
+        "hits": 0,
+        "misses": 3980,
+        "hit_rate_pct": 0.0
+      },
+      "lld_miss_rate_pct": 0.00796,
+      "target_lld_miss_rate_pct": 0.1,
+      "target_achieved": true,
+      "allocator_static_audit": {
+        "audited": true,
+        "target_binary": "../lob-triad/target/release/lob_triad_rs.dll",
+        "heap_allocators_imported": [],
+        "stepping_symbols_verified": [
+          "lob_arena_process_tick",
+          "lob_arena_step_morse_gate",
+          "lob_arena_evaluate_triad"
+        ],
+        "dynamic_allocations_detected": 0,
+        "status": "ZERO_DYNAMIC_ALLOCATIONS_VERIFIED"
+      }
+    },
+    "quakesnail": {
+      "arena_struct": "QuakeSnailArena",
+      "spoke": "quakesnail",
+      "description": "Real-Time 3D Seismic EEW & Phase-Association Arena",
+      "arena_size_bytes": 1745552,
+      "arena_size_kb": 1704.64,
+      "arena_alignment_bytes": 64,
+      "total_references": 50000000,
+      "simulation_wall_time_sec": 1.1753,
+      "throughput_refs_per_sec": 42543723.3,
+      "l1d": {
+        "hits": 33590803,
+        "misses": 16409197,
+        "hit_rate_pct": 67.18
+      },
+      "l2": {
+        "hits": 11506796,
+        "misses": 4902401,
+        "hit_rate_pct": 70.12
+      },
+      "l3": {
+        "hits": 4875126,
+        "misses": 27275,
+        "hit_rate_pct": 99.44
+      },
+      "lld_miss_rate_pct": 0.05455,
+      "target_lld_miss_rate_pct": 0.1,
+      "target_achieved": true,
+      "allocator_static_audit": {
+        "audited": true,
+        "target_binary": "../quakesnail/rust/quakesnail_rs/target/release/quakesnail_rs.dll",
+        "heap_allocators_imported": [],
+        "stepping_symbols_verified": [
+          "quakesnail_process_station_waveform",
+          "quakesnail_associate_phases",
+          "quakesnail_invert_hypocenter"
+        ],
+        "dynamic_allocations_detected": 0,
+        "status": "ZERO_DYNAMIC_ALLOCATIONS_VERIFIED"
+      }
+    }
+  },
+  "summary": {
+    "total_arenas_verified": 5,
+    "total_references_simulated": 250000000,
+    "mean_lld_miss_rate_pct": 0.03049,
+    "max_lld_miss_rate_pct": 0.05455,
+    "target_threshold_pct": 0.1,
+    "all_cache_targets_passed": true,
+    "all_allocator_audits_passed": true,
+    "overall_verification_status": "PASS"
+  }
+}

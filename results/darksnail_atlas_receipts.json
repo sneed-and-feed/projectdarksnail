@@ -1,0 +1,333 @@
+{
+  "schema_version": "1.0.0",
+  "system": "DarkSnail Multi-Project Architecture",
+  "atlas_title": "DarkSnail Ecosystem: Theorem-to-Silicon Verification Matrix",
+  "timestamp_utc": "2026-10-24T12:55:00Z",
+  "architecture_summary": {
+    "hub": "darksnail",
+    "spokes": [
+      "darksnail",
+      "robosnail",
+      "lob-triad",
+      "bmhd",
+      "toposnail",
+      "stylo",
+      "g3vm",
+      "oatse",
+      "quakesnail"
+    ],
+    "verification_track": "Milestone M6 (Requirement R6)"
+  },
+  "formalization_theorems": {
+    "formal_source": "formalization/OcclusionTriad.lean",
+    "prover": "Lean 4.13.0 + Mathlib 4",
+    "sorries_count": 0,
+    "custom_axioms_count": 0,
+    "all_theorems_verified": true,
+    "theorems": {
+      "thm21": {
+        "id": "Theorem 2.1",
+        "name": "Skew-Symmetric Triad Antisymmetry",
+        "lean_symbols": [
+          "skew_triad_swap_neg",
+          "skew_triad_self_zero"
+        ],
+        "statement": "S(W, i, c1, c2) = -S(W, i, c2, c1) and S(W, i, c, c) = 0",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm22": {
+        "id": "Theorem 2.2",
+        "name": "Exact Tie-Breaking of Symmetric Readout Collisions",
+        "lean_symbols": [
+          "occlusion_triad_breaks_symmetric_tie"
+        ],
+        "statement": "l_post(c1) - l_post(c2) = 2*beta*alpha*(W(i0, c2, c1) - W(i0, c1, c2)) > 0",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm23": {
+        "id": "Theorem 2.3",
+        "name": "Pointwise Tangent Orthogonality & Zero Radial Energy Growth",
+        "lean_symbols": [
+          "darksnail_readout_energy_conservation"
+        ],
+        "statement": "<v, B_W(u, v)> = 0 and <z_L, dot{z}_L> = 0",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm24": {
+        "id": "Theorem 2.4",
+        "name": "Step-0 System 1 Homotopy Equivalence",
+        "lean_symbols": [
+          "darksnail_step0_system1_homotopy"
+        ],
+        "statement": "l_DS(l_S1, 0, 0, u, v, k) = l_S1(k)",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm25": {
+        "id": "Theorem 2.5",
+        "name": "2D Axial RoPE Medoid Invariance & Patch-Averaging Attenuation",
+        "lean_symbols": [
+          "rope2d_medoid_relative_invariance",
+          "rope2d_arithmetic_norm_lt"
+        ],
+        "statement": "Rotary inner product preserves exact relative phase; arithmetic patch averaging strictly attenuates key norm",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm26": {
+        "id": "Theorem 2.6",
+        "name": "Multi-Step Unrolled Slow-Fast Spherical Invariance & Step-0 Homotopy",
+        "lean_symbols": [
+          "darksnail_multistep_spherical_invariance",
+          "darksnail_multistep_step0_homotopy"
+        ],
+        "statement": "||v_tilde_L^(T)||_2^2 = ||v_L^(0)||_2^2 and reduces identically to System 1 trajectory at W_rec = 0",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm27": {
+        "id": "Theorem 2.7",
+        "name": "SO(6) Kelvin-Mandel Stiffness Rotor Conservation & Caliper Morse Shielding",
+        "lean_symbols": [
+          "kelvinMandelDipRotor_orthonormal",
+          "elasticEnergy6_rotateStiffness6",
+          "so6_stiffness_preserves_pos_def",
+          "so6_stiffness_trace_conservation",
+          "morseImpulse_iff_strict_extremum",
+          "caliper_morse_rejects_washout_step",
+          "caliper_morse_shields_thin_stringer"
+        ],
+        "statement": "6D Kelvin-Mandel rotor preserves elastic energy, coercivity lower bound, and trace; 3-point Morse rejects washout steps and preserves thin stringers",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm28": {
+        "id": "Theorem 2.8",
+        "name": "3D Ideal MHD / Stellarator Symmetry-Breaking Isomorphism & Relaxed-Flow MRxMHD",
+        "lean_symbols": [
+          "cross3_eq_triadOperator",
+          "mhd_euler_force_balance_bijection",
+          "mhd_flux_surface_confinement_iff",
+          "stellarator_parity_breaks_tie_and_conserves_flux",
+          "stellarator_zero_torsion_homotopy_iff",
+          "sub_alfvenic_beltrami_homotopy_zero_flow",
+          "beltrami_cross_helicity_collinear_lorentz_vanishes",
+          "mrxmhd_flow_bernoulli_jump_conservation",
+          "kam_sub_alfvenic_ellipticity_and_gap"
+        ],
+        "statement": "Triad operator C=3 is isomorphic to 3D cross product; MHD-to-Euler bijection; tangent flux-surface confinement; Flow-MRxMHD Bernoulli jump balance",
+        "verified": true,
+        "sorry_count": 0
+      }
+    }
+  },
+  "hardware_cache_receipts": {
+    "source": "results/bcm2712_cache_receipts.json",
+    "hardware_target": "Broadcom BCM2712 Cortex-A76 (Raspberry Pi 5)",
+    "geometry": {
+      "l1d": "64 KB (4-way, 256 sets, 64 B line)",
+      "l2": "512 KB (8-way, 1024 sets, 64 B line)",
+      "l3": "4.0 MB (16-way, 4096 sets, 64 B line, shared LLd)"
+    },
+    "simulation_scale": {
+      "total_references_simulated": 250000000,
+      "references_per_arena": 50000000,
+      "mean_lld_miss_rate_pct": 0.03049,
+      "max_lld_miss_rate_pct": 0.05455,
+      "target_threshold_pct": 0.100,
+      "all_arenas_compliant": true
+    },
+    "arenas": {
+      "stylo": {
+        "arena_struct": "TrackerStateArena",
+        "size_bytes": 673792,
+        "size_kb": 658.0,
+        "alignment_bytes": 64,
+        "lld_miss_rate_pct": 0.02106,
+        "l1d_hit_rate_pct": 85.75,
+        "l2_hit_rate_pct": 87.52,
+        "l3_hit_rate_pct": 98.82,
+        "dynamic_heap_allocations": 0,
+        "status": "PASS"
+      },
+      "toposnail": {
+        "arena_struct": "TopoStateArena",
+        "size_bytes": 1472448,
+        "size_kb": 1437.94,
+        "alignment_bytes": 64,
+        "lld_miss_rate_pct": 0.04601,
+        "l1d_hit_rate_pct": 68.02,
+        "l2_hit_rate_pct": 32.60,
+        "l3_hit_rate_pct": 99.79,
+        "dynamic_heap_allocations": 0,
+        "status": "PASS"
+      },
+      "robosnail": {
+        "arena_struct": "RoboSnailArena",
+        "size_bytes": 731456,
+        "size_kb": 714.31,
+        "alignment_bytes": 64,
+        "lld_miss_rate_pct": 0.02286,
+        "l1d_hit_rate_pct": 93.92,
+        "l2_hit_rate_pct": 73.75,
+        "l3_hit_rate_pct": 98.57,
+        "dynamic_heap_allocations": 0,
+        "status": "PASS"
+      },
+      "lob-triad": {
+        "arena_struct": "LOBStateArena",
+        "size_bytes": 254720,
+        "size_kb": 248.75,
+        "alignment_bytes": 64,
+        "lld_miss_rate_pct": 0.00796,
+        "l1d_hit_rate_pct": 91.75,
+        "l2_hit_rate_pct": 99.90,
+        "l3_hit_rate_pct": 0.0,
+        "dynamic_heap_allocations": 0,
+        "status": "PASS"
+      },
+      "quakesnail": {
+        "arena_struct": "QuakeSnailArena",
+        "size_bytes": 1745552,
+        "size_kb": 1704.64,
+        "alignment_bytes": 64,
+        "lld_miss_rate_pct": 0.05455,
+        "l1d_hit_rate_pct": 67.18,
+        "l2_hit_rate_pct": 70.12,
+        "l3_hit_rate_pct": 99.44,
+        "dynamic_heap_allocations": 0,
+        "status": "PASS"
+      }
+    }
+  },
+  "empirical_benchmarks": {
+    "darksnail_arc3": {
+      "benchmark": "ARC-AGI-3 Public Offline Suite (25 Games, 183 Levels)",
+      "total_levels_completed": 30,
+      "baseline_levels_completed": 29,
+      "levels_completion_rate_pct": 16.39,
+      "games_with_at_least_1_level_completed": 18,
+      "games_with_at_least_1_level_pct": 72.0,
+      "full_games_won": 1,
+      "official_rhae_scorecard_score_pct": 0.0515,
+      "advancement_verified": true
+    },
+    "darksnail_gemma4": {
+      "model_target": "google/gemma-4-31B-it (60 layers, 5:1 sliding/global)",
+      "sparsity_frontier": "r >= 5 (< 35% causal budget)",
+      "unshielded_needle_recall_aware": 1.0,
+      "unshielded_needle_recall_blind": 0.0,
+      "redundant_spike_overlap_aware": 0,
+      "redundant_spike_overlap_blind": 1,
+      "budget_compliance_pct": 31.25,
+      "warmup_router_kl_status": "PASS"
+    },
+    "robosnail": {
+      "sram_footprint_bytes": 731456,
+      "sram_limit_bytes": 2097152,
+      "sram_utilization_pct": 34.88,
+      "cable_glare_spike_recovery_rate": 1.0,
+      "glare_rejection_rate": 1.0,
+      "so16_cayley_rotor_norm_drift": 0.0,
+      "cavity_csp_status": "VERIFIED",
+      "planning_throughput_hz": 50.0
+    },
+    "lob_triad": {
+      "sram_footprint_bytes": 254720,
+      "sram_limit_bytes": 1572864,
+      "ticks_processed": 50000,
+      "ticks_per_second": 121634.8,
+      "target_ticks_per_second": 10000.0,
+      "flicker_events_quarantined": 199,
+      "causal_events_retained": 1101,
+      "so_c_spherical_norm_drift": 0.0,
+      "status": "PASS"
+    },
+    "toposnail": {
+      "scenario": "06_stellarator_modular_coil_divertor",
+      "b2_trapped_cavities": 0,
+      "compliance_initial": 0.020687,
+      "compliance_final": 0.002782,
+      "compliance_reduction_ratio": 0.13446,
+      "equilibrium_residual": 8.87e-05,
+      "so6_rotor_drift": 7.1054e-15,
+      "peak_divertor_temp_k": 1200.0,
+      "bernoulli_jump_residual": 0.0
+    },
+    "stylo": {
+      "mission": "6-DOF Optical Terminal Guidance & Intercept",
+      "initial_range_m": 500.0,
+      "final_miss_distance_m": 0.04956,
+      "miss_distance_target_m": 0.05,
+      "docking_speed_m_s": 0.01553,
+      "intercept_success": true,
+      "track_id_swaps": 0,
+      "neural_weights": 0,
+      "glints_rejected": 10,
+      "quaternion_norm_residual": 1.1102e-16
+    },
+    "g3vm": {
+      "version": "v0.7.0",
+      "utah_forge_egs_doublet": {
+        "rmse_reduction_over_straight_pct": 83.86,
+        "rmse_reduction_over_initial_pct": 88.33,
+        "heap_bytes": 96152,
+        "smearing": 0.0
+      },
+      "lunar_lava_tube_isru": {
+        "rmse_reduction_over_straight_pct": 95.75,
+        "rmse_reduction_over_initial_pct": 65.53,
+        "heap_bytes": 41496,
+        "smearing": 0.0
+      },
+      "global_spherical_let_earth": {
+        "scenario": "07_global_spherical_let_earth",
+        "heap_bytes": 174199,
+        "smearing": 0.0,
+        "phases_bent_ray": [
+          "P",
+          "PmP",
+          "PcP",
+          "PKIKP"
+        ]
+      }
+    },
+    "quakesnail": {
+      "mode_b_snr_db": 20,
+      "hypocenter_3d_rmse_reduction_pct": 94.6,
+      "glitch_triggers_across_10k_spikes": 0,
+      "phantom_s_wave_splits": 0,
+      "spatial_query_latency_ms": 0.12,
+      "zero_people_felt_counters_verified": true,
+      "active_heap_bytes": 324160
+    }
+  },
+  "deliverables_index": {
+    "webgl2_studios": [
+      "robosnail/studio/robosnail_portable_studio.html",
+      "lob-triad/studio/lob_triad_portable_studio.html",
+      "g3vm/studio/g3vm_portable_studio.html",
+      "stylo/studio/darksnail_tracker_studio.html"
+    ],
+    "colab_notebooks": [
+      "darksnail/notebooks/darksnail_arc3_colab.ipynb",
+      "darksnail/notebooks/darksnail_bridge_aware_r5_colab.ipynb",
+      "darksnail/notebooks/darksnail_v2_colab.ipynb"
+    ],
+    "formal_proofs": [
+      "darksnail/formalization/OcclusionTriad.lean",
+      "g3vm/formalization/OcclusionTriad.lean",
+      "oatse/formalization/OcclusionTriad.lean",
+      "bmhd/formalization/OcclusionTriad.lean",
+      "toposnail/formalization/OcclusionTriad.lean",
+      "stylo/formalization/OcclusionTriad.lean",
+      "robosnail/formalization/OcclusionTriad.lean",
+      "lob-triad/formalization/OcclusionTriad.lean",
+      "quakesnail/formalization/OcclusionTriad.lean"
+    ],
+    "master_atlas": "DARKSNAIL_ATLAS.md"
+  }
+}

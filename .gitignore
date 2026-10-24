@@ -8,6 +8,7 @@ build/
 .venv/
 
 # Evaluation run artifacts
+*.log
 results/shards/
 results/eval_shard_*.log
 data/

@@ -869,9 +869,10 @@ def _get_topology_module() -> Any:
 
 # Pre-register lightweight `llama_surgery.topology` on import so downstream imports avoid Trainer stall
 try:
-    _get_topology_module()
+    _top_mod = _get_topology_module()
+    TriadTopologyRouter = getattr(_top_mod, "TriadTopologyRouter", getattr(_top_mod, "DynamicTopologyRouter", None))
 except Exception:
-    pass
+    TriadTopologyRouter = None
 
 
 def _init_router_haar_dct_spectral_hash(router: nn.Module, seed: int = 0) -> None:
@@ -1132,9 +1133,12 @@ class SurgicalGemma4Attention(nn.Module):
         self._cached_k_blk: Optional[torch.Tensor] = None
         self._darksnail_shield_tokens: Optional[torch.Tensor] = None
         self._darksnail_token_salience: Optional[torch.Tensor] = None
+        self._darksnail_block_salience: Optional[torch.Tensor] = None
+        self._cached_is_shielded: Optional[torch.Tensor] = None
         self.last_mean_allowed_keys: Optional[float] = None
         self.last_mean_causal_keys: Optional[float] = None
         self.last_block_density: Optional[float] = None
+        self.last_redundant_overlap: Optional[float] = None
         self.current_penalty: Optional[torch.Tensor] = None
         self.current_distill_loss: Optional[torch.Tensor] = None
 
@@ -1287,10 +1291,16 @@ class SurgicalGemma4Attention(nn.Module):
         k: torch.Tensor,
         assignments: torch.Tensor,
         block_assignments: Optional[torch.Tensor] = None,
+        bridge_aware: bool = True,
+        bridge_aware_mode: str = "residual",
     ) -> torch.Tensor:
         """
         Computes `O(NB^2 * D)` block-level KL divergence between teacher QK scores (`scale = 1.0`)
         and differentiable ultrametric cophenetic distances + Dual Lagrangian density penalty.
+
+        When `bridge_aware=True` (default), isolates the unshielded target context or models the joint
+        tree-plus-bridge student distribution, preventing the Bruhat-Tits prefix tree from wasting branch
+        capacity on tokens/blocks already rescued by the Beltrami outlier spike shield at r >= 5 (< 35% budget).
         """
         if block_assignments is not None and q.shape[2] == block_assignments.shape[2]:
             q_blk = q
@@ -1318,20 +1328,127 @@ class SurgicalGemma4Attention(nn.Module):
         idx_b = torch.arange(NB, device=q.device)
         causal_blk = idx_b.unsqueeze(1) >= idx_b.unsqueeze(0)
         causal_mask_4d = causal_blk.unsqueeze(0).unsqueeze(0)
+        off_diag_mask = (idx_b.unsqueeze(1) > idx_b.unsqueeze(0)).unsqueeze(0).unsqueeze(0).clone()
+        if NB > 0:
+            off_diag_mask[:, :, 0, 0] = True
 
         with torch.no_grad():
             teacher_scores = torch.matmul(q_blk.float(), k_blk.float().transpose(-2, -1)) * self.scale
-            teacher_scores = teacher_scores.masked_fill(~causal_mask_4d, float("-inf"))
-            teacher_probs = F.softmax(teacher_scores, dim=-1).nan_to_num(0.0)
+            teacher_scores_off = teacher_scores.masked_fill(~off_diag_mask, float("-inf"))
+            teacher_probs = F.softmax(teacher_scores_off, dim=-1).nan_to_num(0.0)
+            row_peak = teacher_scores.masked_fill(~off_diag_mask, 0.0).abs().amax(dim=-1, keepdim=True)
+            row_weight = (row_peak / (row_peak.mean(dim=-2, keepdim=True) + 1e-6)).clamp(0.05, 8.0)
 
-        expected_block_dist = self._compute_expected_block_distance(block_assignments.float(), p=self.p)
-        student_logits = (max_dist - expected_block_dist) / tau
-        student_logits_masked = student_logits.masked_fill(~causal_mask_4d, float("-inf"))
-        student_log_probs = F.log_softmax(student_logits_masked, dim=-1).masked_fill(~causal_mask_4d, 0.0)
+        M_agree = torch.einsum("bhilp,bhjlp->bhijl", block_assignments.float(), block_assignments.float())
+        level_agree = M_agree[:, :, :, :, :eff_req_depth].mean(dim=-1)
+        expected_block_dist = 0.5 * self._compute_expected_block_distance(
+            block_assignments.float(), p=self.p
+        ) + 0.5 * float(levels) * (1.0 - level_agree)
+        eff_tau = min(tau, 0.25)
+        student_logits = (max_dist - expected_block_dist) / eff_tau
+        student_logits_masked = student_logits.masked_fill(~off_diag_mask, float("-inf"))
+        student_log_probs = F.log_softmax(student_logits_masked, dim=-1).masked_fill(~off_diag_mask, 0.0)
 
-        kl_loss = F.kl_div(student_log_probs, teacher_probs, reduction="batchmean") / max(
-            1, block_assignments.shape[1] * NB
-        )
+        # Bridge-Aware Outlier Shield Determination (matching _update_darksnail_shield & _apply_darksnail_block_bridge)
+        if hasattr(self.config, "surgical_darksnail_bridge_aware") and bridge_aware is True:
+            bridge_active = bool(getattr(self.config, "surgical_darksnail_bridge_aware", bridge_aware))
+        else:
+            bridge_active = bool(bridge_aware)
+        is_shielded = torch.zeros((q_blk.shape[0], q_blk.shape[1], NB, NB), dtype=torch.bool, device=q.device)
+        overlap_penalty = torch.zeros((), device=q.device, dtype=q_blk.dtype)
+
+        if bridge_active and NB > 1:
+            B, H = q_blk.shape[0], q_blk.shape[1]
+            local_window = int(getattr(self.config, "surgical_local_window", 16))
+            RB = max(1, int(getattr(self.config, "surgical_route_block", 128)))
+            local_blocks = max(1, -(-local_window // RB)) if local_window > 0 else 1
+            bridge_k = int(getattr(self.config, "surgical_darksnail_bridge_blocks", 4))
+            eff_bridge_k = min(bridge_k, max(1, NB // 12)) if NB < 32 else bridge_k
+            w_q_blk = max(1, min(4, NB // 4 if NB >= 8 else NB))
+            tail_start = max(0, NB - w_q_blk)
+
+            with torch.no_grad():
+                if hasattr(self, "splitter") and self.splitter is not None and k_blk.shape[-1] == self.head_dim:
+                    _, k_nope = self.splitter.split(k_blk)
+                else:
+                    k_nope = k_blk
+
+                dk = torch.zeros((B, H, NB), dtype=torch.float32, device=k_blk.device)
+                if NB > 1:
+                    dk[:, :, 1:] = torch.linalg.vector_norm(
+                        k_nope[:, :, 1:, :] - k_nope[:, :, :-1, :], ord=2, dim=-1, dtype=torch.float32
+                    )
+                flux_norm = dk / (dk.mean(dim=-1, keepdim=True) + 1e-6)
+                ksize_flux = 1 if NB < 32 else min(9, NB if NB % 2 == 1 else max(1, NB - 1))
+                pad_flux = (ksize_flux - 1) // 2
+                flux_shield = F.max_pool1d(
+                    flux_norm.reshape(B * H, 1, NB), kernel_size=ksize_flux, stride=1, padding=pad_flux
+                ).reshape(B, H, NB)
+                flux_z = (flux_shield - flux_shield.mean(dim=-1, keepdim=True)) / (
+                    flux_shield.std(dim=-1, keepdim=True, correction=0) + 1e-6
+                )
+
+                q_tail = q_blk[:, :, tail_start:, :]
+                res_scores = (torch.matmul(q_tail.float(), k_blk.float().transpose(-2, -1)) * self.scale).to(torch.float32)
+                res_max = res_scores.max(dim=-2).values
+                ksize_res = 1 if NB < 32 else min(13, NB if NB % 2 == 1 else max(1, NB - 1))
+                pad_res = (ksize_res - 1) // 2
+                res_shield = F.max_pool1d(
+                    res_max.reshape(B * H, 1, NB), kernel_size=ksize_res, stride=1, padding=pad_res
+                ).reshape(B, H, NB)
+                res_z = (res_shield - res_shield.mean(dim=-1, keepdim=True)) / (
+                    res_shield.std(dim=-1, keepdim=True, correction=0) + 1e-6
+                )
+
+                salience = torch.maximum(res_z, 0.85 * flux_z) + 0.35 * (res_z + flux_z)
+                self._darksnail_block_salience = salience
+
+                # Block 0 sink is unconditionally preserved for all queries
+                is_shielded[:, :, :, 0] = True
+
+                for i_blk in range(NB):
+                    int_end = i_blk - local_blocks
+                    if int_end > 1:
+                        k_cand = min(eff_bridge_k, int_end - 1)
+                        sal_slice = salience[:, :, 1:int_end]
+                        _, top_sub = sal_slice.topk(k_cand, dim=-1)
+                        top_j = top_sub + 1
+                        is_shielded[:, :, i_blk, :].scatter_(-1, top_j, True)
+
+            self._cached_is_shielded = is_shielded
+        else:
+            self._cached_is_shielded = None
+
+        if not bridge_active:
+            per_elem_kl = F.kl_div(student_log_probs, teacher_probs, reduction="none") * row_weight
+            kl_loss = per_elem_kl.sum() / max(1, block_assignments.shape[0] * block_assignments.shape[1] * NB)
+        elif bridge_aware_mode == "joint":
+            shield_f = (is_shielded & off_diag_mask).float()
+            gamma = (teacher_probs * shield_f).sum(dim=-1, keepdim=True).clamp(0.0, 0.95)
+            bridge_probs = (teacher_probs * shield_f) / (gamma + 1e-8)
+
+            student_probs = F.softmax(student_logits_masked, dim=-1).nan_to_num(0.0)
+            joint_student_probs = (1.0 - gamma) * student_probs + gamma * bridge_probs
+            joint_student_log_probs = torch.log(joint_student_probs.clamp(min=1e-12)).masked_fill(~off_diag_mask, 0.0)
+            per_elem_kl = F.kl_div(joint_student_log_probs, teacher_probs, reduction="none") * row_weight
+            kl_loss = per_elem_kl.sum() / max(1, block_assignments.shape[0] * block_assignments.shape[1] * NB)
+            overlap_penalty = (level_agree * shield_f * row_weight).sum(dim=-1).mean()
+        else:  # residual (default)
+            unshielded_mask = off_diag_mask & (~is_shielded)
+            if NB > 0:
+                unshielded_mask[:, :, 0, 0] = True
+            if NB > 1:
+                unshielded_mask[:, :, 1, 0] = True
+            teacher_scores_res = teacher_scores.masked_fill(~unshielded_mask, float("-inf"))
+            teacher_probs_res = F.softmax(teacher_scores_res, dim=-1).nan_to_num(0.0)
+
+            student_logits_res = student_logits.masked_fill(~unshielded_mask, float("-inf"))
+            student_log_probs_res = F.log_softmax(student_logits_res, dim=-1).masked_fill(~unshielded_mask, 0.0)
+            per_elem_kl = F.kl_div(student_log_probs_res, teacher_probs_res, reduction="none") * row_weight
+            kl_loss = per_elem_kl.sum() / max(1, block_assignments.shape[0] * block_assignments.shape[1] * NB)
+
+            shield_f = (is_shielded & off_diag_mask).float()
+            overlap_penalty = (level_agree * shield_f * row_weight).sum(dim=-1).mean()
 
         soft_block_mask = torch.sigmoid((max_dist - expected_block_dist) / 0.5)
         causal_f = causal_mask_4d.float()
@@ -1342,11 +1459,14 @@ class SurgicalGemma4Attention(nn.Module):
 
         if self.training or self.router.training:
             with torch.no_grad():
-                lambda_lr = float(getattr(self.config, "surgical_lambda_lr", 0.05))
-                self.density_lambda.add_(lambda_lr * (measured_density.detach() - target_density)).clamp_(0.0, 100.0)
+                lambda_lr = float(getattr(self.config, "surgical_lambda_lr", 0.0))
+                if lambda_lr > 0.0:
+                    self.density_lambda.add_(lambda_lr * (measured_density.detach() - target_density)).clamp_(0.0, 100.0)
 
         self.last_block_density = float(measured_density.detach().item())
-        return kl_loss + lagrangian_penalty
+        self.last_redundant_overlap = float(overlap_penalty.detach().item()) if bridge_active else 0.0
+        overlap_weight = float(getattr(self.config, "surgical_bridge_overlap_weight", 2.5))
+        return kl_loss + lagrangian_penalty + (overlap_weight * overlap_penalty if bridge_active else 0.0)
 
     def _update_darksnail_shield(
         self, q: torch.Tensor, k: torch.Tensor, k_kv: Optional[torch.Tensor] = None
@@ -2433,6 +2553,8 @@ def warmup_gemma4_routers_kl(
     target_density: float = 0.25,
     max_seq_len: int = 2048,
     save_sidecar_path: Optional[Union[str, Path]] = None,
+    bridge_aware: bool = True,
+    bridge_aware_mode: str = "residual",
 ) -> Dict[str, Any]:
     """
     Self-supervised Block-KL + Dual Lagrangian warmup for the 10 Global `DynamicTopologyRouter`
@@ -2440,6 +2562,10 @@ def warmup_gemma4_routers_kl(
 
     Supports both pre-tokenized `calibration_input_ids` (Colab Cell 7 contract) and raw
     `calibration_texts` + `tokenizer`, as well as both `steps` and `num_steps` kwargs.
+
+    When `bridge_aware=True` (default), runs bridge-aware directly under the Query-Tail Beltrami
+    Outlier Shield and Callosal Block Bridge, preventing the Bruhat-Tits tree from wasting capacity
+    on outlier spike blocks at deep sparsity r >= 5 (< 35% budget).
     """
     total_steps = int(steps if steps is not None else num_steps)
     layers = discover_gemma4_decoder_layers(model)
@@ -2458,6 +2584,8 @@ def warmup_gemma4_routers_kl(
             getattr(cfg, "surgical_route_stride", 2),
             getattr(cfg, "surgical_target_density", 0.25),
             getattr(cfg, "surgical_attention_backend", "eager"),
+            getattr(cfg, "surgical_darksnail_bridge_aware", True),
+            getattr(cfg, "surgical_darksnail_mode", False),
         )
         for cfg in configs
     ]
@@ -2466,6 +2594,8 @@ def warmup_gemma4_routers_kl(
         cfg.surgical_route_stride = 1
         cfg.surgical_target_density = float(target_density)
         cfg.surgical_attention_backend = "eager"
+        cfg.surgical_darksnail_bridge_aware = bool(bridge_aware)
+        cfg.surgical_darksnail_mode = bool(bridge_aware)
     for attn in global_attns:
         attn.target_density = float(target_density)
         attn.config.surgical_target_density = float(target_density)
@@ -2529,7 +2659,14 @@ def warmup_gemma4_routers_kl(
             for attn, (q_b, k_b) in zip(global_attns, sample_qk):
                 qk_desc = torch.cat([q_b, k_b], dim=-1)
                 blk_assign, lb_loss = attn.router(qk_desc, tau_override=tau)
-                kl_loss = attn._compute_block_kl_lagrangian_loss(q_b, k_b, blk_assign, block_assignments=blk_assign)
+                kl_loss = attn._compute_block_kl_lagrangian_loss(
+                    q_b,
+                    k_b,
+                    blk_assign,
+                    block_assignments=blk_assign,
+                    bridge_aware=bridge_aware,
+                    bridge_aware_mode=bridge_aware_mode,
+                )
                 step_loss = step_loss + kl_loss + 0.01 * lb_loss
         else:
             ids = cal_batches[step % len(cal_batches)]
@@ -2544,7 +2681,14 @@ def warmup_gemma4_routers_kl(
                     k_b = attn._cached_k_blk.detach()
                     qk_desc = torch.cat([q_b, k_b], dim=-1)
                     blk_assign, lb_loss = attn.router(qk_desc, tau_override=tau)
-                    kl_loss = attn._compute_block_kl_lagrangian_loss(q_b, k_b, blk_assign, block_assignments=blk_assign)
+                    kl_loss = attn._compute_block_kl_lagrangian_loss(
+                        q_b,
+                        k_b,
+                        blk_assign,
+                        block_assignments=blk_assign,
+                        bridge_aware=bridge_aware,
+                        bridge_aware_mode=bridge_aware_mode,
+                    )
                     step_loss = step_loss + kl_loss + 0.01 * lb_loss
 
         if step_loss.requires_grad:
@@ -2560,11 +2704,13 @@ def warmup_gemma4_routers_kl(
         for p in attn.router.parameters():
             p.requires_grad_(False)
 
-    for cfg, prev_depth, prev_stride, prev_td, prev_backend in prev_cfg_state:
+    for cfg, prev_depth, prev_stride, prev_td, prev_backend, prev_bridge_aware, prev_ds_mode in prev_cfg_state:
         cfg.surgical_req_depth = prev_depth
         cfg.surgical_route_stride = prev_stride
         cfg.surgical_target_density = prev_td
         cfg.surgical_attention_backend = prev_backend
+        cfg.surgical_darksnail_bridge_aware = prev_bridge_aware
+        cfg.surgical_darksnail_mode = prev_ds_mode
 
     if save_sidecar_path is not None:
         save_gemma4_router_sidecar(model, save_sidecar_path)
@@ -2575,6 +2721,8 @@ def warmup_gemma4_routers_kl(
         "initial_loss": losses[0] if losses else 0.0,
         "final_loss": losses[-1] if losses else 0.0,
         "final_mean_block_density": mean_density,
+        "bridge_aware": bridge_aware,
+        "bridge_aware_mode": bridge_aware_mode,
     }
 
 
@@ -2669,4 +2817,5 @@ __all__ = [
     "load_gemma4_router_sidecar",
     "warmup_gemma4_routers_kl",
     "prepare_darksnail_gemma4_model",
+    "TriadTopologyRouter",
 ]

@@ -2327,6 +2327,479 @@ class CrossLevelGoalInvariantDistiller:
         }
 
 
+@dataclass
+class ContactNode:
+    node_id: int
+    color: int
+    rows: np.ndarray
+    cols: np.ndarray
+    area: int
+    h: int
+    w: int
+    r0: int
+    r1: int
+    c0: int
+    c1: int
+    centroid_y: float
+    centroid_x: float
+    is_ego: bool = False
+    is_wall: bool = False
+    is_pushable: bool = False
+    is_cavity: bool = False
+    is_nested: bool = False
+    parent_container_id: Optional[int] = None
+    stalk_se2: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # (v_y, v_x, omega) in se(2)
+    force_stalk: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # (f_y, f_x, tau) in se*(2)
+
+
+@dataclass
+class ContactEdge:
+    u: int
+    v: int
+    normal: Tuple[float, float]  # Outward unit normal pointing from u to v: (n_y, n_x)
+    contact_points_u: List[Tuple[int, int]]
+    contact_points_v: List[Tuple[int, int]]
+    is_enclosed: bool = False  # Container nesting
+    container_id: Optional[int] = None
+    content_id: Optional[int] = None
+
+    def restriction_map_u(
+        self,
+        v_u: Tuple[float, float, float],
+        x_u: Tuple[float, float],
+    ) -> float:
+        """
+        rho_{u -> e}(v_u) = n^T v_u + (p - x_u) x n * omega_u
+        """
+        vy, vx, omega = v_u
+        ny, nx = self.normal
+        trans_comp = ny * vy + nx * vx
+        if self.contact_points_u:
+            cp_y = sum(p[0] for p in self.contact_points_u) / float(len(self.contact_points_u))
+            cp_x = sum(p[1] for p in self.contact_points_u) / float(len(self.contact_points_u))
+            arm_y = cp_y - x_u[0]
+            arm_x = cp_x - x_u[1]
+            rot_comp = (arm_y * nx - arm_x * ny) * omega
+        else:
+            rot_comp = 0.0
+        return float(trans_comp + rot_comp)
+
+    def restriction_map_v(
+        self,
+        v_v: Tuple[float, float, float],
+        x_v: Tuple[float, float],
+    ) -> float:
+        """
+        rho_{v -> e}(v_v) = n^T v_v + (p - x_v) x n * omega_v
+        """
+        vy, vx, omega = v_v
+        ny, nx = self.normal
+        trans_comp = ny * vy + nx * vx
+        if self.contact_points_v:
+            cp_y = sum(p[0] for p in self.contact_points_v) / float(len(self.contact_points_v))
+            cp_x = sum(p[1] for p in self.contact_points_v) / float(len(self.contact_points_v))
+            arm_y = cp_y - x_v[0]
+            arm_x = cp_x - x_v[1]
+            rot_comp = (arm_y * nx - arm_x * ny) * omega
+        else:
+            rot_comp = 0.0
+        return float(trans_comp + rot_comp)
+
+    def compute_coboundary(
+        self,
+        v_u: Tuple[float, float, float],
+        x_u: Tuple[float, float],
+        v_v: Tuple[float, float, float],
+        x_v: Tuple[float, float],
+    ) -> float:
+        """
+        Sheaf coboundary operator:
+        (delta v)(e) = rho_{v -> e}(v_v) - rho_{u -> e}(v_u)
+        Unilateral non-penetration condition: (delta v)(e) >= 0.
+        """
+        return self.restriction_map_v(v_v, x_v) - self.restriction_map_u(v_u, x_u)
+
+
+class ContactGraphSheaf:
+    """
+    Kinematic Contact-Chain Sheaf G_contact(F_t) modeling:
+      - Rigid components as vertex stalks in se(2)
+      - Contact edges with outward normals n_ij
+      - Sheaf restriction maps enforcing unilateral non-penetration:
+        (delta v)(e) = rho_{v_j -> e}(v_j) - rho_{v_i -> e}(v_i) >= 0
+      - Topological force & displacement propagation for:
+        * Linear and branching multi-body push chains (Ego -> Tool -> Obstacle -> Goal)
+        * Tool mediation & wide surface clearing (plow / broom)
+        * Container nesting: interior objects locked to container frame
+        * Peg-in-hole docking into matching receptor cavities
+        * Wall locks & boundary collisions collapsing displacements in H^0(G; F)
+    """
+
+    def __init__(
+        self,
+        nodes: Dict[int, ContactNode],
+        edges: List[ContactEdge],
+        board_shape: Tuple[int, int],
+        bg_mode: int,
+        ego_node_id: Optional[int] = None,
+        comp_grid: Optional[np.ndarray] = None,
+    ) -> None:
+        self.nodes = nodes
+        self.edges = edges
+        self.board_shape = board_shape
+        self.bg_mode = bg_mode
+        self.ego_node_id = ego_node_id
+        self.comp_grid = comp_grid
+        self.adj: Dict[int, List[ContactEdge]] = {nid: [] for nid in nodes}
+        for edge in edges:
+            self.adj[edge.u].append(edge)
+            self.adj[edge.v].append(edge)
+
+    @classmethod
+    def from_board(
+        cls,
+        board: np.ndarray,
+        bg_mode: int,
+        ego_colors: Optional[Set[int]] = None,
+        pushable_colors: Optional[Set[int]] = None,
+        wall_colors: Optional[Set[int]] = None,
+        ego_comp: Optional[Dict[str, Any]] = None,
+    ) -> ContactGraphSheaf:
+        H, W = board.shape
+        ego_colors = ego_colors or set()
+        pushable_colors = pushable_colors or set()
+        wall_colors = wall_colors or set()
+
+        comps = _connected_components_2d(board, connectivity=4, same_color=True, ignore_val=bg_mode)
+        nodes: Dict[int, ContactNode] = {}
+        comp_grid = np.full((H, W), -1, dtype=np.int32)
+        ego_id: Optional[int] = None
+
+        ego_target_rs: Optional[Set[Tuple[int, int]]] = None
+        if ego_comp is not None:
+            ego_target_rs = set(zip(ego_comp["rows"].tolist(), ego_comp["cols"].tolist()))
+
+        for idx, cp in enumerate(comps):
+            rs = cp["rows"]
+            cs = cp["cols"]
+            comp_grid[rs, cs] = idx
+            col = int(cp["color"])
+            area = int(cp["area"])
+            h, w = int(cp["h"]), int(cp["w"])
+            r0, r1, c0, c1 = int(cp["r0"]), int(cp["r1"]), int(cp["c0"]), int(cp["c1"])
+            cy, cx = float(cp["centroid_y"]), float(cp["centroid_x"])
+
+            # Check if ego
+            is_ego = False
+            if ego_target_rs is not None:
+                if any((int(r), int(c)) in ego_target_rs for r, c in zip(rs, cs)):
+                    is_ego = True
+            elif col in ego_colors and (area <= 64 and max(h, w) <= 16):
+                is_ego = True
+
+            if is_ego and ego_id is None:
+                ego_id = idx
+
+            is_wall = (col in wall_colors) or (area > 256 and max(h, w) > 32)
+            is_pushable = (col in pushable_colors) and not is_wall
+
+            # Check hollow frame / cavity
+            is_cavity = False
+            if h >= 3 and w >= 3 and (area < h * w):
+                sub = board[r0:r1, c0:c1]
+                if np.any(sub[1:-1, 1:-1] == bg_mode):
+                    is_cavity = True
+
+            node = ContactNode(
+                node_id=idx,
+                color=col,
+                rows=rs,
+                cols=cs,
+                area=area,
+                h=h,
+                w=w,
+                r0=r0,
+                r1=r1,
+                c0=c0,
+                c1=c1,
+                centroid_y=cy,
+                centroid_x=cx,
+                is_ego=is_ego,
+                is_wall=is_wall,
+                is_pushable=is_pushable,
+                is_cavity=is_cavity,
+            )
+            nodes[idx] = node
+
+        # Detect container nesting (inner objects inside hollow frame)
+        edges: List[ContactEdge] = []
+        for u_id, u_node in nodes.items():
+            if not u_node.is_cavity:
+                continue
+            for v_id, v_node in nodes.items():
+                if u_id == v_id:
+                    continue
+                if (
+                    u_node.r0 <= v_node.r0
+                    and v_node.r1 <= u_node.r1
+                    and u_node.c0 <= v_node.c0
+                    and v_node.c1 <= u_node.c1
+                ):
+                    v_node.is_nested = True
+                    v_node.parent_container_id = u_id
+                    edge_nest = ContactEdge(
+                        u=u_id,
+                        v=v_id,
+                        normal=(0.0, 0.0),
+                        contact_points_u=[],
+                        contact_points_v=[],
+                        is_enclosed=True,
+                        container_id=u_id,
+                        content_id=v_id,
+                    )
+                    edges.append(edge_nest)
+
+        # Fast vectorized boundary contact detection using NumPy array slicing
+        contact_map: Dict[Tuple[int, int], Tuple[List[Tuple[int, int]], List[Tuple[int, int]], float, float]] = {}
+
+        # Horizontal contacts: (r, c) and (r, c + 1)
+        left = comp_grid[:, :-1]
+        right = comp_grid[:, 1:]
+        mask_h = (left != right) & (left != -1) & (right != -1)
+        if np.any(mask_h):
+            r_idx, c_idx = np.where(mask_h)
+            for r, c in zip(r_idx, c_idx):
+                u_id, v_id = int(left[r, c]), int(right[r, c])
+                pair_key = (u_id, v_id) if u_id < v_id else (v_id, u_id)
+                if pair_key not in contact_map:
+                    contact_map[pair_key] = ([], [], 0.0, 0.0)
+                pts_u, pts_v, sy, sx = contact_map[pair_key]
+                if u_id < v_id:
+                    pts_u.append((int(r), int(c)))
+                    pts_v.append((int(r), int(c + 1)))
+                    contact_map[pair_key] = (pts_u, pts_v, sy, sx + 1.0)
+                else:
+                    pts_u.append((int(r), int(c + 1)))
+                    pts_v.append((int(r), int(c)))
+                    contact_map[pair_key] = (pts_u, pts_v, sy, sx - 1.0)
+
+        # Vertical contacts: (r, c) and (r + 1, c)
+        top = comp_grid[:-1, :]
+        bot = comp_grid[1:, :]
+        mask_v = (top != bot) & (top != -1) & (bot != -1)
+        if np.any(mask_v):
+            r_idx, c_idx = np.where(mask_v)
+            for r, c in zip(r_idx, c_idx):
+                u_id, v_id = int(top[r, c]), int(bot[r, c])
+                pair_key = (u_id, v_id) if u_id < v_id else (v_id, u_id)
+                if pair_key not in contact_map:
+                    contact_map[pair_key] = ([], [], 0.0, 0.0)
+                pts_u, pts_v, sy, sx = contact_map[pair_key]
+                if u_id < v_id:
+                    pts_u.append((int(r), int(c)))
+                    pts_v.append((int(r + 1), int(c)))
+                    contact_map[pair_key] = (pts_u, pts_v, sy + 1.0, sx)
+                else:
+                    pts_u.append((int(r + 1), int(c)))
+                    pts_v.append((int(r), int(c)))
+                    contact_map[pair_key] = (pts_u, pts_v, sy - 1.0, sx)
+
+        for (u_id, v_id), (pts_u, pts_v, sy, sx) in contact_map.items():
+            norm_len = math.sqrt(sy * sy + sx * sx)
+            if norm_len > 1e-6:
+                ny = sy / norm_len
+                nx = sx / norm_len
+            else:
+                dy_c = nodes[v_id].centroid_y - nodes[u_id].centroid_y
+                dx_c = nodes[v_id].centroid_x - nodes[u_id].centroid_x
+                d_len = math.sqrt(dy_c * dy_c + dx_c * dx_c)
+                if d_len > 1e-6:
+                    ny = dy_c / d_len
+                    nx = dx_c / d_len
+                else:
+                    ny, nx = 0.0, 1.0
+            edge = ContactEdge(
+                u=u_id,
+                v=v_id,
+                normal=(ny, nx),
+                contact_points_u=pts_u,
+                contact_points_v=pts_v,
+                is_enclosed=False,
+            )
+            edges.append(edge)
+
+        return cls(
+            nodes=nodes,
+            edges=edges,
+            board_shape=(H, W),
+            bg_mode=bg_mode,
+            ego_node_id=ego_id,
+            comp_grid=comp_grid,
+        )
+
+    def propagate_displacement(
+        self,
+        action_dir: Tuple[int, int],
+        ego_node_id: Optional[int] = None,
+        allow_candidate_push: bool = True,
+    ) -> Tuple[bool, Dict[int, Tuple[int, int]], str]:
+        """
+        Solves topological force and displacement propagation through the contact sheaf.
+        Returns:
+            (success: bool, moving_nodes: Dict[node_id, (dy, dx)], reason: str)
+        """
+        dy, dx = action_dir
+        if dy == 0 and dx == 0:
+            return True, {}, "no_op"
+
+        root_id = ego_node_id if ego_node_id is not None else self.ego_node_id
+        if root_id is None or root_id not in self.nodes:
+            return False, {}, "no_ego_root"
+
+        H, W = self.board_shape
+        moving_nodes: Dict[int, Tuple[int, int]] = {root_id: (dy, dx)}
+        queue: List[int] = [root_id]
+        visited: Set[int] = {root_id}
+
+        while queue:
+            curr_id = queue.pop(0)
+            curr_disp = moving_nodes[curr_id]
+            curr_node = self.nodes[curr_id]
+
+            # 1. Container nesting propagation
+            # A. If curr_node is a container, all nested children move with it
+            for edge in self.adj.get(curr_id, []):
+                if edge.is_enclosed and edge.container_id == curr_id:
+                    child_id = edge.content_id
+                    if child_id is not None and child_id not in moving_nodes:
+                        moving_nodes[child_id] = curr_disp
+                        visited.add(child_id)
+                        queue.append(child_id)
+
+            # B. If curr_node is nested inside a container, pushing into wall pushes container
+            if curr_node.is_nested and curr_node.parent_container_id is not None:
+                cont_id = curr_node.parent_container_id
+                if cont_id not in moving_nodes:
+                    cont_node = self.nodes[cont_id]
+                    n_r = curr_node.rows + curr_disp[0]
+                    n_c = curr_node.cols + curr_disp[1]
+                    cont_pts = set(zip(cont_node.rows.tolist(), cont_node.cols.tolist()))
+                    if any((nr, nc) in cont_pts for nr, nc in zip(n_r, n_c)):
+                        moving_nodes[cont_id] = curr_disp
+                        visited.add(cont_id)
+                        queue.append(cont_id)
+
+            # 2. Contact graph edge normal propagation
+            for edge in self.adj.get(curr_id, []):
+                if edge.is_enclosed:
+                    continue
+                other_id = edge.v if edge.u == curr_id else edge.u
+                ny, nx = edge.normal if edge.u == curr_id else (-edge.normal[0], -edge.normal[1])
+                dot_prod = ny * float(curr_disp[0]) + nx * float(curr_disp[1])
+                if dot_prod > 0.05:  # Pushing into other_id
+                    other_node = self.nodes[other_id]
+                    if other_node.is_wall:
+                        return False, {}, "wall_lock"
+                    if other_id not in moving_nodes:
+                        if other_node.is_pushable or (allow_candidate_push and not other_node.is_wall):
+                            moving_nodes[other_id] = curr_disp
+                            visited.add(other_id)
+                            queue.append(other_id)
+                        else:
+                            return False, {}, "unpushable_obstacle"
+
+            # 3. Swept boundary and direct canvas collision check
+            n_r = curr_node.rows + curr_disp[0]
+            n_c = curr_node.cols + curr_disp[1]
+            if np.any((n_r < 0) | (n_r >= H) | (n_c < 0) | (n_c >= W)):
+                return False, {}, "boundary_collision"
+
+            if self.comp_grid is not None:
+                for nr, nc in zip(n_r, n_c):
+                    other_id = int(self.comp_grid[nr, nc])
+                    if other_id != -1 and other_id != curr_id:
+                        other_node = self.nodes[other_id]
+                        if other_node.is_wall:
+                            return False, {}, "wall_collision"
+                        if other_id not in moving_nodes:
+                            if other_node.is_pushable or (allow_candidate_push and not other_node.is_wall):
+                                moving_nodes[other_id] = curr_disp
+                                visited.add(other_id)
+                                queue.append(other_id)
+                            else:
+                                return False, {}, "unpushable_obstacle"
+
+        # Global Non-Penetration Verification Pass
+        old_moving_coords: Set[Tuple[int, int]] = set()
+        for nid in moving_nodes:
+            node = self.nodes[nid]
+            old_moving_coords.update(zip(node.rows.tolist(), node.cols.tolist()))
+
+        new_coords_by_node: Dict[int, Set[Tuple[int, int]]] = {}
+        for nid, (dy_i, dx_i) in moving_nodes.items():
+            node = self.nodes[nid]
+            nr = node.rows + dy_i
+            nc = node.cols + dx_i
+            if np.any((nr < 0) | (nr >= H) | (nc < 0) | (nc >= W)):
+                return False, {}, "boundary_collision"
+            new_set = set(zip(nr.tolist(), nc.tolist()))
+            new_coords_by_node[nid] = new_set
+
+        # Check inter-body non-penetration between moving bodies: (delta v)(e) >= 0
+        all_new_coords: Set[Tuple[int, int]] = set()
+        for nid, new_set in new_coords_by_node.items():
+            if all_new_coords.intersection(new_set):
+                return False, {}, "inter_body_penetration"
+            all_new_coords.update(new_set)
+
+        # Check collision with any stationary components
+        if self.comp_grid is not None:
+            for nr, nc in all_new_coords:
+                if (nr, nc) not in old_moving_coords:
+                    other_id = int(self.comp_grid[nr, nc])
+                    if other_id != -1 and other_id not in moving_nodes:
+                        return False, {}, "collision_with_stationary"
+
+        return True, moving_nodes, "success"
+
+    def apply_displacement_to_board(
+        self,
+        board: np.ndarray,
+        bg_mode: int,
+        moving_nodes: Dict[int, Tuple[int, int]],
+    ) -> np.ndarray:
+        new_board = board.copy()
+        for nid in moving_nodes:
+            node = self.nodes[nid]
+            new_board[node.rows, node.cols] = bg_mode
+        for nid, (dy, dx) in moving_nodes.items():
+            node = self.nodes[nid]
+            new_board[node.rows + dy, node.cols + dx] = board[node.rows, node.cols]
+        return new_board
+
+    def detect_peg_docking(
+        self,
+        peg_node_id: int,
+        receptor_cavity_id: int,
+        disp: Tuple[int, int],
+    ) -> bool:
+        if peg_node_id not in self.nodes or receptor_cavity_id not in self.nodes:
+            return False
+        peg = self.nodes[peg_node_id]
+        receptor = self.nodes[receptor_cavity_id]
+        new_r = peg.rows + disp[0]
+        new_c = peg.cols + disp[1]
+        if (
+            np.all(new_r > receptor.r0)
+            and np.all(new_r < receptor.r1 - 1)
+            and np.all(new_c > receptor.c0)
+            and np.all(new_c < receptor.c1 - 1)
+        ):
+            rec_coords = set(zip(receptor.rows.tolist(), receptor.cols.tolist()))
+            return not any((nr, nc) in rec_coords for nr, nc in zip(new_r, new_c))
+        return False
+
+
 class RelationalOperatorDreamer:
     """
     Pillar 1: Object-Relational & Ego-Kinematic Forward World Model
@@ -2339,9 +2812,10 @@ class RelationalOperatorDreamer:
          generators `(dy_a, dx_a, is_sliding)` under `ACTION1..4` from a single step per direction.
       2. Learns the Ordered Pairwise Relational Interaction Kernel `K_int`:
          `"wall"`, `"pushable"`, `"hazard"`, and `"contact_highlight"`.
-      3. Executes ego-centric forward board prediction `predict_step(frame_2d, action_key, ...)`
-         by translating the matched ego component in the CURRENT frame (checking walls, boundaries,
-         and pushable blocks) rather than replaying stale static pixel masks.
+      3. Models rigid components via `ContactGraphSheaf` in se(2) with outward normals n_ij
+         and restriction maps enforcing unilateral non-penetration (delta v)(e) >= 0.
+      4. Executes forward prediction `predict_step(frame_2d, action_key, ...)`
+         supporting multi-body push chains, tool use, container nesting, and peg-in-hole docking.
     """
 
     def __init__(self) -> None:
@@ -2355,6 +2829,9 @@ class RelationalOperatorDreamer:
         self.active_contact_highlight_states: Set[str] = set()
         self.contact_adjacent_state_hashes: Set[str] = set()
         self.last_transition_highlighted: bool = False
+        self.contact_sheaf: Optional[ContactGraphSheaf] = None
+        self.tool_interactions: Set[Tuple[int, int, int]] = set()
+        self.container_nesting_pairs: Set[Tuple[int, int]] = set()
         if not preserve_kinematics or clear_cross_level or not hasattr(self, "kinematic_generators"):
             self.kinematic_generators: Dict[int, Tuple[int, int, bool]] = {}
             self.ego_colors: Set[int] = set()
@@ -2543,14 +3020,34 @@ class RelationalOperatorDreamer:
                 if action_key not in self.kinematic_generators or not is_sliding:
                     self.kinematic_generators[action_key] = (dy_e, dx_e, is_sliding)
 
-                # If a second component translated by the same direction, classify it as pushable!
+                # Multi-body contact sheaf tracing
+                sheaf = ContactGraphSheaf.from_board(
+                    nope_prev,
+                    bg_mode=bg_mode,
+                    ego_colors=self.ego_colors,
+                    pushable_colors=self.pushable_colors,
+                    wall_colors=self.wall_colors,
+                    ego_comp=cp_ego,
+                )
+                self.contact_sheaf = sheaf
                 for cp_other, _, dy_o, dx_o in moved_pairs[1:]:
                     if np.sign(dy_o) == np.sign(dy_e) and np.sign(dx_o) == np.sign(dx_e):
                         col_o = int(cp_other["color"])
                         self.pushable_colors.add(col_o)
+                        self.wall_colors.discard(col_o)
                         self.interaction_kernel[
                             (col_e, col_o, int(np.sign(dy_e)), int(np.sign(dx_e)))
                         ] = "pushable"
+                if len(moved_pairs) >= 3:
+                    for i in range(1, len(moved_pairs) - 1):
+                        tool_col = int(moved_pairs[i][0]["color"])
+                        target_col = int(moved_pairs[i + 1][0]["color"])
+                        self.tool_interactions.add((col_e, tool_col, target_col))
+                for edge in sheaf.edges:
+                    if edge.is_enclosed and edge.container_id is not None and edge.content_id is not None:
+                        cont_col = sheaf.nodes[edge.container_id].color
+                        cont_in = sheaf.nodes[edge.content_id].color
+                        self.container_nesting_pairs.add((cont_col, cont_in))
 
             # Check for Contact-Highlight (stationary non-background component adjacent to ego changed color in-place!)
             contact_highlight = False
@@ -2691,69 +3188,50 @@ class RelationalOperatorDreamer:
             ego_set = set(zip(rs.tolist(), cs.tolist()))
 
             if not is_sliding:
-                n_rs = rs + dy
-                n_cs = cs + dx
-                if np.any((n_rs < 0) | (n_rs >= H) | (n_cs < 0) | (n_cs >= W)):
+                sheaf = ContactGraphSheaf.from_board(
+                    board,
+                    bg_mode=bg_mode,
+                    ego_colors=self.ego_colors,
+                    pushable_colors=self.pushable_colors,
+                    wall_colors=self.wall_colors,
+                    ego_comp=ego_c,
+                )
+                success, moving_nodes, reason = sheaf.propagate_displacement(
+                    action_dir=(dy, dx),
+                    ego_node_id=sheaf.ego_node_id,
+                    allow_candidate_push=True,
+                )
+                if not success:
                     return board
-                ext_pts = [(int(nr), int(nc)) for nr, nc in zip(n_rs, n_cs) if (int(nr), int(nc)) not in ego_set]
-                if not ext_pts:
-                    return board
-                ext_r = np.array([p[0] for p in ext_pts], dtype=np.int32)
-                ext_c = np.array([p[1] for p in ext_pts], dtype=np.int32)
-                target_colors = board[ext_r, ext_c]
-
-                # Check wall collision
-                if any(int(tc) in self.wall_colors for tc in target_colors):
-                    return board
-
-                # Check pushable block interaction
-                push_cols = [int(tc) for tc in np.unique(target_colors) if int(tc) in self.pushable_colors]
-                if push_cols:
-                    fg_all = _connected_components_2d(board, connectivity=4, same_color=True, ignore_val=bg_mode)
-                    ext_set = set(ext_pts)
-                    pushed_comps = [
-                        comp
-                        for comp in fg_all
-                        if int(comp["color"]) in push_cols
-                        and any((int(r), int(c)) in ext_set for r, c in zip(comp["rows"], comp["cols"]))
-                    ]
-                    for p_comp in pushed_comps:
-                        p_rs = p_comp["rows"] + dy
-                        p_cs = p_comp["cols"] + dx
-                        if np.any((p_rs < 0) | (p_rs >= H) | (p_cs < 0) | (p_cs >= W)):
-                            return board
-                        p_set = set(zip(p_comp["rows"].tolist(), p_comp["cols"].tolist()))
-                        for pr, pc in zip(p_rs, p_cs):
-                            if (int(pr), int(pc)) not in p_set and int(board[pr, pc]) != bg_mode:
-                                return board
-                    for p_comp in pushed_comps:
-                        p_vals = board[p_comp["rows"], p_comp["cols"]].copy()
-                        board[p_comp["rows"], p_comp["cols"]] = bg_mode
-                        board[p_comp["rows"] + dy, p_comp["cols"] + dx] = p_vals
-
-                board[rs, cs] = bg_mode
-                board[n_rs, n_cs] = ego_vals
-                return board
+                return sheaf.apply_displacement_to_board(board, bg_mode, moving_nodes)
             else:
-                # Sliding generator: step unit (uy, ux) until obstacle or boundary
+                # Sliding generator: step unit (uy, ux) along contact sheaf until collision or boundary
                 uy = int(np.sign(dy))
                 ux = int(np.sign(dx))
                 if uy == 0 and ux == 0:
                     return board
-                cur_rs = rs.copy()
-                cur_cs = cs.copy()
-                board[cur_rs, cur_cs] = bg_mode
+                cur_board = board.copy()
                 for _ in range(max(H, W)):
-                    nxt_rs = cur_rs + uy
-                    nxt_cs = cur_cs + ux
-                    if np.any((nxt_rs < 0) | (nxt_rs >= H) | (nxt_cs < 0) | (nxt_cs >= W)):
+                    cur_ego = self._find_ego_component(cur_board, bg_mode)
+                    if cur_ego is None:
                         break
-                    if np.any(board[nxt_rs, nxt_cs] != bg_mode):
+                    sheaf_step = ContactGraphSheaf.from_board(
+                        cur_board,
+                        bg_mode=bg_mode,
+                        ego_colors=self.ego_colors,
+                        pushable_colors=self.pushable_colors,
+                        wall_colors=self.wall_colors,
+                        ego_comp=cur_ego,
+                    )
+                    ok, m_nodes, _ = sheaf_step.propagate_displacement(
+                        action_dir=(uy, ux),
+                        ego_node_id=sheaf_step.ego_node_id,
+                        allow_candidate_push=True,
+                    )
+                    if not ok or not m_nodes:
                         break
-                    cur_rs = nxt_rs
-                    cur_cs = nxt_cs
-                board[cur_rs, cur_cs] = ego_vals
-                return board
+                    cur_board = sheaf_step.apply_displacement_to_board(cur_board, bg_mode, m_nodes)
+                return cur_board
 
         if (
             isinstance(action_key, tuple)
@@ -3605,6 +4083,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.learned_operators: Dict[ActionKey, Dict[str, Any]] = {}
         self.lattice_operator_templates: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
         self.lookahead_energy_cache: Dict[Tuple[str, ActionKey], float] = {}
+        self._sheaf_template_pairs: Optional[
+            List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]]
+        ] = None
 
         if clear_morphology_priors or not hasattr(self, "action_type_stats"):
             self.action_type_stats: Dict[int, List[float]] = {i: [0.0, 0.0] for i in range(8)}
@@ -4253,6 +4734,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.state_target_alignment.clear()
         self.learned_operators.clear()
         self.lattice_operator_templates.clear()
+        self._sheaf_template_pairs = None
         if hasattr(self, "relational_dreamer"):
             self.relational_dreamer.reset(preserve_kinematics=True)
 
@@ -5607,6 +6089,73 @@ class DarkSnailArc3WorldModel(nn.Module):
             priors = torch.tanh(triad_shift).cpu().numpy()
         return priors, cas_diag
 
+    def _get_sheaf_cavity_template_pairs(
+        self,
+    ) -> List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]]:
+        """
+        Uses `ContactGraphSheaf` cavity enclosure (`n.is_cavity`) and multi-color sub-panel
+        connected components on the initial board to identify pairs `(ref_bbox, play_bbox)` where
+        `ref_bbox` is a reference template enclosed inside a cavity container and `play_bbox` is
+        a matching-dimension playfield panel outside the cavity.
+        """
+        if getattr(self, "_sheaf_template_pairs", None) is not None:
+            return self._sheaf_template_pairs  # type: ignore[return-value]
+        if (
+            self.initial_state_hash is None
+            or self.initial_state_hash not in self.state_frames
+        ):
+            return []
+        init_f = self.splitter.project_nope(self.state_frames[self.initial_state_hash])
+        bg = int(np.bincount(init_f.ravel(), minlength=16).argmax())
+        sheaf = ContactGraphSheaf.from_board(init_f, bg_mode=bg)
+        cavities = [n for n in sheaf.nodes.values() if n.is_cavity]
+        pairs: List[Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]] = []
+        if cavities:
+            panels = [
+                c
+                for c in _connected_components_2d(
+                    init_f, connectivity=8, same_color=False, ignore_val=bg
+                )
+                if c["area"] >= 16 and c["area"] == c["h"] * c["w"]
+            ]
+            for cav in cavities:
+                for p_ref in panels:
+                    if (
+                        cav.r0 <= p_ref["r0"]
+                        and p_ref["r1"] <= cav.r1
+                        and cav.c0 <= p_ref["c0"]
+                        and p_ref["c1"] <= cav.c1
+                        and (p_ref["h"] < cav.h or p_ref["w"] < cav.w)
+                    ):
+                        for p_play in panels:
+                            if (
+                                p_play["r0"] != p_ref["r0"] or p_play["c0"] != p_ref["c0"]
+                            ) and p_play["h"] == p_ref["h"] and p_play["w"] == p_ref["w"]:
+                                if not (
+                                    cav.r0 <= p_play["r0"]
+                                    and p_play["r1"] <= cav.r1
+                                    and cav.c0 <= p_play["c0"]
+                                    and p_play["c1"] <= cav.c1
+                                ):
+                                    pairs.append(
+                                        (
+                                            (
+                                                int(p_ref["r0"]),
+                                                int(p_ref["r1"]),
+                                                int(p_ref["c0"]),
+                                                int(p_ref["c1"]),
+                                            ),
+                                            (
+                                                int(p_play["r0"]),
+                                                int(p_play["r1"]),
+                                                int(p_play["c0"]),
+                                                int(p_play["c1"]),
+                                            ),
+                                        )
+                                    )
+        self._sheaf_template_pairs = pairs
+        return pairs
+
     def score_action_candidate(
         self,
         state_hash: str,
@@ -5658,12 +6207,11 @@ class DarkSnailArc3WorldModel(nn.Module):
             and frame_2d is not None
             and hasattr(self, "relational_dreamer")
             and action_key in self.relational_dreamer.kinematic_generators
-            and getattr(self.goal_distiller, "levels_distilled", 0) > 0
         ):
             la_key = (state_hash, action_key)
             if la_key in self.lookahead_energy_cache:
                 lookahead_bonus = self.lookahead_energy_cache[la_key]
-            elif len(self.lookahead_energy_cache) < 32:
+            elif len(self.lookahead_energy_cache) < 256:
                 pred_board = self.predict_action_outcome(
                     frame_2d, action_key, candidate_info=candidate_info
                 )
@@ -5679,15 +6227,16 @@ class DarkSnailArc3WorldModel(nn.Module):
                         )
                         else None
                     )
+                    d_w = self.goal_distiller.weights if hasattr(self, "goal_distiller") else None
                     pred_e = float(
                         compute_canvas_target_alignment(
                             pred_board,
                             initial_frame_2d=init_f,
                             spatial_precision_map=None,
-                            distilled_weights=self.goal_distiller.weights,
+                            distilled_weights=d_w,
                         )["target_energy"]
                     )
-                    lookahead_bonus = 0.35 * max(0.0, cur_e - pred_e)
+                    lookahead_bonus = 0.40 * max(0.0, cur_e - pred_e)
                 self.lookahead_energy_cache[la_key] = lookahead_bonus
 
         if not isinstance(action_key, tuple):
@@ -5868,6 +6417,33 @@ class DarkSnailArc3WorldModel(nn.Module):
             elif has_nonlocal_actuators and last_action_key == action_key:
                 if len(self.interactive_loci) > 1 or last_delta_here < 36:
                     novel_coord_bonus -= 2.25
+
+        # Sheaf Cavity-Template Actuator Resonance:
+        # When a state is entered via `ACTION5` (`state_entry_action == 5`) and a cavity-enclosed
+        # reference template has at least one color fiber exactly completed on the matching
+        # playfield sub-panel while another template color fiber is still under-filled,
+        # boost the confirmed remote actuator whose swatch color matches the missing fiber.
+        if (
+            frame_2d is not None
+            and (cx, cy) in self.remote_actuators
+            and self.state_entry_action.get(state_hash) == 5
+        ):
+            for (r0_r, r1_r, c0_r, c1_r), (r0_p, r1_p, c0_p, c1_p) in self._get_sheaf_cavity_template_pairs():
+                ref_sub = frame_2d[r0_r:r1_r, c0_r:c1_r]
+                play_sub = frame_2d[r0_p:r1_p, c0_p:c1_p]
+                ref_cols = [int(c) for c in np.unique(ref_sub)]
+                if len(ref_cols) >= 2:
+                    exact_cols = [
+                        c for c in ref_cols if np.array_equal(play_sub == c, ref_sub == c)
+                    ]
+                    missing_cols = {
+                        c
+                        for c in ref_cols
+                        if int(np.sum(play_sub == c)) < int(np.sum(ref_sub == c))
+                    }
+                    if exact_cols and int(frame_2d[cy, cx]) in missing_cols:
+                        novel_coord_bonus += 0.55 * float(prev_clicks_here) + 12.0
+                        break
 
         fv = candidate_info.get("feature_vec")
         ridge_val = (
@@ -7303,6 +7879,9 @@ __all__ = [
     "compute_marginal_wasserstein1_distance",
     "compute_canvas_target_alignment",
     "CrossLevelGoalInvariantDistiller",
+    "ContactNode",
+    "ContactEdge",
+    "ContactGraphSheaf",
     "RelationalOperatorDreamer",
     "OnlineForwardOperatorDreamer",
     "Arc3EpisodicBeltramiShell",

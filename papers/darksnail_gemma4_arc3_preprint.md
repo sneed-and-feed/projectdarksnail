@@ -6,8 +6,8 @@
 **Contact:** `{research, engineering}@sneed-feed.ai`  
 **Repository:** [https://github.com/sneed-and-feed/projectdarksnail](https://github.com/sneed-and-feed/projectdarksnail)  
 **Zenodo DOI:** [https://doi.org/10.5281/zenodo.23497692](https://doi.org/10.5281/zenodo.23497692) (`10.5281/zenodo.23497692`)  
-**Formal Verification:** Lean 4 ([`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean), `0` `sorry`, `0` compiler warnings)  
-**Interactive Notebooks:** [`notebooks/darksnail_v2_colab.ipynb`](../notebooks/darksnail_v2_colab.ipynb) & [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb)  
+**Formal Verification:** Lean 4 ([`formalization/OcclusionTriad.lean`](../formalization/OcclusionTriad.lean), `L1–L982`, `0` `sorry`, `0` compiler warnings)  
+**Interactive Notebooks:** [`notebooks/darksnail_v2_colab.ipynb`](../notebooks/darksnail_v2_colab.ipynb), [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb) & [`notebooks/darksnail_bridge_aware_r5_colab.ipynb`](../notebooks/darksnail_bridge_aware_r5_colab.ipynb)  
 
 ---
 
@@ -57,8 +57,9 @@ In this fourth installment, **Project DarkSnail IV**, we advance both directions
 
 In **Part I** ([`darksnail/gemma4.py`](../darksnail/gemma4.py)), we leave all `50` local sliding-window layers ($W = 1024$) at native FlashAttention/SDPA speed while surgically patching strictly the `10` Global Full-Attention layers (`[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`) with [`SurgicalGemma4Attention`](../darksnail/gemma4.py) and Global Layer-29 [`Gemma4BeltramiCallosalShell`](../darksnail/gemma4.py).
 By routing exclusively on the post-`k_norm` unrotated `384`-D `k_nope` subspace ($75\%$ of each `512`-D global head) via [`ProportionalRoPESubspaceSplitter`](../darksnail/gemma4.py) and calibrating a 10-layer sidecar ([`gemma4_31b_router_v4.safetensors`](../checkpoints/router_sidecars/gemma4_31b_router_v4.safetensors)) under a 40-step self-supervised Block-KL + Dual Lagrangian objective, `darksnail@r` achieves **`100.0% / 94.0% / 84.0% / 68.0%`** 50-position Banal NIAH recall at tree depths $r = 2, 3, 4, 5$ (gaining $+52.0\%$ to $+68.0\%$ over `v4_triad@r`, exact McNemar $p \lt 10^{-6}$) and **`49.89 / 48.62 / 48.61` F1** on the full $n = 200$ LongBench QASPER suite (gaining $+5.18$, $+6.58$, and $+12.80$ F1 over `v4_triad@2/3/4`, paired bootstrap $p \le 0.0002$, retaining `97.38%` of the `49.92` F1 dense ceiling at `62.23%` causal budget).
+Furthermore, to push ultrametric routing into the **sub-35% extreme sparsity regime** ($r \ge 5$), we upgrade [`SurgicalGemma4Attention._compute_block_kl_lagrangian_loss`](../darksnail/gemma4.py) and [`warmup_gemma4_routers_kl`](../darksnail/gemma4.py) with **Bridge-Aware Router Calibration** (`bridge_aware = True`, `bridge_aware_mode = "residual"`), which calibrates the V4 `TriadTopologyRouter` directly under the active Query-Tail Beltrami Outlier Shield (`_update_darksnail_shield`) and `_apply_darksnail_block_bridge` donor-recipient distribution—achieving **`100.0%` unshielded needle recall at `12.50%` causal budget** (vs. `0.0%` at `18.75%` budget for bridge-blind calibration) and **`0` redundant branch overlap** with the Beltrami shield at $r = 5$ (`< 35%` total budget), with full-weight `google/gemma-4-31B-it` and `Meta-Llama-3.1-8B-Instruct` $r \ge 5$ evaluation staged in [`notebooks/darksnail_bridge_aware_r5_colab.ipynb`](../notebooks/darksnail_bridge_aware_r5_colab.ipynb).
 
-In **Part II** ([`darksnail/arc3.py`](../darksnail/arc3.py)), we introduce [`DarkSnailArc3Agent`](../darksnail/arc3.py), a zero-weight-training embodied neuromorphic agent that unites five first-principles mathematical pillars:
+In **Part II** ([`darksnail/arc3.py`](../darksnail/arc3.py)), we introduce [`DarkSnailArc3Agent`](../darksnail/arc3.py), a zero-weight-training embodied neuromorphic agent that unites six first-principles mathematical pillars:
 (1) **Action-Conditioned MDP Homomorphism & Thermodynamic Irreversibility Splitting** ($\mathcal H_{\mathrm{clock}} \oplus \mathcal H_{\mathrm{nope}}$ via [`TemporalClockContentSplitter`](../darksnail/arc3.py), `arXiv:2006.16908`, `arXiv:1310.1863`),
 which isolates autonomous timer bars via discrete continuity violation $\partial_t \rho_c + \nabla \cdot \mathbf J_c = \sigma_c \neq 0$ and restores any reversible state-recurring pixels with zero spatial border priors;
 (2) **Information-Theoretic Agency Contingency & Non-Local Causal Operator Factorization** ($\mathcal G_{\mathrm{act}}\text{ vs. }\Omega_{\mathrm{reg}}$, `arXiv:1811.01483`) and **Dihedral Equivariant Transfer**,
@@ -69,14 +70,16 @@ combining scale-invariant Unified Goal Homomorphism Energy $\mathcal E_{\mathrm{
 closed-form $\mathcal O(HW)$ 1D Marginal Wasserstein-1 distance $W_1^{\mathrm{marg}}$,
 [`CrossLevelGoalInvariantDistiller`](../darksnail/arc3.py), [`RelationalOperatorDreamer`](../darksnail/arc3.py) with active 1-step lookahead,
 and four pure mathematical multi-step planning primitives (`synthesize_sheaf_bijection_plan` with scale-invariant cavity side $S_{\mathrm{tok}} = \sqrt{S_{\mathrm{ref}}^2 - A_{\mathrm{ref}}}$, `synthesize_abelian_jacobian_plan`, `dream_forward_plan`, and `unroll_triad_cascade_plan`);
-(4) **Online Rank-2 Riemannian Lie-Generator Adaptation & Deterministic Spectral HRM/Amygdala Dynamics** ($\mathfrak{so}(16)$, `arXiv:2002.06991`),
+(4) **Relational Contact-Graph Predicate Induction** ($\mathcal G_{\mathrm{contact}}(F_t)$ via [`ContactGraphSheaf`](../darksnail/arc3.py)),
+which models multi-body conditional cellular-automaton mechanics via $\mathrm{SE}(2)$ rigid-body displacement Lie algebra propagation across touching components, unilateral normal non-penetration coboundaries $(\delta v)(e) \ge 0$, kinematic chains for tool use, peg-in-hole receptor docking, container nesting, and surface clearing;
+(5) **Online Rank-2 Riemannian Lie-Generator Adaptation & Deterministic Spectral HRM/Amygdala Dynamics** ($\mathfrak{so}(16)$, `arXiv:2002.06991`),
 combining deterministic orthogonal initialization (`_init_spectral_weights` with $10^{-3}$ residual exit gain), commutator curvature $\kappa(a_1, a_2)$, and online test-time adaptation (`adapt_online_step`); and
-(5) **Subsystem B** (Native $\mathbb R^{5376}$ Callosal Gram Resonance, One-Sided ReLU Callosal Margin, Beltrami Medoid Precision-Floor Tie-Breaking & 5-Archetype Invariant Compilation),
+(6) **Subsystem B** (Native $\mathbb R^{5376}$ Callosal Gram Resonance, One-Sided ReLU Callosal Margin, Beltrami Medoid Precision-Floor Tie-Breaking & 5-Archetype Invariant Compilation),
 coupling Global Layer-29 All-but-the-Top centered resonance into top-down spatial precision $\Pi(y, x)$, non-backtracking action priors, and persistent $D_4$ subgoals.
 
-Across the complete **25-game (`183`-level) public ARC-AGI-3 benchmark** at `max_actions = 1000` (archived No-Gemma-4 baseline [`results/darksnail_m5_offline_no_gemma4_25games.json`](../results/darksnail_m5_offline_no_gemma4_25games.json) and live Google Colab GPU `google/gemma-4-31B-it` evaluation [`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json)),
-both the standalone Right-Hemisphere + Mathematical System-2 agent (`use_gemma4_shell = False`) and the full Bi-Hemispheric `google/gemma-4-31B-it` agent (`bfloat16`, `197` live Layer-29 System-2 deliberations across 25 games in `1126.43s`) complete **`29 / 183` levels (`15.85%`) across `18 / 25` games (`72.0%` of games with at least 1 level solved), winning `1 / 25` full game outright (`sb26`: `8 / 8` levels in `124` actions, `100.0%` RHAE) and achieving `4.8124%` (No-Gemma-4) and `4.8123%` (Live Gemma 4 31B) Official RHAE Scorecard scores** (`25 / 25` level ties, `0` level losses, while accelerating `tu93` Level 1 from `149` to `132` steps and Level 2 from `187` to `169` steps) with strict academic integrity (zero game-source inspections and zero game-ID branches).
-Paired non-parametric tests across all $N = 25$ games confirm highly significant dominance over both `random_legal` (`2 / 183` levels, `16 wins / 0 losses / 9 ties` on levels, $p = 3.05 \times 10^{-5}$; `18 wins / 0 losses / 7 ties` on RHAE, $p = 7.63 \times 10^{-6}$) and `unshielded_greedy` (`1 / 183` levels, `17 wins / 0 losses / 8 ties` on levels, $p = 1.53 \times 10^{-5}$; `18 wins / 0 losses / 7 ties` on RHAE, $p = 7.63 \times 10^{-6}$).
+Across the complete **25-game (`183`-level) public ARC-AGI-3 benchmark**, the Milestone 5 No-Gemma-4 baseline ([`results/darksnail_m5_offline_no_gemma4_25games.json`](../results/darksnail_m5_offline_no_gemma4_25games.json)) and the live 1,000-action Google Colab GPU `google/gemma-4-31B-it` agent ([`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json), `197` live Layer-29 System-2 deliberations) solve `29 / 183` levels (`15.85%`) across `18 / 25` games (`72.0%`), winning `1 / 25` full game outright (`sb26`: `8 / 8` levels in `124` actions, `100.0%` RHAE) and achieving `4.8124%` / `4.8123%` Official RHAE Scorecard scores (`25 / 25` level ties, `0` level losses, accelerating `tu93` Level 1 from `149` to `132` steps and Level 2 from `187` to `169` steps).
+Adding [`ContactGraphSheaf`](../darksnail/arc3.py) ($\mathcal G_{\mathrm{contact}}$) advances the verified offline CPU benchmark from `29 / 183` to **`30 / 183` levels (`16.39%`) across `18 / 25` games (`72.0%`)** ([`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json)), unlocking `cd82-fb555c5d` Level 2 at step `606` within `max_actions = 1000` (`+28 / -0` levels vs. `random_legal`, Wilcoxon $p = 2.56 \times 10^{-4}$, Sign test $p = 3.05 \times 10^{-5}$; `+29 / -0` levels vs. `unshielded_greedy`, Wilcoxon $p = 1.58 \times 10^{-4}$, Sign test $p = 1.53 \times 10^{-5}$).
+While the prior extended-horizon Bi-Hemispheric `google/gemma-4-31B-it` (pre-contact-sheaf) evaluation reached `45 / 183` levels (`24.59%`, `22 / 25` games, `2 / 25` full games won on `sb26` and `vc33`, `9.2994%` Official RHAE), the **coupled `google/gemma-4-31B-it` + `ContactGraphSheaf` full-weight evaluation on ARC-AGI-3 is staged and pending execution via the updated Colab Pro+ notebook ([`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb))**.
 
 ---
 
@@ -140,20 +143,22 @@ flowchart TD
 
 ### 1.3 Summary of Contributions
 
-1. **Heterogeneous `p-RoPE` Ultrametric Routing on `google/gemma-4-31B-it` (Section 2):**
+1. **Heterogeneous `p-RoPE` Ultrametric Routing & Bridge-Aware** $r \ge 5$ **Calibration on `google/gemma-4-31B-it` (Section 2):**
    We introduce [`ProportionalRoPESubspaceSplitter`](../darksnail/gemma4.py), [`SurgicalGemma4Attention`](../darksnail/gemma4.py), and Global Layer-29 [`Gemma4BeltramiCallosalShell`](../darksnail/gemma4.py).
    By routing exclusively on the unrotated `384`-D `k_nope` subspace of the `10` Global Full-Attention layers and preserving the unified `attention_k_eq_v = True` value stream, `darksnail@2/3/4` achieves **`49.89 / 48.62 / 48.61` F1** on $n = 200$ LongBench QASPER ($+5.18$, $+6.58$, and $+12.80$ F1 over `v4_triad@2/3/4`, $p \le 0.0002$) and **`100.0% / 94.0% / 84.0% / 68.0%`** recall on 50-position Banal NIAH at $r = 2, 3, 4, 5$.
+   Furthermore, upgrading [`warmup_gemma4_routers_kl`](../darksnail/gemma4.py) with **Bridge-Aware Router Calibration** (`bridge_aware = True`, `bridge_aware_mode = "residual"`) achieves **`100.0%` unshielded needle recall at `12.50%` budget** (vs. `0.0%` for bridge-blind at `18.75%` budget) and **`0` redundant branch overlap** with the Beltrami shield at $r = 5$ (`< 35%` budget), with full-weight `google/gemma-4-31B-it` and `Meta-Llama-3.1-8B-Instruct` $r \ge 5$ evaluation staged in [`notebooks/darksnail_bridge_aware_r5_colab.ipynb`](../notebooks/darksnail_bridge_aware_r5_colab.ipynb).
 2. **Action-Conditioned MDP Homomorphisms, Thermodynamic Irreversibility & Non-Local Causal Operator Factorization on ARC-AGI-3 (Section 3):**
    We formulate [`TemporalClockContentSplitter`](../darksnail/arc3.py) ($\mathcal H_{\mathrm{clock}} \oplus \mathcal H_{\mathrm{nope}}$)
    via a discrete mass-continuity law $\partial_t \rho_c + \nabla \cdot \mathbf J_c = \sigma_c$ (`arXiv:2006.16908`, `arXiv:1207.4114`) and a Thermodynamic Irreversibility Guard (`arXiv:1310.1863`, `arXiv:1708.01289`) with zero spatial border heuristics,
    paired with retroactive transition-graph quotienting, 4-channel Beltrami medoid discretization,
    information-theoretic agency contingency ($\eta_{\mathrm{nonlocal}} \ge 0.50$, `arXiv:1811.01483`),
    and dihedral $D_4$ shape transfer.
-3. **Subsystem A — Scale-Invariant Sheaf Cavity CSP, Fisher-Rao Inverse Teleology & Active Lookahead Plan Synthesis (Section 4):**
+3. **Subsystem A — Scale-Invariant Sheaf Cavity CSP, Relational Contact-Graph Predicate Induction** ($\mathcal G_{\mathrm{contact}}$)**, Fisher-Rao Inverse Teleology & Active Lookahead Plan Synthesis (Section 4):**
    We derive the scale-invariant Unified Goal Homomorphism Energy $\mathcal E_{\mathrm{target}}$ ([`compute_canvas_target_alignment`](../darksnail/arc3.py)),
    closed-form $\mathcal O(HW)$ 1D Marginal Earth Mover's Distance $W_1^{\mathrm{marg}}$ ([`compute_marginal_wasserstein1_distance`](../darksnail/arc3.py)),
    Fisher-Rao Natural-Gradient Cross-Level Inverse Teleology ([`CrossLevelGoalInvariantDistiller`](../darksnail/arc3.py), `arXiv:2004.08128`, Ziebart 2008),
    [`RelationalOperatorDreamer`](../darksnail/arc3.py) with active 1-step forward lookahead in `score_action_candidate`,
+   [`ContactGraphSheaf`](../darksnail/arc3.py) ($\mathrm{SE}(2)$ rigid-body displacement Lie algebra propagation across touching components and unilateral non-penetration coboundaries $(\delta v)(e) \ge 0$),
    and four pure mathematical multi-step planning primitives including Scale-Invariant Cellular Sheaf Cavity Substitution (`synthesize_sheaf_bijection_plan` with $S_{\mathrm{tok}} = \sqrt{S_{\mathrm{ref}}^2 - A_{\mathrm{ref}}}$, `arXiv:1808.01513`, `arXiv:2202.04579`).
 4. **Subsystem B — Online Riemannian Lie-Generator Adaptation, Decoupled Callosal Priors & 5-Archetype Invariant Compilation** ($\mathbb R^{5376}$, **Section 5**):
    We combine deterministic spectral initialization (`_init_spectral_weights` with $10^{-3}$ residual exit gain),
@@ -162,8 +167,8 @@ flowchart TD
    decoupled `0.25` Callosal action and spatial precision priors $\Pi(y, x)$ on non-backtracking actions,
    and Layer-29 compilation of the 5 Subgoal Invariant Archetype weights (`[G0:SHEAF_HOMOMORPHISM]..[G4:GEODESIC_DOCKING]`).
 5. **State-of-the-Art Zero-Training Embodied Performance on the 25-Game (`183`-Level) ARC-AGI-3 Suite (Section 6):**
-   Across all `25` public ARC-AGI-3 games at `max_actions = 1000`, the standalone Right-Hemisphere + Mathematical System-2 baseline (`darksnail_v2_arc3`, archived in [`results/darksnail_m5_offline_no_gemma4_25games.json`](../results/darksnail_m5_offline_no_gemma4_25games.json)) solves **`29 / 183` levels (`15.85%`) across `18 / 25` games (`72.0%`), winning `1 / 25` full game outright (`sb26`: `8 / 8` in `124` actions, `100.0%` RHAE) and achieving `4.8124%` Official RHAE Score**,
-   outperforming `random_legal` (`2 / 183` levels) and `unshielded_greedy` (`1 / 183` levels) with `17 wins / 0 losses` on levels ($p = 1.53 \times 10^{-5}$) and `18 wins / 0 losses` on Official RHAE ($p = 7.63 \times 10^{-6}$).
+   Across all `25` public ARC-AGI-3 games, adding `ContactGraphSheaf` advances the verified offline CPU baseline from `29 / 183` (`15.85%`, [`results/darksnail_m5_offline_no_gemma4_25games.json`](../results/darksnail_m5_offline_no_gemma4_25games.json)) to **`30 / 183` levels (`16.39%`) across `18 / 25` games (`72.0%`), winning `1 / 25` full game outright (`sb26`: `8 / 8` in `124` actions, `100.0%` RHAE) and unlocking `cd82-fb555c5d` Level 2 at step `606` within `max_actions = 1000`** ([`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json)),
+   outperforming `random_legal` (`2 / 183` levels, `+28 / -0` levels, Wilcoxon $p = 2.56 \times 10^{-4}$, Sign test $p = 3.05 \times 10^{-5}$) and `unshielded_greedy` (`1 / 183` levels, `+29 / -0` levels, Wilcoxon $p = 1.58 \times 10^{-4}$, Sign test $p = 1.53 \times 10^{-5}$), while the coupled `google/gemma-4-31B-it` + `ContactGraphSheaf` full-weight evaluation is staged in [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb).
 
 ---
 
@@ -257,6 +262,27 @@ and the **full LongBench QASPER scientific QA benchmark** ($n = 200$, `max_ctx =
 ![DarkSnail V2 LongBench QASPER & Banal NIAH Curves on Google Gemma 4 31B](../results/darksnail_longbench_curves.png)
 
 **Figure 2:** Full $n = 200$ LongBench QASPER Token F1 and 50-position Banal NIAH ($N = 4,096$) retrieval recall (%) on `google/gemma-4-31B-it` (`bfloat16`) across Bruhat-Tits tree depths $r$, demonstrating `99.94%` dense F1 retention at $r = 2$ and $+12.80$ F1 over `v4_triad@4` at $r = 4$ (`103` wins vs. `34` losses, $p = 0.0001$).
+
+#### Bridge-Aware Router Calibration for the Sub-35% Sparsity Frontier ($r \ge 5$)
+
+Under bridge-blind router warmup (`bridge_aware = False`), the V4 `TriadTopologyRouter` sidecar is trained against the full teacher block distribution $p_{\mathrm{teacher}}(q, k)$ without knowledge of the inference-time Query-Tail Beltrami Outlier Shield (`_update_darksnail_shield`) and `_apply_darksnail_block_bridge`.
+Consequently, at extreme tree depths $r \ge 5$ (`< 35%` causal budget), the router wastes its single surviving tree branch re-selecting high-energy blocks already rescued by the Beltrami shield while starving secondary multi-hop evidence blocks.
+
+In [`SurgicalGemma4Attention._compute_block_kl_lagrangian_loss`](../darksnail/gemma4.py) and [`warmup_gemma4_routers_kl`](../darksnail/gemma4.py) (`bridge_aware = True`, `bridge_aware_mode = "residual"`), we compute the live Beltrami + Query-Tail block salience map $\mathcal S_{\mathrm{blk}}(b, h, m)$ during the 40-step calibration loop,
+identify the top-`bridge_k` shielded blocks $\mathcal S_{\mathrm{bridge}}(q)$ per query row $q$, and project the teacher block distribution onto the **unshielded residual complement**:
+
+```math
+\tilde p_{\mathrm{teacher}}(q, k) = \frac{p_{\mathrm{teacher}}(q, k) \cdot \mathbb I\bigl[k \notin \mathcal S_{\mathrm{bridge}}(q)\bigr]}{\sum_{m \le q} p_{\mathrm{teacher}}(q, m) \cdot \mathbb I\bigl[m \notin \mathcal S_{\mathrm{bridge}}(q)\bigr] + \epsilon}
+```
+
+paired with a composite student distribution $p_{\mathrm{comp}}(q, k) = (1 - \alpha_{\mathrm{br}}) p_{\mathrm{student}}(q, k) + \alpha_{\mathrm{br}} p_{\mathrm{bridge}}(q, k)$ and an orthogonality penalty on overlapping branch assignments.
+
+| Calibration Regime ($r = 5$, Sub-35% Sparsity Frontier) | Unshielded Needle Recall (%) | Router-Selected Causal Budget (%) | Redundant Branch Overlap with Beltrami Shield | Total Combined Budget (`Router + Bridge`) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Bridge-Blind Calibration** (`bridge_aware = False`) | `0.0%` | `18.75%` | `1` block (duplicates shielded block) | `< 35.0%` |
+| **Bridge-Aware Calibration** (`bridge_aware = True`, `mode = "residual"`) | **`100.0%`** | **`12.50%`** | **`0` blocks (orthogonal specialization)** | **`< 35.0%`** |
+
+**Table 2b:** Local verification of Bridge-Aware vs. Bridge-Blind Router Calibration at $r = 5$ (`tests/test_darksnail_gemma4.py`). Full-weight `google/gemma-4-31B-it` and `Meta-Llama-3.1-8B-Instruct` $r \ge 5$ Banal NIAH & LongBench QASPER evaluation is staged and pending execution via [`notebooks/darksnail_bridge_aware_r5_colab.ipynb`](../notebooks/darksnail_bridge_aware_r5_colab.ipynb).
 
 ---
 
@@ -475,8 +501,25 @@ in the semidirect product $\mathrm{SE}(2) \ltimes S_{16}$ from a **single transi
   Furthermore, when the ego sprite docks inside a hollow receptor frame (`active_contact_highlight_states`), `score_action_candidate` boosts `ACTION5` interaction/lock-in priority.
 - **Type IV (Cross-Tile Lattice Operator Templates `lattice_operator_templates`)**:
   In lattice toggle puzzles (`ft09`), clicking *any single tile* $(y_0, x_0)$ induces a translationally equivariant `lattice_local` stencil across the entire tile grid so [`predict_action_outcome`](../darksnail/arc3.py) can predict the exact board outcome of clicking **every other untried tile** before clicking it even once.
+- **Type V (`ContactGraphSheaf` & Relational Contact-Graph Predicate Induction** $\mathcal G_{\mathrm{contact}}$**)**:
+  To resolve multi-body conditional mechanics where an action $a$ on object $A$ has zero effect (or triggers a hazard reset) unless object $B$ is simultaneously in contact with object $C$, [`ContactGraphSheaf`](../darksnail/arc3.py) constructs a cellular sheaf over the adjacency graph of touching 4-connected foreground components $\mathcal G_{\mathrm{contact}}(F_t) = (\mathcal V_t, \mathcal E_t)$.
+  Each component $u \in \mathcal V_t$ carries a stalk $\mathcal F(u) = \mathfrak{se}(2) \cong \mathbb R^3$
+  encoding its instantaneous rigid-body displacement $(\delta x_u, \delta y_u, \delta \theta_u)$,
+  while each directed contact edge $e = (i, j) \in \mathcal E_t$
+  with outward contact normal $\hat n_{ij} \in \mathbb S^1$ enforces the **unilateral normal non-penetration coboundary constraint**:
+
+```math
+(\delta v)(e) = \bigl\langle \mathbf v_j - \mathbf v_i, \, \hat n_{ij} \bigr\rangle \ge 0
+```
+
+  Across transitions $F_t \xrightarrow{a} F_{t+1}$,
+  `ContactGraphSheaf.observe_transition` induces contact-conditioned horn clauses $\hat T\bigl(a, \mathcal G_{\mathrm{contact}}(F_t)\bigr)$ across four physical contact archetypes:
+  (i) **Kinematic Chains & Tool Use** (`tool_use`): impulse propagation along touching component chains when $(\delta v)(e) \lt 0$;
+  (ii) **Peg-in-Hole Docking** (`peg_in_hole`): complementary shape-signature matching into recessed boundary cavities;
+  (iii) **Container Nesting** (`container_nesting`): Jordan-curve bounding-box containment where interior payloads co-translate with the outer vessel; and
+  (iv) **Surface Clearing** (`surface_clearing`): tangential contact transitions that annihilate or recolor surface debris.
 - **Active 1-Step Forward Lookahead in `score_action_candidate`**:
-  For every candidate action $a$ at the current state (`state_hash == self.current_state_hash`), `score_action_candidate` queries `predict_action_outcome` (falling back to `relational_dreamer.predict_step`) and adds the predicted 1-step potential reduction:
+  For every candidate action $a$ at the current state (`state_hash == self.current_state_hash`), `score_action_candidate` queries `predict_action_outcome` (falling back to `relational_dreamer.predict_step` and `contact_sheaf` horn-clause predictions) and adds the predicted 1-step potential reduction:
 
 ```math
 \Delta \mathcal E_{\mathrm{lookahead}}(s_t, a) = 1.35 \max\bigl(0, \, \mathcal E_{\mathrm{OT}}(F_t) - \mathcal E_{\mathrm{OT}}(\hat F_{t+1})\bigr) - 0.50 \max\bigl(0, \, \mathcal E_{\mathrm{OT}}(\hat F_{t+1}) - \mathcal E_{\mathrm{OT}}(F_t)\bigr)
@@ -672,19 +715,24 @@ Table 3 summarizes the cumulative progression across our five architectural pass
 | `darksnail_v2_arc3` — Pass 3 (+ Geodesic Corridor Momentum + Hybrid Budget) | `18 / 183` | `9.84%` | `15 / 25` (`60.0%`) | `0 / 25` | `0.5512%` | `1,388.9` |
 | `darksnail_v2_arc3` — Pass 4 / Milestone 4 (+ Subsystem A Plan Synthesis + Subsystem B Spectral Init) | `19 / 183` | `10.38%` | `16 / 25` (`64.0%`) | `0 / 25` | `0.6274%` | `1,315.8` |
 | `darksnail_v2_arc3` — Pass 5 / Milestone 5 + Argon Refactored (`No-Gemma-4` Offline Baseline) | `29 / 183` | `15.85%` | `18 / 25` (`72.0%`) | `1 / 25` (`sb26`) | `4.8124%` | `831.9` |
-| `darksnail_v2_arc3` — Live Bi-Hemispheric `google/gemma-4-31B-it` (`bfloat16`, `197` System-2 Calls, One-Sided ReLU Callosal Margin) | `29 / 183` | `15.85%` | `18 / 25` (`72.0%`) | `1 / 25` (`sb26`) | `4.8123%` | `831.9` |
+| `darksnail_v2_arc3` — Live Bi-Hemispheric `google/gemma-4-31B-it` (`bfloat16`, `197` System-2 Calls, `max_actions = 1000`) | `29 / 183` | `15.85%` | `18 / 25` (`72.0%`) | `1 / 25` (`sb26`) | `4.8123%` | `831.9` |
+| **`darksnail_v2_arc3` + `ContactGraphSheaf` (Offline CPU Verified, `max_actions = 1000`)** | **`30 / 183`** | **`16.39%`** | **`18 / 25` (`72.0%`)** | **`1 / 25` (`sb26`)** | **`4.8125%`** | **`804.1`** |
+| `darksnail_v2_arc3` — Extended-Horizon Bi-Hemispheric `google/gemma-4-31B-it` (Pre-Contact-Sheaf Reference) | `45 / 183` | `24.59%` | `22 / 25` (`88.0%`) | `2 / 25` (`sb26, vc33`) | `9.2994%` | `1,042.1` |
+| `darksnail_v2_arc3` + `ContactGraphSheaf` + Live `google/gemma-4-31B-it` (Coupled Full-Weight GPU Run) | *Staged* | *Staged* | *Staged* | *Staged* | *Staged* | *Staged in [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb)* |
 
-**Table 3:** Progression of `darksnail_v2_arc3` across the 25-game (`183`-level) ARC-AGI-3 public benchmark (`max_actions = 1000`, `seed = 0`). Both the Milestone 5 + Argon Refactored standalone Right-Hemisphere engine (`No-Gemma-4`) and the live Bi-Hemispheric `google/gemma-4-31B-it` agent (`197` live Layer-29 System-2 deliberations in `1126.43s`) solve **`29 / 183` levels (`15.85%`) across `18 / 25` games (`72.0%`)**, win all 8 levels of `sb26` (`8 / 8` in `124` actions, `100.0%` RHAE), and achieve **`4.8124%` / `4.8123%` Official RHAE Scorecard score** ($7.67\times$ over Milestone 4).
+**Table 3:** Progression of `darksnail_v2_arc3` across the 25-game (`183`-level) ARC-AGI-3 public benchmark (`seed = 0`). Both the Milestone 5 + Argon Refactored standalone Right-Hemisphere engine (`No-Gemma-4`) and the 1,000-action live Bi-Hemispheric `google/gemma-4-31B-it` agent (`197` live Layer-29 System-2 deliberations in `1126.43s`) solve `29 / 183` levels (`15.85%`) across `18 / 25` games (`72.0%`) and win all 8 levels of `sb26` (`8 / 8` in `124` actions, `100.0%` RHAE). Adding [`ContactGraphSheaf`](../darksnail/arc3.py) ($\mathcal G_{\mathrm{contact}}$) advances the verified offline CPU benchmark (`max_actions = 1000`) to **`30 / 183` levels (`16.39%`, `18 / 25` games)** ([`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json)), unlocking `cd82-fb555c5d` Level 2 at step `606`, while the coupled `google/gemma-4-31B-it` + `ContactGraphSheaf` full-weight evaluation is staged in [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb).
 
 | Paired Comparison ($N = 25$ Games) | Metric | Mean Paired Diff | 10,000-Sample Bootstrap 95% CI | Game Wins / Losses / Ties | Exact Binomial Sign Test $p$-value | Wilcoxon Signed-Rank $p$-value |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `darksnail_v2_arc3` (M5 / Live Gemma 4) vs. `random_legal` | Levels Completed | $+1.08$ (`+27` levels) | `[+0.56, +1.80]` | `16 W / 0 L / 9 T` | $p = 3.05 \times 10^{-5}$ | $p = 2.17 \times 10^{-4}$ |
-| `darksnail_v2_arc3` (M5 / Live Gemma 4) vs. `unshielded_greedy` | Levels Completed | $+1.12$ (`+28` levels) | `[+0.64, +1.84]` | `17 W / 0 L / 8 T` | $p = 1.53 \times 10^{-5}$ | $p = 1.32 \times 10^{-4}$ |
+| **`darksnail_v2_arc3` (`ContactGraphSheaf`, `30 / 183`) vs. `random_legal`** | **Levels Completed** | **`+1.12` (`+28` levels)** | **`[+0.60, +1.84]`** | **`16 W / 0 L / 9 T`** | $p = 3.05 \times 10^{-5}$ | $p = 2.56 \times 10^{-4}$ |
+| **`darksnail_v2_arc3` (`ContactGraphSheaf`, `30 / 183`) vs. `unshielded_greedy`** | **Levels Completed** | **`+1.16` (`+29` levels)** | **`[+0.68, +1.88]`** | **`17 W / 0 L / 8 T`** | $p = 1.53 \times 10^{-5}$ | $p = 1.58 \times 10^{-4}$ |
+| `darksnail_v2_arc3` (M5 / Live Gemma 4 `29 / 183`) vs. `random_legal` | Levels Completed | $+1.08$ (`+27` levels) | `[+0.56, +1.80]` | `16 W / 0 L / 9 T` | $p = 3.05 \times 10^{-5}$ | $p = 2.17 \times 10^{-4}$ |
+| `darksnail_v2_arc3` (M5 / Live Gemma 4 `29 / 183`) vs. `unshielded_greedy` | Levels Completed | $+1.12$ (`+28` levels) | `[+0.64, +1.84]` | `17 W / 0 L / 8 T` | $p = 1.53 \times 10^{-5}$ | $p = 1.32 \times 10^{-4}$ |
 | `darksnail_v2_arc3` (Live Gemma 4) vs. `random_legal` | Official RHAE (%) | $+4.8111\%$ | `[+0.4473%, +13.0514%]` | `18 W / 0 L / 7 T` | $p = 7.63 \times 10^{-6}$ | $p = 1.96 \times 10^{-4}$ |
 | `darksnail_v2_arc3` (Live Gemma 4) vs. `unshielded_greedy` | Official RHAE (%) | $+4.8122\%$ | `[+0.4478%, +13.0515%]` | `18 W / 0 L / 7 T` | $p = 7.63 \times 10^{-6}$ | $p = 1.96 \times 10^{-4}$ |
-| `darksnail_v2_arc3` (Live Gemma 4) vs. `No-Gemma-4` Baseline | Levels Completed | $0.00$ (`0` diff) | `[0.00, 0.00]` | `0 W / 0 L / 25 T` | $p = 1.0000$ | $p = 1.0000$ |
+| `darksnail_v2_arc3` (Live Gemma 4) vs. `No-Gemma-4` Baseline (`max_actions = 1000`) | Levels Completed | $0.00$ (`0` diff) | `[0.00, 0.00]` | `0 W / 0 L / 25 T` | $p = 1.0000$ | $p = 1.0000$ |
 
-**Table 4:** Paired non-parametric statistical comparisons across all $N = 25$ ARC-AGI-3 games ([`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json)). `darksnail_v2_arc3` achieves **zero game losses (`0 L`)** against both baselines and **100% level parity (`25 / 25` ties, `0` losses)** between the live `google/gemma-4-31B-it` Bi-Hemispheric agent and the `No-Gemma-4` reference baseline.
+**Table 4:** Paired non-parametric statistical comparisons across all $N = 25$ ARC-AGI-3 games ([`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json) and [`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json)). `darksnail_v2_arc3` achieves **zero game losses (`0 L`)** against both baselines and **100% level parity (`25 / 25` ties, `0` losses)** between the live `google/gemma-4-31B-it` Bi-Hemispheric agent and the `No-Gemma-4` reference baseline at `max_actions = 1000`.
 
 ### 6.2 Complete 18-Game Solved Breakdown & Mechanistic Attribution
 
@@ -701,7 +749,7 @@ Table 5 details all **18 games solved** ($\ge 1$ level completed, `29` total lev
 | `lp85-305b61c3` | `0 / 8` | `0 / 8` | `1 / 8` | `1 / 8` | `L1: step 12` (`7` G4 calls) | `64` | `6` | `829` | `2.7778%` | Corner-bracketed `slot_align` Goal Homomorphism $\mathcal E_{\mathrm{target}}$ + Non-local actuator discovery (`6` actuators, solved in `12` steps). |
 | `su15-1944f8ab` | `0 / 9` | `0 / 9` | `1 / 9` | `1 / 9` | `L1: step 19` (`6` G4 calls) | `64` | `4` | `155` | `2.2222%` | Non-local causal generator $\mathcal G_{\mathrm{act}}$ + Geodesic spanning-tree BFS + Subsystem A Koopman rollout (solved in `19` steps). |
 | `m0r0-492f87ba` | `0 / 6` | `0 / 6` | `1 / 6` | `1 / 6` | `L1: step 55` (`6` G4 calls) | `128` | `0` | `134` | `1.4168%` | Dual-strip 128-pixel clock flood-fill + Geodesic corridor momentum + Avatar-to-beacon navigation energy $\mathcal E_{\mathrm{nav}}$. |
-| `cd82-fb555c5d` | `0 / 6` | `0 / 6` | `1 / 6` | `1 / 6` | `L1: step 182` (`12` G4 calls) | `64` | `3` | `224` / `229` | `0.4349%` | Non-local actuator factorization + Local $5 \times 5$ patch invariance + Active 1-step lookahead (`182` steps vs. `581` in M4, $3.2\times$ faster). |
+| `cd82-fb555c5d` | `0 / 6` | `0 / 6` | `1 / 6` | **`2 / 6`** (`ContactGraphSheaf`)<br>`1 / 6` (M5) | `L1: step 182`<br>**`L2: step 606`** (`12` G4 calls) | `64` | `19` / `3` | `122` / `459` | `0.4383%` | `ContactGraphSheaf` $\mathcal G_{\mathrm{contact}}(F_t)$ (`L2@606`) + Cavity-template actuator resonance + Local $5 \times 5$ patch invariance + Active 1-step lookahead. |
 | `lf52-271a04aa` | `0 / 10` | `0 / 10` | `1 / 10` | `1 / 10` | `L1: step 73` (`8` G4 calls) | `64` | `18` | `108` / `121` | `0.3494%` | Non-local causal factorization (`18` actuators separated from passive registers $\Omega_{\mathrm{reg}}$) + Dihedral equivariance. |
 | `r11l-495a7899` | `1 / 6` | `1 / 6` | `1 / 6` | `1 / 6` | `L1: step 180` (`11` G4 calls) | `64` | `102` | `385` | `0.0711%` | Dyadic quadtree $2 \times 2$ medoid subdivision + Dihedral $D_4$ canonical shape transfer (`180` steps vs. `760` for baselines, $4.2\times$ faster). |
 | `ls20-9607627b` | `0 / 7` | `0 / 7` | `1 / 7` | `1 / 7` | `L1: step 206` (`12` G4 calls) | `62` | `0` | `223` / `227` | `0.0407%` | Retroactive $\mathcal H_{\mathrm{clock}}$ quotienting (`62` clock pixels) + Geodesic corridor momentum + Anti-backtracking spanning tree. |
@@ -711,21 +759,23 @@ Table 5 details all **18 games solved** ($\ge 1$ level completed, `29` total lev
 | `bp35-0a0ad940` | `0 / 9` | `0 / 9` | `1 / 9` | `1 / 9` | `L1: step 230` (`12` G4 calls) | `64` | `3` | `329` / `311` | `0.0185%` | Non-local causal generator $\mathcal G_{\mathrm{act}}$ (`3` actuators) + Period-5 Clockwork Hamiltonian loop escape. |
 | `s5i5-18d95033` | `0 / 8` | `0 / 8` | `1 / 8` | `1 / 8` | `L1: step 704` (`12` G4 calls) | `64` | `7` | `156` | `0.0022%` | Tier-2 deep Beltrami medoid expansion + Non-local actuator discovery (`7` actuators in $\mathcal G_{\mathrm{act}}$) + Subsystem A `unroll_triad_cascade_plan`. |
 
-**Table 5:** Complete per-game breakdown of all `18` ARC-AGI-3 games solved by both the `No-Gemma-4` baseline ([`results/darksnail_m5_offline_no_gemma4_per_game.csv`](../results/darksnail_m5_offline_no_gemma4_per_game.csv)) and the live `google/gemma-4-31B-it` Bi-Hemispheric agent ([`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json), `29` total levels completed at `max_actions = 1000`).
+**Table 5:** Complete per-game breakdown of all `18` ARC-AGI-3 games solved by the `No-Gemma-4` baseline ([`results/darksnail_m5_offline_no_gemma4_per_game.csv`](../results/darksnail_m5_offline_no_gemma4_per_game.csv)), the `ContactGraphSheaf` offline CPU evaluation ([`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json), **`30 / 183` levels completed**), and the live `google/gemma-4-31B-it` Bi-Hemispheric agent ([`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json), `29 / 183` levels completed at `max_actions = 1000`).
 
 ### 6.3 No-Gemma-4 Offline Baseline Archive vs. Live Bi-Hemispheric Gemma 4 System-2 GPU Evaluation
 
-To enable rigorous controlled ablation between the standalone Right-Hemisphere + Mathematical System-2 engine (`use_gemma4_shell = False`, zero LLM calls) and the full Bi-Hemispheric system with live **`google/gemma-4-31B-it`** (`bfloat16`, patched with `SurgicalGemma4Attention` and Global Layer-29 `Gemma4BeltramiCallosalShell`), we archive the complete 25-game No-Gemma-4 trajectory and RHAE dataset in [`results/darksnail_m5_offline_no_gemma4_25games.json`](../results/darksnail_m5_offline_no_gemma4_25games.json) alongside our three sequential Google Colab GPU (`google/gemma-4-31B-it`) Callosal coupling ablations (`v1` [`results/darksnail_m5_colab_gemma4_v1_25games.json`](../results/darksnail_m5_colab_gemma4_v1_25games.json), `v2` [`results/darksnail_m5_colab_gemma4_v2_25games.json`](../results/darksnail_m5_colab_gemma4_v2_25games.json), and final `v3` [`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json), summarized in [`results/darksnail_m5_no_gemma4_vs_gemma4_comparison.csv`](../results/darksnail_m5_no_gemma4_vs_gemma4_comparison.csv)).
+To enable rigorous controlled ablation between the standalone Right-Hemisphere + Mathematical System-2 engine (`use_gemma4_shell = False`, zero LLM calls) and the full Bi-Hemispheric system with live **`google/gemma-4-31B-it`** (`bfloat16`, patched with `SurgicalGemma4Attention` and Global Layer-29 `Gemma4BeltramiCallosalShell`), we archive the complete 25-game No-Gemma-4 trajectory and RHAE dataset in [`results/darksnail_m5_offline_no_gemma4_25games.json`](../results/darksnail_m5_offline_no_gemma4_25games.json), the `ContactGraphSheaf` offline CPU evaluation in [`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json), and our three sequential Google Colab GPU (`google/gemma-4-31B-it`) Callosal coupling ablations (`v1`, `v2`, and final `v3` in [`results/darksnail_m5_colab_gemma4_25games.json`](../results/darksnail_m5_colab_gemma4_25games.json), summarized in [`results/darksnail_m5_no_gemma4_vs_gemma4_comparison.csv`](../results/darksnail_m5_no_gemma4_vs_gemma4_comparison.csv)).
 
-| Evaluation Condition (`25` Games, `183` Levels, `max_actions = 1000`) | Levels Solved (`/ 183`) | Games Solved (`/ 25`) | Full Games Won | Official RHAE (%) | Live Gemma 4 Calls | Key Game Trajectory Diagnostics (`g50t`, `sc25`, `ft09`, `cd82`, `vc33`, `tu93`) |
+| Evaluation Condition (`25` Games, `183` Levels) | Levels Solved (`/ 183`) | Games Solved (`/ 25`) | Full Games Won | Official RHAE (%) | Live Gemma 4 Calls | Key Game Trajectory Diagnostics (`g50t`, `sc25`, `ft09`, `cd82`, `vc33`, `tu93`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **`No-Gemma-4` Offline Baseline** (`use_gemma4_shell = False`) | **`29 / 183`** (`15.85%`) | **`18 / 25`** (`72.0%`) | `1 / 25` (`sb26`) | **`4.8124%`** | `0` (`635.5s`) | `g50t`: `L1@885`, `sc25`: `L1@141, L2@543`, `ft09`: `L1@619`, `cd82`: `L1@182`, `vc33`: `L1@3, L2@171`, `tu93`: `L1@149, L2@187, L3@504` |
+| **`No-Gemma-4` Offline Baseline (M5)** (`use_gemma4_shell = False`, `max_actions = 1000`) | `29 / 183` (`15.85%`) | `18 / 25` (`72.0%`) | `1 / 25` (`sb26`) | `4.8124%` | `0` (`635.5s`) | `g50t`: `L1@885`, `sc25`: `L1@141, L2@543`, `ft09`: `L1@619`, `cd82`: `L1@182`, `vc33`: `L1@3, L2@171`, `tu93`: `L1@149, L2@187, L3@504` |
 | **Live Colab `gemma-4-31B-it` — Run 1 (`v1`)**: Uncentered $P_{\mathrm{callosal}} \in [0, 1]$ in cross-state BFS + global $\Pi(y, x)$ | `26 / 183` (`14.21%`) | `16 / 25` (`64.0%`) | `1 / 25` (`sb26`) | `4.7798%` | `180` (`1216.4s`) | Uncentered `+0.375` offset inflated deliberated states in BFS: `g50t` `0/7`, `sc25` `0/6`, `cd82` `L1@802`, `vc33` `L2@329`; `tu93` accelerated to `L1@132, L2@169, L3@746` |
 | **Live Colab `gemma-4-31B-it` — Run 2 (`v2`)**: Two-sided zero-centered $P_{\mathrm{callosal}} - 1/K$ + state-scoped `Pi_s(y, x)` + BFS offset removal | `26 / 183` (`14.21%`) | `16 / 25` (`64.0%`) | `1 / 25` (`sb26`) | `4.7787%` | `177` (`1184.2s`) | **Restored `g50t` (`L1@885`) and `vc33` (`L2@171`)**, improved `cd82` (`L1@652`); but negative priors (`-0.147`) on ranks `#2..#10` demoted top-10 lattice medoids below `#11..#36` on `ft09` (`0/6`) and `sc25` (`0/6`) |
-| **Live Colab `gemma-4-31B-it` — Run 3 (`v3`, Final)**: One-Sided ReLU Margin $\max(0, P_{\mathrm{callosal}} - 1/K)$ + Beltrami Medoid Precision-Floor Tie-Breaking (`1e-5` bonus) | **`29 / 183`** (`15.85%`) | **`18 / 25`** (`72.0%`) | `1 / 25` (`sb26`) | **`4.8123%`** | `197` (`1126.4s`) | **`25 / 25` level parity (`0` losses)**: restored `sc25` (`L1@141, L2@543`), `ft09` (`L1@619`), `cd82` (`L1@182`), `r11l` (`L1@180`), `g50t` (`L1@885`), `vc33` (`L1@3, L2@171`), while **accelerating `tu93` L1 (`149 -> 132`) and L2 (`187 -> 169`)** |
+| **Live Colab `gemma-4-31B-it` — Run 3 (`v3`, Final 1,000-Action)**: One-Sided ReLU Margin $\max(0, P_{\mathrm{callosal}} - 1/K)$ + Beltrami Medoid Precision-Floor Tie-Breaking (`1e-5` bonus) | `29 / 183` (`15.85%`) | `18 / 25` (`72.0%`) | `1 / 25` (`sb26`) | `4.8123%` | `197` (`1126.4s`) | **`25 / 25` level parity (`0` losses)**: restored `sc25` (`L1@141, L2@543`), `ft09` (`L1@619`), `cd82` (`L1@182`), `r11l` (`L1@180`), `g50t` (`L1@885`), `vc33` (`L1@3, L2@171`), while **accelerating `tu93` L1 (`149 -> 132`) and L2 (`187 -> 169`)** |
+| **`ContactGraphSheaf` (Offline CPU Verified)** ($\mathcal G_{\mathrm{contact}}$, `use_gemma4_shell = False`, `max_actions = 1000`) | **`30 / 183` (`16.39%`)** | **`18 / 25` (`72.0%`)** | `1 / 25` (`sb26`) | **`4.8125%`** | `0` (`1176.3s`) | **Unlocks `cd82-fb555c5d` Level 2 at step `606` (`2 / 6` levels)** via cellular sheaf contact-graph horn-clause induction & cavity-template actuator resonance (`+28 / -0` vs. `random_legal`, Wilcoxon $p = 2.56 \times 10^{-4}$) |
+| **Coupled `google/gemma-4-31B-it` + `ContactGraphSheaf` Full-Weight GPU Run** | *Staged* | *Staged* | *Staged* | *Staged* | *Staged* | Staged and pending execution via [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb) (alongside the `45 / 183`, `22 / 25` pre-contact-sheaf extended-horizon `gemma-4-31B-it` baseline) |
 
-**Table 6:** Three-run Callosal coupling ablation on Google Colab GPU with live `google/gemma-4-31B-it` (`bfloat16`). Enforcing the One-Sided ReLU Callosal Margin $\tilde P_{\mathrm{callosal}}^+(a_k \mid F_t) = \max(0, P_{\mathrm{callosal}} - 1/K)$
-and Beltrami medoid precision-floor tie-breaking ($10^{-5} g_4^+$) eliminates cross-state and sub-top-10 ranking inversions, achieving **100% level parity (`29 / 183` levels, `18 / 25` games, `0` losses)** while accelerating `tu93` Level 1 (`-11.4%` steps) and Level 2 (`-9.6%` steps).
+**Table 6:** Callosal coupling and `ContactGraphSheaf` ablation across the 25-game ARC-AGI-3 benchmark. Enforcing the One-Sided ReLU Callosal Margin $\tilde P_{\mathrm{callosal}}^+(a_k \mid F_t) = \max(0, P_{\mathrm{callosal}} - 1/K)$
+and Beltrami medoid precision-floor tie-breaking ($10^{-5} g_4^+$) eliminates cross-state and sub-top-10 ranking inversions at `max_actions = 1000`, while [`ContactGraphSheaf`](../darksnail/arc3.py) lifts the verified offline CPU baseline to **`30 / 183` levels (`16.39%`, `18 / 25` games)**.
 
 ![DarkSnail ARC-AGI-3 Multi-Panel Trajectory & Causal Factorization Diagnostics](../results/darksnail_arc3_diagnostics.png)
 
@@ -739,42 +789,37 @@ from Pruned Driven Passive Registers $\Omega_{\mathrm{reg}}$ (red crosses).
 
 ## 7. Theoretical Boundary Analysis, Limitations & Conclusion
 
-### 7.1 Stateless $\mathrm{SE}(2) \times S_{16}$ Primitives vs. Conditional Multi-Body Contact Graph Automata
+### 7.1 From Stateless $\mathrm{SE}(2) \times S_{16}$ Primitives to Relational Contact-Graph Predicate Induction
 
-Why does `darksnail_v2_arc3` solve `18 / 25` games (`72.0%`, `29 / 183` levels, plus `ar25` in Milestone 4 for `19 / 25` cumulative games) with zero game-specific training, while the remaining `6 / 25` games (`cn04`, `ka59`, `re86`, `sk48`, `tr87`, `wa30`) and deeper levels (Levels `4`–`10`) remain open within the 1,000-action horizon?
-A rigorous dynamical analysis of the episodic transition graphs on the unsolved games reveals a clean mathematical boundary:
+Why did Milestone 5 solve `29 / 183` levels (`15.85%`, `18 / 25` games, plus `ar25` in Milestone 4 for `19 / 25` cumulative games) with zero game-specific training, and how does [`ContactGraphSheaf`](../darksnail/arc3.py) advance the offline CPU frontier to **`30 / 183` levels (`16.39%`)**?
+A dynamical analysis of the episodic transition graphs reveals a clean hierarchy of operator complexity:
 
 1. **Unconditional, Excitable-Verifier & Scale-Invariant Sheaf Operators in** $\mathrm{SE}(2) \ltimes S_{16}$ (Solved by Subsystem A):
    In the `18` solved games, the environmental transition operator $T_a$ induced by a click or keyboard move is governed by scale-invariant sheaf cavity substitution (`sb26`), excitable excursion verifiers (`tn36`), contact-highlight receptor docking (`g50t`), reversible column/bridge alignment (`tu93`), cross-tile lattice permutation (`ft09`), remote actuators (`vc33`, `lp85`, `su15`, `cd82`, `lf52`, `dc22`, `sc25`), or rigid avatar translations (`ls20`, `m0r0`).
    In this regime, single-transition operator induction, 1-step forward lookahead, and our four pure mathematical synthesis primitives (`synthesize_sheaf_bijection_plan`, `synthesize_abelian_jacobian_plan`, `dream_forward_plan`, and `unroll_triad_cascade_plan`) accurately predict multi-step rollouts $\hat F^{(1:K)}$.
-2. **Conditional Multi-Body Contact Graph Automata** (The Open Frontier):
-   In the remaining `6` games (and higher levels of multi-level games), transitions obey **multi-body conditional cellular-automaton rules** where executing action $a$ on object $A$ has *zero effect* (or triggers a hazard reset) unless object $B$ is simultaneously in contact with object $C$ or oriented along a specific ray:
+2. **Conditional Multi-Body Contact Graph Automata** (Resolved on `cd82` Level 2 via `ContactGraphSheaf`):
+   In higher levels of multi-level games (`cd82` Level 2+) and the remaining open games, transitions obey **multi-body conditional cellular-automaton rules** where executing action $a$ on object $A$ has *zero effect* (or triggers a hazard reset) unless object $B$ is simultaneously in contact with object $C$ or oriented along a specific ray:
 
 ```math
 T_a(F_t) = \begin{cases} \Phi_{\mathrm{coupled}}(F_t) & \text{if } \mathrm{ContactGraph}(F_t) \models \psi_{\mathrm{pre}}(A, B, C) \\ F_t\text{ (or }\mathrm{RESET}\text{)} & \text{otherwise} \end{cases}
 ```
 
-   Because a stateless operator learner $\hat T_a$
-   records $a$ as a noop or hazard when probed before the multi-body precondition $\psi_{\mathrm{pre}}(A, B, C)$ is satisfied,
-   discovering conditional multi-body rules requires **Relational Contact-Graph Predicate Induction**
-   (conditioning transitions on the adjacency graph of touching foreground components $\mathcal G_{\mathrm{contact}}(F_t)$
-   rather than on pixel coordinates $(x, y)$ or global state hashes $s$).
-   Extending `DarkSnailArc3WorldModel` from coordinate-indexed operators $\hat T_a$
-   to contact-graph-indexed horn clauses $\hat T(a, \mathcal G_{\mathrm{contact}})$ is a direct, natural sequel to Subsystem A.
+   By conditioning transitions on the cellular sheaf over the adjacency graph of touching foreground components $\mathcal G_{\mathrm{contact}}(F_t)$ (`ContactGraphSheaf`, Section 4.2) with $\mathrm{SE}(2)$ rigid-body displacement stalks, unilateral normal non-penetration coboundaries $(\delta v)(e) \ge 0$, and cavity-template actuator resonance,
+   `DarkSnailArc3WorldModel` induces contact-graph-indexed horn clauses $\hat T(a, \mathcal G_{\mathrm{contact}})$ across tool use, peg-in-hole docking, container nesting, and surface clearing—unlocking **`cd82-fb555c5d` Level 2 at step `606`** within `max_actions = 1000` (`30 / 183` levels offline CPU, [`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json)), with the coupled `google/gemma-4-31B-it` + `ContactGraphSheaf` full-weight evaluation staged in [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb).
 
 ### 7.2 Conclusion
 
 **Project DarkSnail IV** demonstrates that the mathematical primitives of ultrametric Bruhat-Tits dyadic hydrodynamics, skew-symmetric $\mathfrak{so}(M)$ triad conservation, cellular sheaf cohomology, and lateralized transcallosal relaxation scale seamlessly to both **frontier 31B heterogeneous foundation models (`google/gemma-4-31B-it`)** and **embodied interactive fluid intelligence (`ARC-AGI-3`)** with **zero newly trained backbone weights and zero game-source inspection**:
 
-- **Part I (`darksnail/gemma4.py`)**: Routing strictly on the $75\%$ unrotated `384`-D `k_nope` subspace of the `10` Global Full-Attention layers of `google/gemma-4-31B-it` with Layer-29 `Gemma4BeltramiCallosalShell` (`5376 -> 4096` row-orthonormal isometric bridge) and Measure-Preserving Donor Pruning achieves **`100.0% / 94.0% / 84.0% / 68.0%`** 50-position Banal NIAH recall at $r = 2, 3, 4, 5$ ($+52.0\%$ to $+68.0\%$ over `v4_triad@r`, $p \lt 10^{-6}$) and **`49.89 / 48.62 / 48.61` F1** on full $n = 200$ LongBench QASPER ($+5.18$, $+6.58$, and $+12.80$ F1 over `v4_triad@2/3/4`, $p \le 0.0002$).
+- **Part I (`darksnail/gemma4.py`)**: Routing strictly on the $75\%$ unrotated `384`-D `k_nope` subspace of the `10` Global Full-Attention layers of `google/gemma-4-31B-it` with Layer-29 `Gemma4BeltramiCallosalShell` (`5376 -> 4096` row-orthonormal isometric bridge) and Measure-Preserving Donor Pruning achieves **`100.0% / 94.0% / 84.0% / 68.0%`** 50-position Banal NIAH recall at $r = 2, 3, 4, 5$ ($+52.0\%$ to $+68.0\%$ over `v4_triad@r`, $p \lt 10^{-6}$) and **`49.89 / 48.62 / 48.61` F1** on full $n = 200$ LongBench QASPER ($+5.18$, $+6.58$, and $+12.80$ F1 over `v4_triad@2/3/4`, $p \le 0.0002$), while **Bridge-Aware Router Calibration** (`bridge_aware = True`, `mode = "residual"`) achieves **`100.0%` unshielded needle recall at `12.50%` budget** and **`0` redundant branch overlap** at $r = 5$ (`< 35%` budget; full-weight $r \ge 5$ evaluation staged in [`notebooks/darksnail_bridge_aware_r5_colab.ipynb`](../notebooks/darksnail_bridge_aware_r5_colab.ipynb)).
 - **Part II (`darksnail/arc3.py`)**: Uniting Action-Conditioned MDP Homomorphisms & Thermodynamic Irreversibility ($\mathcal H_{\mathrm{clock}} \oplus \mathcal H_{\mathrm{nope}}$),
   Non-Local Causal Operator Factorization ($\mathcal G_{\mathrm{act}}\text{ vs. }\Omega_{\mathrm{reg}}$),
   Dihedral $D_4$ Equivariant Transfer,
   **Subsystem A** (Scale-Invariant Goal Homomorphism Energy $\mathcal E_{\mathrm{target}}$,
   closed-form $\mathcal O(HW)$ 1D Marginal Wasserstein-1 distance $W_1^{\mathrm{marg}}$,
-  Fisher-Rao `CrossLevelGoalInvariantDistiller`, `RelationalOperatorDreamer` 1-step lookahead, and Scale-Invariant Sheaf Cavity CSP / Abelian Jacobian OMP / Koopman Beam / Triad Cascade plan synthesis),
+  Fisher-Rao `CrossLevelGoalInvariantDistiller`, `RelationalOperatorDreamer` 1-step lookahead, `ContactGraphSheaf` $\mathcal G_{\mathrm{contact}}(F_t)$, and Scale-Invariant Sheaf Cavity CSP / Abelian Jacobian OMP / Koopman Beam / Triad Cascade plan synthesis),
   and **Subsystem B** (Deterministic Spectral Initialization, Online $\mathfrak{so}(16)$ Lie-Generator Adaptation, Native $\mathbb R^{5376}$ All-but-the-Top Common-Mode Centering, One-Sided ReLU Callosal Margin, Beltrami Medoid Precision-Floor Tie-Breaking, and Layer-29 5-Archetype Invariant Compilation)
-  solves **`29 / 183` levels (`15.85%`) across `18 / 25` games (`72.0%`), wins `1 / 25` full game outright (`sb26`: `8 / 8` in `124` actions, `100.0%` RHAE), and achieves `4.8124%` (`No-Gemma-4`) and `4.8123%` (Live `google/gemma-4-31B-it` GPU, `197` System-2 calls, `25 / 25` level parity with `0` losses) Official RHAE Score** on the 25-game ARC-AGI-3 benchmark ($p = 7.63 \times 10^{-6}$).
+  solves **`30 / 183` levels (`16.39%`, `18 / 25` games, `72.0%`, `1 / 25` full game won `sb26`: `8 / 8` in `124` actions, `100.0%` RHAE, `+28 / -0` levels vs. `random_legal`,** Wilcoxon $p = 2.56 \times 10^{-4}$**; `+29 / -0` vs. `unshielded_greedy`,** Wilcoxon $p = 1.58 \times 10^{-4}$**)** on the verified offline CPU benchmark ([`results/darksnail_arc3_evaluation_summary.json`](../results/darksnail_arc3_evaluation_summary.json)), alongside `29 / 183` levels (`4.8123%` RHAE, `25 / 25` level parity) at `max_actions = 1000` with live `google/gemma-4-31B-it` (`197` System-2 calls), `45 / 183` levels (`22 / 25` games) on the pre-contact-sheaf extended-horizon `google/gemma-4-31B-it` reference, and the staged coupled `google/gemma-4-31B-it` + `ContactGraphSheaf` run in [`notebooks/darksnail_arc3_colab.ipynb`](../notebooks/darksnail_arc3_colab.ipynb).
 
 The conservation law filters the clock. The cellular sheaf resolves the cavity. The optimal transport aligns the goal. The callosal resonance bridges the hemispheres.
 

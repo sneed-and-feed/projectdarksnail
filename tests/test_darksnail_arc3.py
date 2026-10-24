@@ -788,5 +788,180 @@ def test_milestone5_four_pillars_and_thermodynamic_irreversibility() -> None:
     assert float(w_after[0]) > 0.30
 
 
+def test_contact_graph_sheaf_kinematics_and_dreamer():
+    """
+    R1 Acceptance Tests:
+      1. ContactGraphSheaf SE(2) stalk representation, outward normal extraction,
+         and restriction map non-penetration coboundary (delta v)(e) >= 0.
+      2. Multi-body linear push chain (Ego -> Tool -> Obstacle -> Free space).
+      3. Container nesting: internal objects locked to container displacement v_inner = v_container.
+      4. Wall lock: chain blocked by immovable wall collapses displacements in H^0(G; F).
+      5. Peg-in-hole docking: cavity insertion predicate detection.
+      6. Multi-object surface clearing: wide pusher displacing multiple disjoint blocks simultaneously.
+    """
+    from darksnail.arc3 import ContactGraphSheaf, ContactNode, ContactEdge, RelationalOperatorDreamer
+
+    bg_mode = 0
+    # 1. Multi-body push chain: Ego (col 9) -> Tool (col 11) -> Obstacle (col 14) -> Goal/free space
+    board = np.zeros((32, 32), dtype=np.int32)
+    board[10:12, 10:12] = 9   # 2x2 Ego
+    board[10:12, 12:15] = 11  # 2x3 Tool (in contact with ego at cols 10..11 -> 12..14)
+    board[10:12, 15:17] = 14  # 2x2 Obstacle (in contact with tool at cols 12..14 -> 15..16)
+
+    sheaf = ContactGraphSheaf.from_board(
+        board,
+        bg_mode=bg_mode,
+        ego_colors={9},
+        pushable_colors={11, 14},
+        wall_colors={8},
+    )
+    assert len(sheaf.nodes) == 3
+    assert sheaf.ego_node_id is not None
+    ego_node = sheaf.nodes[sheaf.ego_node_id]
+    assert ego_node.color == 9
+
+    # Find tool and obstacle nodes
+    tool_node = [n for n in sheaf.nodes.values() if n.color == 11][0]
+    obs_node = [n for n in sheaf.nodes.values() if n.color == 14][0]
+
+    # Verify contact edges exist
+    edge_ego_tool = [e for e in sheaf.edges if (e.u == ego_node.node_id and e.v == tool_node.node_id) or (e.v == ego_node.node_id and e.u == tool_node.node_id)][0]
+    edge_tool_obs = [e for e in sheaf.edges if (e.u == tool_node.node_id and e.v == obs_node.node_id) or (e.v == tool_node.node_id and e.u == obs_node.node_id)][0]
+
+    # Outward normal should point along x (+1) from ego to tool, and from tool to obstacle
+    n_ego_tool = edge_ego_tool.normal if edge_ego_tool.u == ego_node.node_id else (-edge_ego_tool.normal[0], -edge_ego_tool.normal[1])
+    assert n_ego_tool[1] > 0.90  # Positive x normal
+
+    # Restriction map and coboundary check: uniform translation (0, 1) has coboundary == 0
+    delta_v = edge_ego_tool.compute_coboundary(
+        v_u=(0.0, 1.0, 0.0),
+        x_u=(ego_node.centroid_y, ego_node.centroid_x),
+        v_v=(0.0, 1.0, 0.0),
+        x_v=(tool_node.centroid_y, tool_node.centroid_x),
+    )
+    assert np.isclose(delta_v, 0.0, atol=1e-5)  # Rigid translation satisfies unilateral constraint
+
+    # Propagate displacement Right (0, 1)
+    ok, disp_map, reason = sheaf.propagate_displacement(action_dir=(0, 1), ego_node_id=ego_node.node_id)
+    assert ok, f"Propagation failed: {reason}"
+    assert len(disp_map) == 3
+    assert disp_map[ego_node.node_id] == (0, 1)
+    assert disp_map[tool_node.node_id] == (0, 1)
+    assert disp_map[obs_node.node_id] == (0, 1)
+
+    # Apply displacement to board
+    next_board = sheaf.apply_displacement_to_board(board, bg_mode, disp_map)
+    assert np.all(next_board[10:12, 11:13] == 9)
+    assert np.all(next_board[10:12, 13:16] == 11)
+    assert np.all(next_board[10:12, 16:18] == 14)
+    assert np.all(next_board[10:12, 10:11] == 0)  # Vacated space
+
+    # Verify RelationalOperatorDreamer predict_step with contact sheaf
+    dreamer = RelationalOperatorDreamer()
+    dreamer.ego_colors.add(9)
+    dreamer.pushable_colors.update({11, 14})
+    dreamer.kinematic_generators[4] = (0, 1, False)  # Right
+    pred_step = dreamer.predict_step(board, action_key=4)
+    assert pred_step is not None
+    assert np.array_equal(pred_step, next_board)
+
+    # 2. Container Nesting: 5x5 hollow container (color 12) with nested coin (color 7) inside
+    c_board = np.zeros((32, 32), dtype=np.int32)
+    # Hollow 5x5 container frame of color 12 at [10:15, 10:15]
+    c_board[10:15, 10:15] = 12
+    c_board[11:14, 11:14] = 0  # Interior background cavity
+    # Inner coin of color 7 nested inside container at [12:13, 12:13]
+    c_board[12:13, 12:13] = 7
+    # Ego at [10:15, 7:10] (color 9) adjacent to container left wall
+    c_board[10:15, 7:10] = 9
+
+    c_sheaf = ContactGraphSheaf.from_board(
+        c_board,
+        bg_mode=bg_mode,
+        ego_colors={9},
+        pushable_colors={12, 7},
+        wall_colors={8},
+    )
+    # Verify container nesting edge detected
+    nest_edges = [e for e in c_sheaf.edges if e.is_enclosed]
+    assert len(nest_edges) >= 1
+    assert nest_edges[0].container_id is not None and nest_edges[0].content_id is not None
+    assert c_sheaf.nodes[nest_edges[0].container_id].color == 12
+    assert c_sheaf.nodes[nest_edges[0].content_id].color == 7
+
+    # Propagate push Right (0, 1): container and nested coin must move rigidly together
+    c_ok, c_disp, _ = c_sheaf.propagate_displacement(action_dir=(0, 1), ego_node_id=c_sheaf.ego_node_id)
+    assert c_ok
+    assert len(c_disp) == 3
+    c_next = c_sheaf.apply_displacement_to_board(c_board, bg_mode, c_disp)
+    # Container frame shifted by (0, 1): outer frame border is 12
+    assert np.all(c_next[10, 11:16] == 12)
+    assert np.all(c_next[14, 11:16] == 12)
+    assert np.all(c_next[10:15, 11] == 12)
+    assert np.all(c_next[10:15, 15] == 12)
+    # Nested coin shifted by (0, 1) to [12, 13]
+    assert c_next[12, 13] == 7
+    # Interior cavity remains hollow around coin
+    assert c_next[11, 13] == 0
+    assert c_next[13, 13] == 0
+
+    # 3. Wall Lock: Obstacle touches wall of color 8 -> chain locks in H^0(G; F)
+    w_board = board.copy()
+    w_board[10:12, 17:22] = 8  # Immovable wall adjacent to obstacle
+    w_sheaf = ContactGraphSheaf.from_board(
+        w_board,
+        bg_mode=bg_mode,
+        ego_colors={9},
+        pushable_colors={11, 14},
+        wall_colors={8},
+    )
+    w_ok, w_disp, w_reason = w_sheaf.propagate_displacement(action_dir=(0, 1), ego_node_id=w_sheaf.ego_node_id)
+    assert not w_ok
+    assert w_reason in ("wall_lock", "wall_collision")
+    assert len(w_disp) == 0
+
+    # Dreamer predict_step returns unshifted board under wall lock
+    dreamer.wall_colors.add(8)
+    w_pred = dreamer.predict_step(w_board, action_key=4)
+    assert w_pred is not None
+    assert np.array_equal(w_pred, w_board)
+
+    # 4. Peg-in-Hole Docking into matching receptor cavity
+    dock_board = np.zeros((32, 32), dtype=np.int32)
+    dock_board[10:12, 10:12] = 10  # 2x2 peg
+    # 4x4 hollow socket of color 5 at [10:14, 18:22] with 2x2 cavity at [11:13, 19:21]
+    dock_board[10:14, 18:22] = 5
+    dock_board[11:13, 19:21] = 0
+    d_sheaf = ContactGraphSheaf.from_board(dock_board, bg_mode=bg_mode)
+    peg_id = [n for n in d_sheaf.nodes.values() if n.color == 10][0].node_id
+    rec_id = [n for n in d_sheaf.nodes.values() if n.color == 5][0].node_id
+
+    # Align peg from [10:12, 10:12] to [11:13, 19:21]: disp = (1, 9)
+    assert d_sheaf.detect_peg_docking(peg_id, rec_id, disp=(1, 9))
+    assert not d_sheaf.detect_peg_docking(peg_id, rec_id, disp=(0, 0))
+
+    # 5. Multi-object surface clearing (plow / broom)
+    clear_board = np.zeros((32, 32), dtype=np.int32)
+    clear_board[10:16, 10:12] = 9   # 6x2 wide plow ego
+    clear_board[10:12, 12:14] = 13  # Block A
+    clear_board[12:14, 12:14] = 14  # Block B
+    clear_board[14:16, 12:14] = 15  # Block C
+    s_sheaf = ContactGraphSheaf.from_board(
+        clear_board,
+        bg_mode=bg_mode,
+        ego_colors={9},
+        pushable_colors={13, 14, 15},
+    )
+    assert len(s_sheaf.nodes) == 4
+    s_ok, s_disp, _ = s_sheaf.propagate_displacement(action_dir=(0, 1), ego_node_id=s_sheaf.ego_node_id)
+    assert s_ok
+    assert len(s_disp) == 4  # All 3 disjoint blocks pushed together
+    s_next = s_sheaf.apply_displacement_to_board(clear_board, bg_mode, s_disp)
+    assert np.all(s_next[10:12, 13:15] == 13)
+    assert np.all(s_next[12:14, 13:15] == 14)
+    assert np.all(s_next[14:16, 13:15] == 15)
+
+
+
 
 

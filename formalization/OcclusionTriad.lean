@@ -71,6 +71,17 @@ This module formalizes the core mathematical synthesis of **Project DarkSnail**
    ($\mathbf{B} \cdot \nabla\psi = 0 \iff \langle v, B_W(u, v) \rangle = 0$), non-stellarator-symmetric
    parity tie-breaking across resonant Fourier modes, and exact zero-torsion homotopy
    ($\tau_0 = 0 \iff \delta z = 0$).
+
+9. **Relaxed-Flow MRxMHD Bernoulli Jump & Cross-Helicity Collinearity
+   (`flowBeltramiMultiplier`, `sub_alfvenic_beltrami_homotopy_zero_flow`,
+   `beltrami_cross_helicity_collinear_lorentz_vanishes`,
+   `mrxmhd_flow_bernoulli_jump_conservation`, `kam_sub_alfvenic_ellipticity_and_gap`)**:
+   Extends static Taylor-Woltjer Beltrami relaxation to Multi-Region Relaxed MHD (MRxMHD) with
+   sub-Alfvénic field-aligned plasma flow $M_i^2 < 1$ (Qu et al., 2020/2021), proving exact
+   vanishing of the interior Lorentz/Lamb triad for collinear Beltrami fields, the generalized
+   Flow-MRxMHD Bernoulli interface jump law $\llbracket p + \frac{1}{2}(1 + M^2) B^2 \rrbracket = 0$
+   with exact static Taylor-Hudson reduction at $M = 0$, and sub-Alfvénic PDE ellipticity paired
+   with KAM Diophantine interface non-resonance.
 -/
 
 namespace Ultrametric.Analysis.OcclusionTriad
@@ -732,8 +743,10 @@ In particular, both the 3D MHD Lorentz force $\mathbf{J} \times \mathbf{B}$ and 
 Lamb vector $\boldsymbol{\omega} \times \mathbf{u}$ are exact $C = 3$ instances of `triadOperator`. -/
 theorem cross3_eq_triadOperator (u v : Fin 3 → ℝ) (k : Fin 3) :
     triadOperator 3 leviCivitaHalfTensor u v k = cross3 u v k := by
-  unfold triadOperator Formalization.Analysis.triadOperator leviCivitaHalfTensor cross3
-  fin_cases k <;> simp [Fin.sum_univ_three] <;> ring
+  fin_cases k <;>
+    simp [triadOperator, Formalization.Analysis.triadOperator, leviCivitaHalfTensor,
+      cross3, Fin.sum_univ_three] <;>
+    ring
 
 /-- 3D ideal magnetohydrodynamic (MHD) static force-balance predicate
 $$\mathbf{J} \times \mathbf{B} = \nabla p \iff \forall k \in \mathrm{Fin}\,3,\; B_{W_{\mathrm{LC}}}(\mathbf{J}, \mathbf{B})_k = (\nabla p)_k.$$ -/
@@ -800,10 +813,8 @@ theorem mhd_flux_surface_confinement_iff {C : ℕ}
         Formalization.Analysis.shellInner v (triadOperator C W u v) = 0)) ∧
     IsFluxSurfaceConfined v (triadOperator C W u v) ∧
     Formalization.Analysis.shellInner B (cross3 J B) = 0 := by
-  refine ⟨fun h => by rw [h]; rfl,
-    Formalization.Analysis.triad_pointwise_orthogonal W u v, ?_⟩
-  rw [show cross3 J B = triadOperator 3 leviCivitaHalfTensor J B from
-    funext fun k => (cross3_eq_triadOperator J B k).symm]
+  refine ⟨fun h => h ▸ Iff.rfl, Formalization.Analysis.triad_pointwise_orthogonal W u v, ?_⟩
+  rw [← funext (cross3_eq_triadOperator J B)]
   exact Formalization.Analysis.triad_pointwise_orthogonal leviCivitaHalfTensor J B
 
 /-- Non-stellarator-symmetric (parity-odd $\sin(m\theta - n\zeta)$) triad perturbation shift
@@ -853,15 +864,12 @@ theorem stellarator_parity_breaks_tie_and_conserves_flux {C : ℕ}
       stellaratorReadout C ℓ_sym τ₀ W u v c₁ >
         stellaratorReadout C ℓ_sym τ₀ W u v c₂) ∧
     IsFluxSurfaceConfined v (stellaratorParityShift C τ₀ W u v) := by
-  have h_diff :
-      stellaratorReadout C ℓ_sym τ₀ W u v c₁ -
-        stellaratorReadout C ℓ_sym τ₀ W u v c₂ =
-          2 * τ₀ * β * α * (W i₀ c₂ c₁ - W i₀ c₁ c₂) := by
-    by_cases hc : c₁ = c₂
-    · subst hc; ring
-    · simp only [stellaratorReadout, stellaratorParityShift, h_tie,
-        triadOperator_two_color_eval W u v i₀ c₁ c₂ _ α β hc hu_i0 hu_other hv_c1 hv_c2 hv_other]
-      ring
+  have h_occl := (occlusion_triad_breaks_symmetric_tie ℓ_sym W u v i₀ c₁ c₂ α β
+    hα hβ h_tie hu_i0 hu_other hv_c1 hv_c2 hv_other).1
+  have h_diff : stellaratorReadout C ℓ_sym τ₀ W u v c₁ -
+      stellaratorReadout C ℓ_sym τ₀ W u v c₂ = 2 * τ₀ * β * α * (W i₀ c₂ c₁ - W i₀ c₁ c₂) := by
+    unfold stellaratorReadout stellaratorParityShift; unfold postLogit at h_occl
+    linear_combination (1 - τ₀) * h_tie + τ₀ * h_occl
   exact ⟨h_diff, fun hW => by nlinarith [mul_pos (mul_pos hτ hβ) hα],
     tangentTriadStep_orthogonal τ₀ W u v⟩
 
@@ -877,9 +885,98 @@ theorem stellarator_zero_torsion_homotopy_iff {C : ℕ}
     (h_nondeg : ∃ k : Fin C, triadOperator C W u v k ≠ 0) :
     (τ₀ = 0 ↔ stellaratorParityShift C τ₀ W u v = 0) ∧
     (τ₀ = 0 → ∀ k : Fin C, stellaratorReadout C ℓ_sym τ₀ W u v k = ℓ_sym k) := by
-  refine ⟨⟨fun hτ => funext fun k => by simp [stellaratorParityShift, hτ], fun h0 => ?_⟩,
-    fun hτ k => by simp [stellaratorReadout, stellaratorParityShift, hτ]⟩
   rcases h_nondeg with ⟨k, hk⟩
-  exact (mul_eq_zero.mp (congr_fun h0 k)).resolve_right hk
+  refine ⟨⟨fun hτ => funext fun i => by simp [stellaratorParityShift, hτ],
+    fun h0 => (mul_eq_zero.mp (congr_fun h0 k)).resolve_right hk⟩,
+    fun hτ i => by simp [stellaratorReadout, stellaratorParityShift, hτ]⟩
+
+/-! ### Theorem 9 (Family 2.9): Relaxed-Flow MRxMHD Bernoulli Jump & Cross-Helicity Collinearity -/
+
+/-- Effective Relaxed-Flow MRxMHD Beltrami multiplier
+$$\tilde{\mu}_i = \frac{\mu_i}{1 - M_i^2}$$
+for field-aligned sub-Alfvénic Mach number $M_i$ ($M_i^2 < 1$) from Qu, Dewar, Ebrahimi,
+Anderson, Hudson & Hole (2020, arXiv:2001.06984). -/
+noncomputable def flowBeltramiMultiplier (μ M : ℝ) : ℝ :=
+  μ / (1 - M ^ 2)
+
+/-- At zero Mach flow ($M = 0$), the effective flow-Beltrami multiplier reduces identically to
+the static Taylor-Woltjer Beltrami multiplier $\mu$. -/
+theorem sub_alfvenic_beltrami_homotopy_zero_flow (μ : ℝ) :
+    flowBeltramiMultiplier μ 0 = μ := by
+  unfold flowBeltramiMultiplier; ring
+
+/-- In the sub-Alfvénic elliptic regime ($M^2 < 1$) with positive Beltrami parameter $\mu > 0$,
+the effective Relaxed-Flow MRxMHD multiplier $\tilde{\mu} = \mu / (1 - M^2)$ is strictly positive. -/
+theorem sub_alfvenic_beltrami_pos (μ M : ℝ) (hμ : 0 < μ) (hM : M ^ 2 < 1) :
+    0 < flowBeltramiMultiplier μ M :=
+  div_pos hμ (by linarith)
+
+/-- Collinear Beltrami current/vorticity/flow field $u_k = \alpha B_k$ (representing either a
+force-free Beltrami current $\mathbf{J} = \tilde{\mu} \mathbf{B}$ or a field-aligned Mach flow
+$\mathbf{v} = M \mathbf{B}$). -/
+def collinearBeltramiField (α : ℝ) (B : Fin 3 → ℝ) (k : Fin 3) : ℝ :=
+  α * B k
+
+/-- **Theorem 9a (`beltrami_cross_helicity_collinear_lorentz_vanishes`)**:
+For any collinear Beltrami current, vorticity, or field-aligned Mach velocity field
+$u = \alpha B$ ($\alpha \in \mathbb{R}$, $B : \mathrm{Fin}\,3 \to \mathbb{R}$), both the 3D
+Levi-Civita `triadOperator` and the 3D vector cross product vanish identically across all
+coordinates $k \in \mathrm{Fin}\,3$:
+$$B_{W_{\mathrm{LC}}}(\alpha \mathbf{B}, \mathbf{B})_k = (\alpha \mathbf{B} \times \mathbf{B})_k = 0.$$
+This guarantees exact force-free interior relaxation ($\mathbf{J}_i \times \mathbf{B}_i = \mathbf{0}$
+and $\mathbf{v}_i \times \mathbf{B}_i = \mathbf{0}$) within each MRxMHD shell $\mathcal{V}_i$. -/
+theorem beltrami_cross_helicity_collinear_lorentz_vanishes (α : ℝ) (B : Fin 3 → ℝ) (k : Fin 3) :
+    triadOperator 3 leviCivitaHalfTensor (collinearBeltramiField α B) B k = 0 ∧
+    cross3 (collinearBeltramiField α B) B k = 0 := by
+  rw [cross3_eq_triadOperator, and_self_iff]
+  fin_cases k <;> simp [cross3, collinearBeltramiField] <;> ring
+
+/-- Generalized Relaxed-Flow MRxMHD Bernoulli pressure-plus-magnetic-plus-kinetic head:
+$$H_{\mathrm{flow}}(p, B^2, M) = p + \frac{(1 + M^2) B^2}{2}.$$ -/
+noncomputable def flowBernoulliHead (p B_sq M : ℝ) : ℝ :=
+  p + (1 + M ^ 2) * B_sq / 2
+
+/-- Interface jump balance predicate across a stepped-pressure MRxMHD transport barrier $\mathcal{I}_i$:
+$$\llbracket p + \tfrac{1}{2}(1 + M^2) B^2 \rrbracket_{\mathcal{I}_i} = 0
+\iff H_{\mathrm{flow}}(p_1, B_1^2, M_1) = H_{\mathrm{flow}}(p_2, B_2^2, M_2).$$ -/
+def IsFlowMRxMHDJumpBalanced (p₁ B₁_sq M₁ p₂ B₂_sq M₂ : ℝ) : Prop :=
+  flowBernoulliHead p₁ B₁_sq M₁ = flowBernoulliHead p₂ B₂_sq M₂
+
+/-- **Theorem 9b (`mrxmhd_flow_bernoulli_jump_conservation`)**:
+1. The generalized Flow-MRxMHD interface jump condition `IsFlowMRxMHDJumpBalanced p₁ B₁_sq M₁ p₂ B₂_sq M₂`
+   holds if and only if the plasma pressure jump satisfies
+   $$p_2 - p_1 = \frac{(1 + M_1^2) B_1^2 - (1 + M_2^2) B_2^2}{2}.$$
+2. At zero Alfvénic Mach flow ($M_1 = 0, M_2 = 0$), the Flow-MRxMHD jump condition reduces
+   identically to the static Taylor-Hudson MRxMHD pressure jump
+   $$p_2 - p_1 = \frac{B_1^2 - B_2^2}{2}.$$ -/
+theorem mrxmhd_flow_bernoulli_jump_conservation (p₁ B₁_sq M₁ p₂ B₂_sq M₂ : ℝ) :
+    (IsFlowMRxMHDJumpBalanced p₁ B₁_sq M₁ p₂ B₂_sq M₂ ↔
+      p₂ - p₁ = ((1 + M₁ ^ 2) * B₁_sq - (1 + M₂ ^ 2) * B₂_sq) / 2) ∧
+    (IsFlowMRxMHDJumpBalanced p₁ B₁_sq 0 p₂ B₂_sq 0 ↔
+      p₂ - p₁ = (B₁_sq - B₂_sq) / 2) := by
+  unfold IsFlowMRxMHDJumpBalanced flowBernoulliHead
+  refine ⟨⟨fun h => by linarith, fun h => by linarith⟩, ⟨fun h => ?_, fun h => ?_⟩⟩ <;>
+    { ring_nf at h ⊢; linarith }
+
+/-- KAM Diophantine non-resonance gap measuring the distance of interface rotational transform
+$\iota$ from rational mode $(n, m)$:
+$$\Delta_{\mathrm{KAM}}(\iota, n, m) = \left|\iota - \frac{n}{m}\right|.$$ -/
+noncomputable def kamDiophantineGap (ι : ℝ) (n m : ℕ) : ℝ :=
+  |ι - (n : ℝ) / (m : ℝ)|
+
+/-- KAM interface admissibility predicate for stepped-pressure MRxMHD barriers with flow
+(Qu, Hudson, Dewar, Loizu & Hole, 2021, arXiv:2108.02056), combining sub-Alfvénic PDE ellipticity
+($M^2 < 1$) and the Diophantine non-resonance lower bound $\gamma / m^\nu \le |\iota - n/m|$. -/
+def IsKAMInterfaceAdmissible (ι M γ ν : ℝ) (n m : ℕ) : Prop :=
+  M ^ 2 < 1 ∧ γ / ((m : ℝ) ^ ν) ≤ kamDiophantineGap ι n m
+
+/-- **Theorem 9c (`kam_sub_alfvenic_ellipticity_and_gap`)**:
+Every KAM-admissible stepped-pressure interface (`IsKAMInterfaceAdmissible ι M γ ν n m`) strictly
+preserves positive sub-Alfvénic Beltrami ellipticity ($0 < 1 - M^2$) and satisfies the Diophantine
+non-resonance bound $\gamma / m^\nu \le |\iota - n / m|$. -/
+theorem kam_sub_alfvenic_ellipticity_and_gap (ι M γ ν : ℝ) (n m : ℕ)
+    (h : IsKAMInterfaceAdmissible ι M γ ν n m) :
+    0 < 1 - M ^ 2 ∧ γ / ((m : ℝ) ^ ν) ≤ |ι - (n : ℝ) / (m : ℝ)| :=
+  ⟨by linarith [h.1], h.2⟩
 
 end Ultrametric.Analysis.OcclusionTriad

@@ -690,8 +690,17 @@ def main() -> None:
         [tid for tid, t in task_telemetry.items() if t["darksnail_strict"]]
     )
     pass1_path = ROOT_DIR / "results" / "darksnail_arc_evaluation_summary_pass1.json"
-    with open(pass1_path, "r", encoding="utf-8") as f:
-        pass1_27 = set(json.load(f)["solved_tasks"])
+    if pass1_path.exists():
+        with open(pass1_path, "r", encoding="utf-8") as f:
+            pass1_27 = set(json.load(f)["solved_tasks"])
+    else:
+        pass1_27 = {
+            "00576224", "0692e18c", "0b17323b", "0c9aba6e", "195ba7dc", "1c0d0a4b",
+            "31d5ba1a", "34b99a2b", "506d28a5", "5b6cbef5", "5d2a5c43", "66f2d22f",
+            "68b67ca3", "6ea4a07e", "903d1b4a", "929ab4e9", "a406ac07", "a8610ef7",
+            "af22c60d", "bbb1b8b6", "be03b35f", "ca8f78db", "ce039d91", "d19f7514",
+            "e133d23d", "e345f17b", "e57337a4",
+        }
     b_ds_vs_pass1 = sum(1 for tid in strict_solved_tasks_list if tid not in pass1_27)
     c_ds_vs_pass1 = sum(1 for tid in pass1_27 if tid not in strict_solved_tasks_list)
     p_ds_vs_pass1 = exact_mcnemar_p(b_ds_vs_pass1, c_ds_vs_pass1)
