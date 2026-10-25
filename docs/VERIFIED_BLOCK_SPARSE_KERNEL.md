@@ -229,15 +229,19 @@ Verification was performed against `SurgicalGemma4Attention` on `google/gemma-4-
 
 At sequence length $S = 6,000$ ($NB = 47$ blocks of $R_B = 128$):
 
-| Method / Depth | Active Causal Key Pairs | Global Layer Budget | Total Model Budget | KV Traffic Reduction | Speedup (Prefill) |
+| Method / Depth | Active Causal Key Pairs | Global Layer Budget | Total Model Budget (50 Local + 10 Global) | Global-Layer KV Traffic Reduction | Global-Layer Block-Sparse Prefill Speedup vs. Dense Attention |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Dense Baseline** | $18,003,000$ | $100.00\%$ | $100.00\%$ | $0.00\%$ | $1.00\times$ |
-| **`darksnail@2`** | $7,842,432$ | $43.56\%$ | $90.59\%$ | $56.44\%$ | $2.14\times$ |
-| **`darksnail@3`** | $5,618,304$ | $31.21\%$ | $88.54\%$ | $68.79\%$ | $2.87\times$ |
-| **`darksnail@4`** | $4,124,800$ | $22.91\%$ | $87.15\%$ | $77.09\%$ | $3.62\times$ |
-| **`darksnail@5`** | **$2,790,400$** | **$15.50\%$** | **$85.92\%$** | **$84.50\%$** | **$4.85\times$** |
+| **`darksnail@2`** | $5,895,736$ | $32.75\%$ | $88.79\%$ | $65.88\%$ | $2.20\times$ |
+| **`darksnail@3`** | $3,843,576$ | $21.35\%$ | $86.89\%$ | $77.04\%$ | $3.37\times$ |
+| **`darksnail@4`** | $2,920,248$ | $16.22\%$ | $86.04\%$ | $82.05\%$ | $4.44\times$ |
+| **`darksnail@5`** | **$2,365,944$** | **$13.14\%$** | **$85.52\%$** | **$85.05\%$** | **$5.48\times$** |
 
-At $r = 5$, global routed layer budget is reduced to **$15.50\%$** (well below the $< 35\%$ extreme sparsity frontier), achieving an **$84.50\%$ reduction in KV traffic on global layers** while maintaining exact $\Delta \mathrm{Budget}_{\mathrm{causal}} \le 0$ relative to `v4_triad@5`.
+![Global-Layer Block-Sparse Routing Curves](../results/verified_block_sparse_colab_curves.png)
+
+> **Figure Caption & Amdahl's-Law Scope Guardrail:** Across `google/gemma-4-31B-it` ($L = 60$, 5:1 Local/Global interleave), `SurgicalGemma4Attention` operates strictly on the **10 Global Full-Attention layers** (`[5, 11, 17, 23, 29, 35, 41, 47, 53, 59]`), while the 50 Local layers already use native `sliding_window = 1024` and the FFN blocks execute dense matrix multiplies. Panel 1 reports **Global Routed Causal Budget (%)**, Panel 2 reports **Global-Layer KV-Block Traffic Reduction (%)**, and Panel 3 explicitly reports **Global-Layer Block-Sparse Prefill Speedup vs. Dense Attention** (`5.48x` at $S = 6,000, r = 5$), measuring the isolated attention-kernel speedup on the 10 Global Full-Attention layers rather than full 60-layer FFN+Attention end-to-end wall-clock latency.
+
+At $r = 5$, global routed layer budget is reduced to **$13.14\%$** at $S = 6,000$ ($31.63\%$ at $S = 2,048$, strictly below the $< 35\%$ extreme sparsity frontier across all sequence lengths), achieving an **$85.05\%$ reduction in KV-block memory traffic on the 10 Global layers** while maintaining exact $\Delta \mathrm{Budget}_{\mathrm{causal}} \le 0$ relative to `v4_triad@5`.
 
 ---
 
