@@ -1,5 +1,3 @@
-import Formalization.Analysis.TriadConservation
-import Formalization.Analysis.RoPECoherence
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Tactic
 
@@ -89,11 +87,30 @@ namespace Ultrametric.Analysis.OcclusionTriad
 open scoped BigOperators
 open Real Finset
 
-/-- Explicit-dimension wrapper around `Formalization.Analysis.triadOperator`:
+/-- Skew-symmetrized bilinear triad operator:
 $$B_W(u, v)_k = \sum_{i, j \in \mathrm{Fin}\,C} u_i v_j (W_{i,j,k} - W_{i,k,j}).$$ -/
 def triadOperator (C : ℕ) (W : Fin C → Fin C → Fin C → ℝ)
     (u v : Fin C → ℝ) (k : Fin C) : ℝ :=
-  Formalization.Analysis.triadOperator W u v k
+  ∑ i : Fin C, ∑ j : Fin C, u i * v j * (W i j k - W i k j)
+
+/-- Standard Euclidean inner product on $\mathbb{R}^M$. -/
+def shellInner {M : ℕ} (x y : Fin M → ℝ) : ℝ :=
+  ∑ k : Fin M, x k * y k
+
+/-- Squared Euclidean norm $\|x\|_2^2 = \langle x, x \rangle$ on $\mathbb{R}^M$. -/
+def shellEnergy {M : ℕ} (x : Fin M → ℝ) : ℝ :=
+  shellInner x x
+
+/-- Pointwise orthogonality $\langle v, B_W(u, v) \rangle = 0$. -/
+theorem triad_pointwise_orthogonal {M : ℕ} (W : Fin M → Fin M → Fin M → ℝ)
+    (u v : Fin M → ℝ) :
+    shellInner v (triadOperator M W u v) = 0 := by
+  unfold shellInner triadOperator
+  simp_rw [mul_sum]; rw [sum_comm]
+  refine sum_eq_zero fun i _ => ?_
+  simp_rw [mul_sub, sum_sub_distrib, sub_eq_zero]
+  rw [sum_comm]
+  exact sum_congr rfl fun j _ => sum_congr rfl fun k _ => by ring
 
 /-- Skew-symmetrized color-occlusion interaction tensor
 $$S(W, i, c_1, c_2) = W(i, c_1, c_2) - W(i, c_2, c_1)$$
@@ -138,7 +155,7 @@ lemma triadOperator_two_color_eval {C : ℕ} (W : Fin C → Fin C → Fin C → 
     (hv_other : ∀ c : Fin C, c ≠ c₁ → c ≠ c₂ → v c = 0) :
     triadOperator C W u v k =
       β * α * (W i₀ c₁ k - W i₀ k c₁) + β * α * (W i₀ c₂ k - W i₀ k c₂) := by
-  unfold triadOperator Formalization.Analysis.triadOperator
+  unfold triadOperator
   rw [Finset.sum_eq_single i₀]
   · rw [← Finset.add_sum_erase _ _ (Finset.mem_univ c₁),
         ← Finset.add_sum_erase _ _ (Finset.mem_erase.mpr ⟨hc.symm, Finset.mem_univ c₂⟩),
@@ -198,9 +215,9 @@ theorem darksnail_readout_energy_conservation {C M : ℕ}
     (W : Fin C → Fin C → Fin C → ℝ) (u v : Fin C → ℝ)
     (W_rec : Fin M → Fin M → Fin M → ℝ) (z_H z_L : Fin M → ℝ) :
     (∑ k : Fin C, v k * triadOperator C W u v k) = 0 ∧
-    Formalization.Analysis.shellInner z_L (triadOperator M W_rec z_H z_L) = 0 :=
-  ⟨Formalization.Analysis.triad_pointwise_orthogonal W u v,
-   Formalization.Analysis.triad_pointwise_orthogonal W_rec z_H z_L⟩
+    shellInner z_L (triadOperator M W_rec z_H z_L) = 0 :=
+  ⟨triad_pointwise_orthogonal W u v,
+   triad_pointwise_orthogonal W_rec z_H z_L⟩
 
 /-! ### Theorem 4: Step-0 System 1 Homotopy Equivalence -/
 
@@ -217,7 +234,7 @@ $$\ell_{\mathrm{DS}}(\ell_{\mathrm{S1}}, 0, 0, u, v, k) = \ell_{\mathrm{S1}}(k).
 theorem darksnail_step0_system1_homotopy {C : ℕ}
     (ℓ_S1 u v : Fin C → ℝ) (k : Fin C) :
     darksnailReadout C ℓ_S1 0 0 u v k = ℓ_S1 k := by
-  simp [darksnailReadout, triadOperator, Formalization.Analysis.triadOperator]
+  simp [darksnailReadout, triadOperator]
 
 /-! ### Theorem 5: 2D Axial RoPE Medoid Invariance & Patch-Averaging Attenuation -/
 
@@ -326,8 +343,8 @@ def tangentTriadStep (M : ℕ) (γ : ℝ) (W_rec : Fin M → Fin M → Fin M →
 
 /-- Spherical norm retraction $\tilde{v}_k = \frac{\|v\|_2}{\|v_{\mathrm{upd}}\|_2} v_{\mathrm{upd}, k}$. -/
 noncomputable def sphericalRetract {M : ℕ} (v v_upd : Fin M → ℝ) (k : Fin M) : ℝ :=
-  (Real.sqrt (Formalization.Analysis.shellEnergy v) /
-   Real.sqrt (Formalization.Analysis.shellEnergy v_upd)) * v_upd k
+  (Real.sqrt (shellEnergy v) /
+   Real.sqrt (shellEnergy v_upd)) * v_upd k
 
 /-- Single-step tangent triad update followed by spherical norm retraction:
 $$\tilde{v}_L = \frac{\|v_L\|_2}{\|v_L + \delta v_L\|_2} (v_L + \delta v_L), \qquad
@@ -348,64 +365,64 @@ noncomputable def multistepSphericalTriad (M : ℕ) (γ : ℕ → ℝ)
 
 /-- Non-negativity of `shellEnergy`. -/
 lemma shellEnergy_nonneg {M : ℕ} (x : Fin M → ℝ) :
-    0 ≤ Formalization.Analysis.shellEnergy x := by
-  unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+    0 ≤ shellEnergy x := by
+  unfold shellEnergy shellInner
   exact Finset.sum_nonneg fun k _ => mul_self_nonneg (x k)
 
 /-- `shellEnergy x = 0` if and only if $x$ vanishes pointwise. -/
 lemma shellEnergy_eq_zero_iff {M : ℕ} (x : Fin M → ℝ) :
-    Formalization.Analysis.shellEnergy x = 0 ↔ ∀ k : Fin M, x k = 0 := by
-  unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+    shellEnergy x = 0 ↔ ∀ k : Fin M, x k = 0 := by
+  unfold shellEnergy shellInner
   simp [Finset.sum_eq_zero_iff_of_nonneg (fun k _ => mul_self_nonneg (x k))]
 
 /-- Pointwise orthogonality $\langle v, \delta v \rangle = 0$ for the scaled tangent triad step. -/
 lemma tangentTriadStep_orthogonal {M : ℕ} (γ : ℝ) (W_rec : Fin M → Fin M → Fin M → ℝ)
     (u v : Fin M → ℝ) :
-    Formalization.Analysis.shellInner v (tangentTriadStep M γ W_rec u v) = 0 := by
-  calc Formalization.Analysis.shellInner v (tangentTriadStep M γ W_rec u v)
-    _ = γ * Formalization.Analysis.shellInner v (Formalization.Analysis.triadOperator W_rec u v) := by
-        unfold Formalization.Analysis.shellInner tangentTriadStep triadOperator
+    shellInner v (tangentTriadStep M γ W_rec u v) = 0 := by
+  calc shellInner v (tangentTriadStep M γ W_rec u v)
+    _ = γ * shellInner v (triadOperator M W_rec u v) := by
+        unfold shellInner tangentTriadStep triadOperator
         rw [Finset.mul_sum]
         exact Finset.sum_congr rfl fun k _ => by ring
-    _ = 0 := by rw [Formalization.Analysis.triad_pointwise_orthogonal, mul_zero]
+    _ = 0 := by rw [triad_pointwise_orthogonal, mul_zero]
 
 /-- Discrete-time Pythagorean identity under orthogonal tangent updates $\langle v, \delta v \rangle = 0$. -/
 lemma shellEnergy_add_of_orthogonal {M : ℕ} (v δv : Fin M → ℝ)
-    (h_orth : Formalization.Analysis.shellInner v δv = 0) :
-    Formalization.Analysis.shellEnergy (fun k => v k + δv k) =
-      Formalization.Analysis.shellEnergy v + Formalization.Analysis.shellEnergy δv := by
+    (h_orth : shellInner v δv = 0) :
+    shellEnergy (fun k => v k + δv k) =
+      shellEnergy v + shellEnergy δv := by
   have h_expand :
-      Formalization.Analysis.shellEnergy (fun k => v k + δv k) =
-        Formalization.Analysis.shellEnergy v +
-        2 * Formalization.Analysis.shellInner v δv +
-        Formalization.Analysis.shellEnergy δv := by
-    unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+      shellEnergy (fun k => v k + δv k) =
+        shellEnergy v +
+        2 * shellInner v δv +
+        shellEnergy δv := by
+    unfold shellEnergy shellInner
     simp only [← Finset.sum_add_distrib, Finset.mul_sum]
     exact Finset.sum_congr rfl fun k _ => by ring
   linarith
 
 /-- Quadratic homogeneity of `shellEnergy` under scalar multiplication. -/
 lemma shellEnergy_scale {M : ℕ} (c : ℝ) (x : Fin M → ℝ) :
-    Formalization.Analysis.shellEnergy (fun k => c * x k) =
-      c ^ 2 * Formalization.Analysis.shellEnergy x := by
-  unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner
+    shellEnergy (fun k => c * x k) =
+      c ^ 2 * shellEnergy x := by
+  unfold shellEnergy shellInner
   rw [Finset.mul_sum]
   exact Finset.sum_congr rfl fun k _ => by ring
 
 /-- Single-step spherical triad update preserves exact shell energy $\|\tilde{v}\|_2^2 = \|v\|_2^2$. -/
 lemma sphericalTriadStep_preserves_energy {M : ℕ} (γ : ℝ)
     (W_rec : Fin M → Fin M → Fin M → ℝ) (u v : Fin M → ℝ) :
-    Formalization.Analysis.shellEnergy (sphericalTriadStep M γ W_rec u v) =
-      Formalization.Analysis.shellEnergy v := by
+    shellEnergy (sphericalTriadStep M γ W_rec u v) =
+      shellEnergy v := by
   unfold sphericalTriadStep sphericalRetract
   dsimp only
   rw [shellEnergy_scale]
-  by_cases hv0 : Formalization.Analysis.shellEnergy v = 0
+  by_cases hv0 : shellEnergy v = 0
   · simp [hv0]
   · have hv_nonneg := shellEnergy_nonneg v
     have h_pyth := shellEnergy_add_of_orthogonal v _ (tangentTriadStep_orthogonal γ W_rec u v)
     have h_upd_pos :
-        0 < Formalization.Analysis.shellEnergy (fun k => v k + tangentTriadStep M γ W_rec u v k) := by
+        0 < shellEnergy (fun k => v k + tangentTriadStep M γ W_rec u v k) := by
       linarith [lt_of_le_of_ne hv_nonneg (Ne.symm hv0),
                 shellEnergy_nonneg (tangentTriadStep M γ W_rec u v)]
     rw [div_pow, Real.sq_sqrt hv_nonneg, Real.sq_sqrt (le_of_lt h_upd_pos),
@@ -420,12 +437,12 @@ $\langle v_L^{(t)}, \delta v_L^{(t)} \rangle = 0$. -/
 theorem darksnail_multistep_spherical_invariance {M : ℕ}
     (γ : ℕ → ℝ) (W_rec : ℕ → Fin M → Fin M → Fin M → ℝ)
     (u : ℕ → Fin M → ℝ) (v₀ : Fin M → ℝ) (T : ℕ) :
-    Formalization.Analysis.shellEnergy (multistepSphericalTriad M γ W_rec u v₀ T) =
-      Formalization.Analysis.shellEnergy v₀ ∧
+    shellEnergy (multistepSphericalTriad M γ W_rec u v₀ T) =
+      shellEnergy v₀ ∧
     (∀ t : ℕ,
       let v_t := multistepSphericalTriad M γ W_rec u v₀ t
       let δv_t := tangentTriadStep M (γ t) (W_rec t) (u t) v_t
-      Formalization.Analysis.shellInner v_t δv_t = 0) := by
+      shellInner v_t δv_t = 0) := by
   refine ⟨?_, fun t => tangentTriadStep_orthogonal (γ t) (W_rec t) (u t) _⟩
   induction T with
   | zero => rfl
@@ -436,11 +453,11 @@ lemma sphericalTriadStep_zero {M : ℕ} (γ : ℝ) (u v : Fin M → ℝ) :
     sphericalTriadStep M γ 0 u v = v := by
   funext k
   have h_tan : (fun i => v i + tangentTriadStep M γ 0 u v i) = v := by
-    funext i; simp [tangentTriadStep, triadOperator, Formalization.Analysis.triadOperator]
+    funext i; simp [tangentTriadStep, triadOperator]
   unfold sphericalTriadStep sphericalRetract
   dsimp only
   rw [h_tan, congr_fun h_tan k]
-  by_cases hv0 : Formalization.Analysis.shellEnergy v = 0
+  by_cases hv0 : shellEnergy v = 0
   · simp [hv0, (shellEnergy_eq_zero_iff v).mp hv0 k]
   · have hv_pos := lt_of_le_of_ne (shellEnergy_nonneg v) (Ne.symm hv0)
     rw [div_self (ne_of_gt (Real.sqrt_pos.mpr hv_pos)), one_mul]
@@ -512,8 +529,8 @@ def trace6 (C : Fin 6 → Fin 6 → ℝ) : ℝ :=
 $$\|M^\top x\|_2^2 = \|x\|_2^2 \quad \forall x \in \mathbb{R}^6.$$ -/
 def IsOrthogonal6 (M : Fin 6 → Fin 6 → ℝ) : Prop :=
   ∀ x : Fin 6 → ℝ,
-    Formalization.Analysis.shellEnergy (matVec6 (matTranspose6 M) x) =
-      Formalization.Analysis.shellEnergy x
+    shellEnergy (matVec6 (matTranspose6 M) x) =
+      shellEnergy x
 
 /-- Column-orthonormality predicate $M^\top M = I_6$ ($\sum_{i \in \mathrm{Fin}\,6} M_{i,k} M_{i,l} = \delta_{k,l}$)
 for $6 \times 6$ Kelvin-Mandel stiffness rotors. -/
@@ -531,7 +548,7 @@ lemma isOrthogonal6_of_rowOrthonormal6 (M : Fin 6 → Fin 6 → ℝ)
     (hM : IsRowOrthonormal6 M) :
     IsOrthogonal6 M := by
   intro x
-  unfold Formalization.Analysis.shellEnergy Formalization.Analysis.shellInner matVec6 matTranspose6
+  unfold shellEnergy shellInner matVec6 matTranspose6
   calc (∑ k : Fin 6, (∑ i : Fin 6, M i k * x i) * (∑ j : Fin 6, M j k * x j))
     _ = ∑ i : Fin 6, ∑ j : Fin 6, x i * x j * (∑ k : Fin 6, M i k * M j k) := by
         simp only [Fin.sum_univ_six]; ring
@@ -611,14 +628,14 @@ theorem so6_stiffness_preserves_pos_def (M C : Fin 6 → Fin 6 → ℝ) (μ_min 
     (hM : IsOrthogonal6 M)
     (hμ : 0 < μ_min)
     (h_coercive : ∀ ξ : Fin 6 → ℝ,
-      μ_min * Formalization.Analysis.shellEnergy ξ ≤ elasticEnergy6 C ξ) :
+      μ_min * shellEnergy ξ ≤ elasticEnergy6 C ξ) :
     (∀ ε : Fin 6 → ℝ,
-      μ_min * Formalization.Analysis.shellEnergy ε ≤
+      μ_min * shellEnergy ε ≤
         elasticEnergy6 (rotateStiffness6 M C) ε) ∧
     (∀ ε : Fin 6 → ℝ, (∃ i : Fin 6, ε i ≠ 0) →
       0 < elasticEnergy6 (rotateStiffness6 M C) ε) := by
   have h_bound : ∀ ε : Fin 6 → ℝ,
-      μ_min * Formalization.Analysis.shellEnergy ε ≤
+      μ_min * shellEnergy ε ≤
         elasticEnergy6 (rotateStiffness6 M C) ε := fun ε => by
     rw [elasticEnergy6_rotateStiffness6, ← hM ε]
     exact h_coercive _
@@ -744,7 +761,7 @@ Lamb vector $\boldsymbol{\omega} \times \mathbf{u}$ are exact $C = 3$ instances 
 theorem cross3_eq_triadOperator (u v : Fin 3 → ℝ) (k : Fin 3) :
     triadOperator 3 leviCivitaHalfTensor u v k = cross3 u v k := by
   fin_cases k <;>
-    simp [triadOperator, Formalization.Analysis.triadOperator, leviCivitaHalfTensor,
+    simp [triadOperator, leviCivitaHalfTensor,
       cross3, Fin.sum_univ_three] <;>
     ring
 
@@ -795,7 +812,7 @@ theorem mhd_euler_force_balance_bijection :
 $$\mathbf{B} \cdot \nabla\psi = \langle \mathbf{B}, \nabla\psi \rangle = 0,$$
 expressing that the magnetic field $\mathbf{B}$ lies everywhere tangent to constant-flux surfaces $\psi = \text{const}$. -/
 def IsFluxSurfaceConfined {C : ℕ} (B grad_ψ : Fin C → ℝ) : Prop :=
-  Formalization.Analysis.shellInner B grad_ψ = 0
+  shellInner B grad_ψ = 0
 
 /-- **Theorem 8c (`mhd_flux_surface_confinement_iff`)**:
 1. Under the generalized MHD / stellarator force-balance relation $\nabla\psi = B_W(u, v)$
@@ -810,12 +827,12 @@ theorem mhd_flux_surface_confinement_iff {C : ℕ}
     (J B : Fin 3 → ℝ) :
     (grad_ψ = triadOperator C W u v →
       (IsFluxSurfaceConfined v grad_ψ ↔
-        Formalization.Analysis.shellInner v (triadOperator C W u v) = 0)) ∧
+        shellInner v (triadOperator C W u v) = 0)) ∧
     IsFluxSurfaceConfined v (triadOperator C W u v) ∧
-    Formalization.Analysis.shellInner B (cross3 J B) = 0 := by
-  refine ⟨fun h => h ▸ Iff.rfl, Formalization.Analysis.triad_pointwise_orthogonal W u v, ?_⟩
+    shellInner B (cross3 J B) = 0 := by
+  refine ⟨fun h => h ▸ Iff.rfl, triad_pointwise_orthogonal W u v, ?_⟩
   rw [← funext (cross3_eq_triadOperator J B)]
-  exact Formalization.Analysis.triad_pointwise_orthogonal leviCivitaHalfTensor J B
+  exact triad_pointwise_orthogonal leviCivitaHalfTensor J B
 
 /-- Non-stellarator-symmetric (parity-odd $\sin(m\theta - n\zeta)$) triad perturbation shift
 $$\delta z(\tau_0)_k = \tau_0 \cdot B_W(u, v)_k$$

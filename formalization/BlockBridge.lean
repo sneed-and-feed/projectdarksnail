@@ -54,13 +54,18 @@ theorem sum_blocks_update (n : Nat) (f : Fin n → Nat) (q : Fin n) (v : Nat) :
     induction q using Fin.lastCases with
     | last =>
       have hcast : (fun i : Fin m => if i.castSucc = Fin.last m then v else f i.castSucc) =
-          (fun i => f i.castSucc) := funext fun i => if_neg (Fin.ne_of_lt i.isLt)
-      rw [hcast, if_pos rfl]; omega
+          (fun i => f i.castSucc) := funext fun i => by
+        split
+        · next h => exact False.elim (Fin.ne_of_lt i.isLt h)
+        · rfl
+      rw [hcast]; split <;> omega
     | cast q' =>
       have hcast : (fun i : Fin m => if i.castSucc = q'.castSucc then v else f i.castSucc) =
           (fun i => if i = q' then v else f i.castSucc) := funext fun i => by simp [Fin.castSucc_inj]
       have ih' := ih (fun i => f i.castSucc) q'
-      rw [hcast, if_neg (Fin.ne_of_gt q'.isLt)]; omega
+      rw [hcast]; split
+      · next h => exact False.elim (Fin.ne_of_gt q'.isLt h)
+      · omega
 
 /-- Decrementing a positive block count at donor row `d` reduces `sum_blocks` by 1. -/
 theorem sum_blocks_decrement (n : Nat) (f : Fin n → Nat) (d : Fin n) (hd : f d ≥ 1) :

@@ -26,5 +26,6 @@ where = ["."]
 include = ["darksnail*", "llama_surgery*", "ultrametric*"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

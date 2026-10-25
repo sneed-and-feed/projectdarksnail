@@ -1,10 +1,20 @@
-#![cfg_attr(all(panic = "abort", not(target_os = "linux")), no_std)]
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
+#![allow(dead_code)]
+#![allow(unused_mut)]
+#![allow(unused_unsafe)]
 
-#[cfg(all(panic = "abort", not(target_os = "linux")))]
+#[cfg(all(not(feature = "std"), not(test)))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+#[cfg(all(not(feature = "std"), not(test), not(windows), not(target_arch = "wasm32")))]
+#[no_mangle]
+pub extern "C" fn rust_eh_personality() {}
+
+#[cfg(any(feature = "std", test))]
+extern crate std;
 
 pub const MAX_B: usize = 1;
 pub const MAX_H: usize = 16;
@@ -87,9 +97,62 @@ impl Default for SparseRouteArena {
 }
 
 #[inline(always)]
+pub fn abs_f32(x: f32) -> f32 {
+    f32::from_bits(x.to_bits() & 0x7fff_ffff)
+}
+
+#[inline(always)]
+pub fn abs_f64(x: f64) -> f64 {
+    f64::from_bits(x.to_bits() & 0x7fff_ffff_ffff_ffff)
+}
+
+#[inline(always)]
+pub fn fast_sqrt_scalar_f32(x: f32) -> f32 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if !x.is_finite() {
+        return x;
+    }
+    let (x_norm, scale) = if x < f32::from_bits(0x0080_0000) {
+        (x * 16777216.0f32, 1.0f32 / 4096.0f32)
+    } else {
+        (x, 1.0f32)
+    };
+    let mut guess = f32::from_bits((x_norm.to_bits() >> 1) + 0x1fc0_0000);
+    for _ in 0..4 {
+        guess = 0.5f32 * (guess + x_norm / guess);
+    }
+    guess * scale
+}
+
+#[inline(always)]
+pub fn fast_sqrt_scalar_f64(x: f64) -> f64 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if !x.is_finite() {
+        return x;
+    }
+    let (x_norm, scale) = if x < f64::from_bits(0x0010_0000_0000_0000) {
+        (x * 18014398509481984.0f64, 1.0f64 / 134217728.0f64)
+    } else {
+        (x, 1.0f64)
+    };
+    let mut guess = f64::from_bits((x_norm.to_bits() >> 1) + 0x1ff8_0000_0000_0000);
+    for _ in 0..5 {
+        guess = 0.5f64 * (guess + x_norm / guess);
+    }
+    guess * scale
+}
+
+#[inline(always)]
 pub fn fast_sqrt_f32(x: f32) -> f32 {
     if x <= 0.0 {
         return 0.0;
+    }
+    if !x.is_finite() {
+        return x;
     }
     #[cfg(target_arch = "x86_64")]
     unsafe {
@@ -99,21 +162,94 @@ pub fn fast_sqrt_f32(x: f32) -> f32 {
     #[cfg(target_arch = "aarch64")]
     unsafe {
         use core::arch::aarch64::*;
-        vget_lane_f32(vsqrt_f32(vdup_n_f32(x)), 0)
+        vgetq_lane_f32::<0>(vsqrtq_f32(vdupq_n_f32(x)))
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    unsafe {
+        use core::arch::wasm32::*;
+        f32x4_extract_lane::<0>(f32x4_sqrt(f32x4_splat(x)))
+    }
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        all(target_arch = "wasm32", target_feature = "simd128")
+    )))]
     {
-        let mut i = x.to_bits();
-        i = (i >> 1) + 0x1fbb4000;
-        let mut y = f32::from_bits(i);
-        y = 0.5 * (y + x / y);
-        y = 0.5 * (y + x / y);
-        y = 0.5 * (y + x / y);
-        y
+        fast_sqrt_scalar_f32(x)
     }
 }
 
+#[inline(always)]
+pub fn fast_sqrt_f64(x: f64) -> f64 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if !x.is_finite() {
+        return x;
+    }
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        use core::arch::x86_64::*;
+        _mm_cvtsd_f64(_mm_sqrt_sd(_mm_setzero_pd(), _mm_set_sd(x)))
+    }
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        use core::arch::aarch64::*;
+        vgetq_lane_f64::<0>(vsqrtq_f64(vdupq_n_f64(x)))
+    }
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    unsafe {
+        use core::arch::wasm32::*;
+        f64x2_extract_lane::<0>(f64x2_sqrt(f64x2_splat(x)))
+    }
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        all(target_arch = "wasm32", target_feature = "simd128")
+    )))]
+    {
+        fast_sqrt_scalar_f64(x)
+    }
+}
+
+#[inline(always)]
+pub fn fast_ln(x: f32) -> f32 {
+    if x.is_nan() {
+        return f32::NAN;
+    }
+    if x <= 0.0 {
+        return f32::NEG_INFINITY;
+    }
+    if x.is_infinite() {
+        return f32::INFINITY;
+    }
+    let (x_norm, sub_exp) = if x < f32::from_bits(0x0080_0000) {
+        (x * 8388608.0f32, -23i32)
+    } else {
+        (x, 0i32)
+    };
+    let bits = x_norm.to_bits();
+    let mut exp = ((bits >> 23) as i32) - 127 + sub_exp;
+    let mut m = f32::from_bits((bits & 0x007f_ffff) | 0x3f80_0000) as f64;
+    if m > core::f64::consts::SQRT_2 {
+        m *= 0.5;
+        exp += 1;
+    }
+    let y = (m - 1.0) / (m + 1.0);
+    let y2 = y * y;
+    let ln_m = 2.0
+        * y
+        * (1.0
+            + y2 * (1.0 / 3.0
+                + y2 * (1.0 / 5.0
+                    + y2 * (1.0 / 7.0 + y2 * (1.0 / 9.0 + y2 * (1.0 / 11.0))))));
+    ((exp as f64) * core::f64::consts::LN_2 + ln_m) as f32
+}
+
 /// Compute inner product between two 384-D vectors using AVX2 on x86_64 or scalar fallback.
+///
+/// # Safety
+/// Pointers `a` and `b` must point to at least 384 valid, initialized `f32` values.
 #[inline(always)]
 pub unsafe fn dot_product_384(a: *const f32, b: *const f32) -> f32 {
     #[cfg(target_arch = "x86_64")]
@@ -200,6 +336,9 @@ pub unsafe fn dot_product_384(a: *const f32, b: *const f32) -> f32 {
 }
 
 /// Compute squared L2 norm of a 384-D vector.
+///
+/// # Safety
+/// Pointer `a` must point to at least 384 valid, initialized `f32` values.
 #[inline(always)]
 pub unsafe fn norm_squared_384(a: *const f32) -> f32 {
     dot_product_384(a, a)
@@ -217,9 +356,9 @@ pub fn compute_strided_stack_mad_256(
         return (0.0, 0.0);
     }
     let stride = if s >= MAD_SAMPLES { s / MAD_SAMPLES } else { 1 };
-    for i in 0..MAD_SAMPLES {
+    for (i, item) in scratchpad.iter_mut().enumerate() {
         let idx = if s >= MAD_SAMPLES { i * stride } else { i % s };
-        scratchpad[i] = salience[idx];
+        *item = salience[idx];
     }
 
     // Sort 256 samples in-place using shell_sort_by and total_cmp
@@ -227,9 +366,9 @@ pub fn compute_strided_stack_mad_256(
     let median = scratchpad[MAD_SAMPLES / 2];
 
     let mut dev = [0.0f32; MAD_SAMPLES];
-    for i in 0..MAD_SAMPLES {
+    for (i, item) in dev.iter_mut().enumerate() {
         let diff = scratchpad[i] - median;
-        dev[i] = if diff < 0.0 { -diff } else { diff };
+        *item = if diff < 0.0 { -diff } else { diff };
     }
     shell_sort_by(&mut dev, |a, b| a.total_cmp(b));
     let mad = dev[MAD_SAMPLES / 2];
@@ -239,6 +378,12 @@ pub fn compute_strided_stack_mad_256(
 
 /// Computes Beltrami salience ||k_nope,t ^ k_nope,t-1||_2 + lambda_QT max_{q in Q_tail} <q_nope,q, k_nope,t>
 /// on 384-D subspace and deterministic 256-sample strided stack MAD floor (0.000e+00 residual vs Python).
+///
+/// # Safety
+/// Pointers `k_nope` and `out_salience` must point to valid buffers of size `s * d_nope` and `s` floats.
+/// If `q_tail` is non-null and `w_q > 0`, `q_tail` must point to `w_q * d_nope` floats.
+/// If `scratchpad` is non-null, it must point to at least 256 floats.
+/// If `out_mad` is non-null, it must point to a valid float.
 #[no_mangle]
 pub unsafe extern "C" fn compute_knope_beltrami_salience_f32(
     k_nope: *const f32,
@@ -325,9 +470,7 @@ pub unsafe extern "C" fn compute_knope_beltrami_salience_f32(
     let (_median, mad) = compute_strided_stack_mad_256(sal_slice, &mut stack_scratch);
 
     if !scratchpad.is_null() {
-        for i in 0..MAD_SAMPLES {
-            *scratchpad.add(i) = stack_scratch[i];
-        }
+        core::ptr::copy_nonoverlapping(stack_scratch.as_ptr(), scratchpad, MAD_SAMPLES);
     }
     if !out_mad.is_null() {
         *out_mad = mad;
@@ -338,6 +481,12 @@ pub unsafe extern "C" fn compute_knope_beltrami_salience_f32(
 
 /// Executes top-96 kernel_size=13 span shield, exact NB - 2 interior re-targeting,
 /// and NB - 1 one-for-one donor-to-tail slot transfer in-place on BlockLists.
+///
+/// # Safety
+/// `lists` must point to `b * h * nb * max_count` valid `i32` values.
+/// `counts` must point to `b * h * nb` valid `i32` values.
+/// `token_salience` must point to `b * h * s` valid `f32` values.
+/// If `shield_tokens_out` is non-null, it must point to `b * h * shield_k` valid `i32` values.
 #[no_mangle]
 pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
     lists: *mut i32,
@@ -384,8 +533,8 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
 
             // 1. Top-96 kernel_size=13 span shield (radius = 6) if shield_tokens_out is requested
             if !shield_tokens_out.is_null() {
-                for t in 0..s_cnt {
-                    let start = if t >= 6 { t - 6 } else { 0 };
+                for (t, item) in span_shield.iter_mut().take(s_cnt).enumerate() {
+                    let start = t.saturating_sub(6);
                     let end = if t + 7 <= s_cnt { t + 7 } else { s_cnt };
                     let mut mx = *row_sal.add(start);
                     for j in (start + 1)..end {
@@ -394,7 +543,7 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
                             mx = v;
                         }
                     }
-                    span_shield[t] = mx;
+                    *item = mx;
                 }
 
                 let local_window = loc_blk * rb_cnt;
@@ -405,7 +554,7 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
                     s_cnt
                 };
 
-                let avail = if masked_limit > 1 { masked_limit - 1 } else { 0 };
+                let avail = masked_limit.saturating_sub(1);
                 let actual_k = sh_k.min(avail);
 
                 if actual_k > 0 {
@@ -417,8 +566,8 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
                     shell_sort_by(slice, |a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
 
                     let out_ptr = shield_tokens_out.add((b_i * h_cnt + h_i) * sh_k);
-                    for k in 0..actual_k {
-                        *out_ptr.add(k) = slice[k].1;
+                    for (k, pair) in slice.iter().take(actual_k).enumerate() {
+                        *out_ptr.add(k) = pair.1;
                     }
                     for k in actual_k..sh_k {
                         *out_ptr.add(k) = -1;
@@ -427,10 +576,10 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
             }
 
             // Aggregate token salience to block salience: blk_sal[k] = max_{t in block k} salience[t]
-            for k in 0..nb_cnt {
+            for (k, item) in blk_sal.iter_mut().take(nb_cnt).enumerate() {
                 let t_start = k * rb_cnt;
                 if t_start >= s_cnt {
-                    blk_sal[k] = -1e30;
+                    *item = -1e30;
                     continue;
                 }
                 let t_end = (t_start + rb_cnt).min(s_cnt);
@@ -441,7 +590,7 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
                         mx = v;
                     }
                 }
-                blk_sal[k] = mx;
+                *item = mx;
             }
 
             let counts_row_offset = (b_i * h_cnt + h_i) * nb_cnt;
@@ -458,9 +607,9 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
                 if n_int2 > 0 && int_end2 > 1 {
                     let num_candidates = int_end2 - 1;
                     let mut candidates = [(0.0f32, 0i32); MAX_NB];
-                    for c_idx in 0..num_candidates {
+                    for (c_idx, cand) in candidates.iter_mut().take(num_candidates).enumerate() {
                         let blk_idx = (c_idx + 1) as i32;
-                        candidates[c_idx] = (blk_sal[blk_idx as usize], blk_idx);
+                        *cand = (blk_sal[blk_idx as usize], blk_idx);
                     }
                     let cand_slice = &mut candidates[0..num_candidates];
                     shell_sort_by(cand_slice, |a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
@@ -473,8 +622,8 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
                     shell_sort_by(top_slice, |a, b| a.cmp(b));
 
                     let qb2_list = lists.add(lists_row_offset + qb2 * mc);
-                    for i in 0..n_int2 {
-                        *qb2_list.add(1 + i) = top_slice[i];
+                    for (i, &top) in top_slice.iter().take(n_int2).enumerate() {
+                        *qb2_list.add(1 + i) = top;
                     }
                 }
             }
@@ -497,7 +646,7 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
                 let mut donated = 0;
 
                 let d_start = loc_blk + 2;
-                let d_end = if nb_cnt >= 2 { nb_cnt - 2 } else { 0 };
+                let d_end = nb_cnt.saturating_sub(2);
 
                 for d_qb in d_start..d_end {
                     if donated >= need {
@@ -529,9 +678,9 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
             if n_int > 0 {
                 let num_candidates = int_end - 1;
                 let mut candidates = [(0.0f32, 0i32); MAX_NB];
-                for c_idx in 0..num_candidates {
+                for (c_idx, cand) in candidates.iter_mut().take(num_candidates).enumerate() {
                     let blk_idx = (c_idx + 1) as i32;
-                    candidates[c_idx] = (blk_sal[blk_idx as usize], blk_idx);
+                    *cand = (blk_sal[blk_idx as usize], blk_idx);
                 }
                 let cand_slice = &mut candidates[0..num_candidates];
                 shell_sort_by(cand_slice, |a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
@@ -545,8 +694,8 @@ pub unsafe extern "C" fn apply_darksnail_block_bridge_i32(
 
                 let qb_list = lists.add(lists_row_offset + qb * mc);
                 *qb_list.add(0) = 0; // sink block
-                for i in 0..n_int {
-                    *qb_list.add(1 + i) = top_slice[i];
+                for (i, &top) in top_slice.iter().take(n_int).enumerate() {
+                    *qb_list.add(1 + i) = top;
                 }
                 for i in 0..n_loc {
                     *qb_list.add(1 + n_int + i) = (int_end + i) as i32;
@@ -571,6 +720,9 @@ pub extern "C" fn sparse_route_arena_align() -> usize {
 }
 
 /// Benchmark entry point with core::hint::black_box to prevent dead code elimination.
+///
+/// # Safety
+/// `lists`, `counts`, and `token_salience` must point to valid initialized buffers matching arena geometry.
 #[no_mangle]
 pub unsafe extern "C" fn benchmark_block_bridge_inplace(
     lists: *mut i32,
@@ -675,7 +827,7 @@ mod tests {
                 let l_offset = (h_i * nb + q) * max_count;
                 lists[l_offset] = 0; // sink
                 let mut cnt = 1;
-                let int_end = if q > local_blocks { q - local_blocks } else { 0 };
+                let int_end = q.saturating_sub(local_blocks);
                 if q > local_blocks + 2 && q < nb - 2 {
                     lists[l_offset + cnt] = 2;
                     cnt += 1;
@@ -701,10 +853,10 @@ mod tests {
                 lists.as_mut_ptr(),
                 counts.as_mut_ptr(),
                 max_count as i32,
-                b as i32,
+                b,
                 h as i32,
                 nb as i32,
-                rb as i32,
+                rb,
                 s as i32,
                 local_blocks as i32,
                 4,

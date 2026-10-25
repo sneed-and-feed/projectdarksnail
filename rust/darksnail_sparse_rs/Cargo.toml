@@ -2,11 +2,23 @@
 name = "darksnail_sparse_rs"
 version = "0.1.0"
 edition = "2021"
+authors = ["Noah Cohen"]
+description = "#![no_std] Rust block-sparse routing arena library for DarkSnail"
+license = "MIT"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "rlib", "staticlib"]
+doctest = false
+
+[features]
+default = []
+std = []
+
+[profile.dev]
+panic = "abort"
 
 [profile.release]
 opt-level = 3
+lto = true
 codegen-units = 1
 panic = "abort"
