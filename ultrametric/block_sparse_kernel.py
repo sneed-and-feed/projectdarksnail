@@ -471,7 +471,7 @@ def block_sparse_gemma4_prefill(
         HAS_TRITON
         and q.is_cuda
         and not _INTERPRET
-        and q.dtype in (torch.float16, torch.bfloat16)
+        and q.dtype == torch.float16
     )
 
     if use_cuda_triton:

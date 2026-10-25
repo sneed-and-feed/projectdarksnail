@@ -1,6 +1,6 @@
 {
   "benchmark_id": "verified_block_sparse_gemma4",
-  "timestamp_utc": "2026-10-25T08:28:40.668626+00:00",
+  "timestamp_utc": "2026-10-25T08:44:54.187153+00:00",
   "hardware": {
     "device": "cpu",
     "platform": "Windows-10-10.0.19045-SP0",

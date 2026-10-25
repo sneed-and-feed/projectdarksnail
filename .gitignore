@@ -16,4 +16,6 @@ data/
 environment_files/
 .agents/
 uv.lock
+Cargo.lock
+
 

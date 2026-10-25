@@ -129,9 +129,17 @@ def find_or_build_sparse_cdylib() -> Optional[ctypes.CDLL]:
                 pass
 
         if cargo_bin is not None:
+            lock_path = manifest_path.parent / "Cargo.lock"
             try:
+                if lock_path.is_file():
+                    lock_txt = lock_path.read_text(encoding="utf-8", errors="ignore")
+                    if "version = 4" in lock_txt:
+                        lock_path.unlink(missing_ok=True)
                 cmd = [cargo_bin, "build", "--manifest-path", str(manifest_path), "--release"]
                 res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if res.returncode != 0 and "lock file" in res.stderr and lock_path.is_file():
+                    lock_path.unlink(missing_ok=True)
+                    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
                 if res.returncode == 0:
                     p = root / "rust" / "darksnail_sparse_rs" / "target" / "release" / lib_name
                     if p.is_file():
@@ -679,6 +687,21 @@ def verify_sparse_native_parity() -> Dict[str, Any]:
         "arena_align": arena_align,
         "arena_aligned_64": (arena_align == 64),
     }
+
+
+def _sync_notebook_modules_on_reload() -> None:
+    """When darksnail._sparse_native is reloaded in a live notebook session, refresh kernel & benchmark modules."""
+    import importlib
+    for mod_name in ("ultrametric.block_sparse_kernel", "scripts.benchmark_block_sparse_gemma4"):
+        mod = sys.modules.get(mod_name)
+        if mod is not None:
+            try:
+                importlib.reload(mod)
+            except Exception:
+                pass
+
+
+_sync_notebook_modules_on_reload()
 
 
 if __name__ == "__main__":
