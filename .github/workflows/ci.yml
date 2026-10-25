@@ -54,7 +54,8 @@ jobs:
             papers/darksnail_v2_preprint.md \
             papers/darksnail_gemma4_arc3_preprint.md \
             docs/EXPERIMENT_RESULTS.md \
-            docs/DARKSNAIL_GEMMA4_31B_ARCHITECTURE.md
+            docs/DARKSNAIL_GEMMA4_31B_ARCHITECTURE.md \
+            docs/VERIFIED_BLOCK_SPARSE_KERNEL.md
 
       - name: Static Lean 4 Formalization Gate (Zero Sorry / Admit)
         working-directory: projectdarksnail
