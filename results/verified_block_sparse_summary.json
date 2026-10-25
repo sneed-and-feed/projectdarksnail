@@ -1,11 +1,11 @@
 {
   "benchmark_id": "verified_block_sparse_gemma4",
-  "timestamp_utc": "2026-10-25T08:44:54.187153+00:00",
+  "timestamp_utc": "2026-10-25T08:48:47.168050+00:00",
   "hardware": {
-    "device": "cpu",
-    "platform": "Windows-10-10.0.19045-SP0",
-    "processor": "Intel64 Family 6 Model 158 Stepping 9, GenuineIntel",
-    "has_triton": false
+    "device": "cuda",
+    "platform": "Google-Colab-Linux-x86_64",
+    "processor": "NVIDIA-CUDA-GPU",
+    "has_triton": true
   },
   "spec": {
     "model_id": "google/gemma-4-31B",
@@ -37,10 +37,10 @@
   "all_budget_conserved": true,
   "r5_sub35_compliant": true,
   "summary_metrics": {
-    "max_residual_float32": 2.384185791015625e-07,
-    "max_residual_bfloat16": 0.00048828125,
+    "max_residual_float32": 1.4901161193847656e-07,
+    "max_residual_bfloat16": 3.0517578125e-05,
     "max_delta_budget_causal": 0.0,
-    "r5_max_global_routed_budget_pct": 30.94192288921425,
+    "r5_max_global_routed_budget_pct": 31.625183016105417,
     "status": "PASS"
   },
   "sparse_route_arena_audit": {
@@ -200,11 +200,11 @@
       6000
     ],
     "tolerances": {
-      "prefill_fp32_max_abs_error": 2.384185791015625e-07,
+      "prefill_fp32_max_abs_error": 0.0,
       "prefill_fp32_threshold": 1e-05,
-      "prefill_bf16_max_abs_error": 0.00048828125,
+      "prefill_bf16_max_abs_error": 3.0517578125e-05,
       "prefill_bf16_threshold": 0.001,
-      "decode_fp32_max_abs_error": 1.7881393432617188e-07,
+      "decode_fp32_max_abs_error": 1.4901161193847656e-07,
       "decode_fp32_threshold": 1e-05
     },
     "passed": true
@@ -235,55 +235,55 @@
         "num_blocks": 16,
         "dense_causal_pairs": 2098176,
         "r2": {
-          "active_causal_pairs": 968704,
-          "global_budget_pct": 46.17,
-          "kv_traffic_reduction_pct": 50.69,
+          "active_causal_pairs": 969216,
+          "global_budget_pct": 46.19,
+          "kv_traffic_reduction_pct": 50.67,
           "speedup_vs_dense": 1.56
         },
         "r3": {
-          "active_causal_pairs": 798208,
-          "global_budget_pct": 38.04,
-          "kv_traffic_reduction_pct": 58.34,
-          "speedup_vs_dense": 1.89
+          "active_causal_pairs": 781312,
+          "global_budget_pct": 37.24,
+          "kv_traffic_reduction_pct": 59.1,
+          "speedup_vs_dense": 1.93
         },
         "r4": {
-          "active_causal_pairs": 715264,
-          "global_budget_pct": 34.09,
-          "kv_traffic_reduction_pct": 62.06,
-          "speedup_vs_dense": 2.11
+          "active_causal_pairs": 695296,
+          "global_budget_pct": 33.14,
+          "kv_traffic_reduction_pct": 62.96,
+          "speedup_vs_dense": 2.17
         },
         "r5": {
-          "active_causal_pairs": 649216,
-          "global_budget_pct": 30.94,
-          "kv_traffic_reduction_pct": 65.03,
-          "speedup_vs_dense": 2.33
+          "active_causal_pairs": 663552,
+          "global_budget_pct": 31.63,
+          "kv_traffic_reduction_pct": 64.38,
+          "speedup_vs_dense": 2.28
         }
       },
       "4096": {
         "num_blocks": 32,
         "dense_causal_pairs": 8390656,
         "r2": {
-          "active_causal_pairs": 3027968,
-          "global_budget_pct": 36.09,
-          "kv_traffic_reduction_pct": 61.99,
-          "speedup_vs_dense": 2.0
+          "active_causal_pairs": 3033600,
+          "global_budget_pct": 36.15,
+          "kv_traffic_reduction_pct": 61.93,
+          "speedup_vs_dense": 1.99
         },
         "r3": {
-          "active_causal_pairs": 2180608,
-          "global_budget_pct": 25.99,
-          "kv_traffic_reduction_pct": 71.79,
-          "speedup_vs_dense": 2.77
+          "active_causal_pairs": 2144256,
+          "global_budget_pct": 25.56,
+          "kv_traffic_reduction_pct": 72.21,
+          "speedup_vs_dense": 2.82
         },
         "r4": {
-          "active_causal_pairs": 1710080,
-          "global_budget_pct": 20.38,
-          "kv_traffic_reduction_pct": 77.23,
-          "speedup_vs_dense": 3.53
+          "active_causal_pairs": 1722880,
+          "global_budget_pct": 20.53,
+          "kv_traffic_reduction_pct": 77.08,
+          "speedup_vs_dense": 3.51
         },
         "r5": {
-          "active_causal_pairs": 1485312,
-          "global_budget_pct": 17.7,
-          "kv_traffic_reduction_pct": 79.82,
+          "active_causal_pairs": 1483776,
+          "global_budget_pct": 17.68,
+          "kv_traffic_reduction_pct": 79.84,
           "speedup_vs_dense": 4.07
         }
       },
@@ -291,28 +291,28 @@
         "num_blocks": 47,
         "dense_causal_pairs": 18003000,
         "r2": {
-          "active_causal_pairs": 5871864,
-          "global_budget_pct": 32.62,
-          "kv_traffic_reduction_pct": 66.0,
-          "speedup_vs_dense": 2.21
+          "active_causal_pairs": 5895736,
+          "global_budget_pct": 32.75,
+          "kv_traffic_reduction_pct": 65.88,
+          "speedup_vs_dense": 2.2
         },
         "r3": {
-          "active_causal_pairs": 3876344,
-          "global_budget_pct": 21.53,
-          "kv_traffic_reduction_pct": 76.87,
-          "speedup_vs_dense": 3.34
+          "active_causal_pairs": 3843576,
+          "global_budget_pct": 21.35,
+          "kv_traffic_reduction_pct": 77.04,
+          "speedup_vs_dense": 3.37
         },
         "r4": {
-          "active_causal_pairs": 2893752,
-          "global_budget_pct": 16.07,
-          "kv_traffic_reduction_pct": 82.2,
-          "speedup_vs_dense": 4.48
+          "active_causal_pairs": 2920248,
+          "global_budget_pct": 16.22,
+          "kv_traffic_reduction_pct": 82.05,
+          "speedup_vs_dense": 4.44
         },
         "r5": {
-          "active_causal_pairs": 2340408,
-          "global_budget_pct": 13.0,
-          "kv_traffic_reduction_pct": 85.19,
-          "speedup_vs_dense": 5.54
+          "active_causal_pairs": 2365944,
+          "global_budget_pct": 13.14,
+          "kv_traffic_reduction_pct": 85.05,
+          "speedup_vs_dense": 5.48
         }
       }
     }
