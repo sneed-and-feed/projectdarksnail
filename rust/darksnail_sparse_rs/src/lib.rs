@@ -1,6 +1,6 @@
-#![cfg_attr(panic = "abort", no_std)]
+#![cfg_attr(all(panic = "abort", not(target_os = "linux")), no_std)]
 
-#[cfg(panic = "abort")]
+#[cfg(all(panic = "abort", not(target_os = "linux")))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
