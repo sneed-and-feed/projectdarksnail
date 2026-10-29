@@ -20,7 +20,7 @@
       "total_tropical_rules_induced": 0,
       "total_fsa_latch_states_discovered": 0,
       "mean_actions_per_completed_level": 12500.0,
-      "wall_time_sec": 6.67,
+      "wall_time_sec": 6.64,
       "per_game": [
         {
           "game_id": "ar25-0c556536",
@@ -47,7 +47,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 753,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 1.342,
+          "wall_time_sec": 1.33,
           "official_rhae_score": 0.0
         },
         {
@@ -61,7 +61,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 601,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.139,
+          "wall_time_sec": 0.14,
           "official_rhae_score": 0.0
         },
         {
@@ -89,7 +89,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 515,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.234,
+          "wall_time_sec": 0.23,
           "official_rhae_score": 0.0
         },
         {
@@ -103,7 +103,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 77,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.323,
+          "wall_time_sec": 0.326,
           "official_rhae_score": 0.0
         },
         {
@@ -117,7 +117,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 506,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.318,
+          "wall_time_sec": 0.321,
           "official_rhae_score": 0.0
         },
         {
@@ -131,7 +131,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 712,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.133,
+          "wall_time_sec": 0.131,
           "official_rhae_score": 0.0
         },
         {
@@ -145,7 +145,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 180,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.41,
+          "wall_time_sec": 0.404,
           "official_rhae_score": 0.0
         },
         {
@@ -159,7 +159,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 24,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.108,
+          "wall_time_sec": 0.107,
           "official_rhae_score": 0.0
         },
         {
@@ -173,7 +173,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 841,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.414,
+          "wall_time_sec": 0.415,
           "official_rhae_score": 0.0
         },
         {
@@ -187,7 +187,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 630,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.122,
+          "wall_time_sec": 0.119,
           "official_rhae_score": 0.0
         },
         {
@@ -206,7 +206,7 @@
           ],
           "unique_nope_states_visited": 965,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.256,
+          "wall_time_sec": 0.252,
           "official_rhae_score": 0.003990238754781691
         },
         {
@@ -220,7 +220,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 978,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.146,
+          "wall_time_sec": 0.144,
           "official_rhae_score": 0.0
         },
         {
@@ -234,7 +234,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 335,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.072,
+          "wall_time_sec": 0.071,
           "official_rhae_score": 0.0
         },
         {
@@ -248,7 +248,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 71,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.589,
+          "wall_time_sec": 0.59,
           "official_rhae_score": 0.0
         },
         {
@@ -262,7 +262,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 609,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.415,
+          "wall_time_sec": 0.411,
           "official_rhae_score": 0.0
         },
         {
@@ -276,7 +276,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 568,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.174,
+          "wall_time_sec": 0.175,
           "official_rhae_score": 0.0
         },
         {
@@ -295,7 +295,7 @@
           ],
           "unique_nope_states_visited": 749,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.289,
+          "wall_time_sec": 0.29,
           "official_rhae_score": 0.028176951253874333
         },
         {
@@ -309,7 +309,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 169,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.159,
+          "wall_time_sec": 0.158,
           "official_rhae_score": 0.0
         },
         {
@@ -323,7 +323,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 443,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.139,
+          "wall_time_sec": 0.138,
           "official_rhae_score": 0.0
         },
         {
@@ -337,7 +337,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 984,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.25,
+          "wall_time_sec": 0.249,
           "official_rhae_score": 0.0
         },
         {
@@ -351,7 +351,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 403,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.115,
+          "wall_time_sec": 0.113,
           "official_rhae_score": 0.0
         },
         {
@@ -365,7 +365,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 152,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.155,
+          "wall_time_sec": 0.153,
           "official_rhae_score": 0.0
         },
         {
@@ -379,7 +379,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 823,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.07,
+          "wall_time_sec": 0.071,
           "official_rhae_score": 0.0
         }
       ]
@@ -399,7 +399,7 @@
       "total_tropical_rules_induced": 0,
       "total_fsa_latch_states_discovered": 0,
       "mean_actions_per_completed_level": 25000.0,
-      "wall_time_sec": 7.29,
+      "wall_time_sec": 7.25,
       "per_game": [
         {
           "game_id": "ar25-0c556536",
@@ -412,7 +412,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 554,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.222,
+          "wall_time_sec": 0.218,
           "official_rhae_score": 0.0
         },
         {
@@ -426,7 +426,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 81,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 1.274,
+          "wall_time_sec": 1.243,
           "official_rhae_score": 0.0
         },
         {
@@ -440,7 +440,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 557,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.082,
+          "wall_time_sec": 0.08,
           "official_rhae_score": 0.0
         },
         {
@@ -454,7 +454,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 587,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.102,
+          "wall_time_sec": 0.101,
           "official_rhae_score": 0.0
         },
         {
@@ -468,7 +468,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 495,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.239,
+          "wall_time_sec": 0.236,
           "official_rhae_score": 0.0
         },
         {
@@ -482,7 +482,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 75,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.333,
+          "wall_time_sec": 0.332,
           "official_rhae_score": 0.0
         },
         {
@@ -496,7 +496,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 488,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.291,
+          "wall_time_sec": 0.287,
           "official_rhae_score": 0.0
         },
         {
@@ -510,7 +510,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 537,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.138,
+          "wall_time_sec": 0.135,
           "official_rhae_score": 0.0
         },
         {
@@ -524,7 +524,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 64,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.32,
+          "wall_time_sec": 0.313,
           "official_rhae_score": 0.0
         },
         {
@@ -538,7 +538,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 23,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.114,
+          "wall_time_sec": 0.113,
           "official_rhae_score": 0.0
         },
         {
@@ -552,7 +552,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 698,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.571,
+          "wall_time_sec": 0.583,
           "official_rhae_score": 0.0
         },
         {
@@ -585,7 +585,7 @@
           ],
           "unique_nope_states_visited": 209,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.256,
+          "wall_time_sec": 0.257,
           "official_rhae_score": 0.003990238754781691
         },
         {
@@ -599,7 +599,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 728,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.116,
+          "wall_time_sec": 0.117,
           "official_rhae_score": 0.0
         },
         {
@@ -627,7 +627,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 65,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 1.408,
+          "wall_time_sec": 1.421,
           "official_rhae_score": 0.0
         },
         {
@@ -641,7 +641,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 405,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.352,
+          "wall_time_sec": 0.351,
           "official_rhae_score": 0.0
         },
         {
@@ -655,7 +655,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 515,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.168,
+          "wall_time_sec": 0.164,
           "official_rhae_score": 0.0
         },
         {
@@ -697,7 +697,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 433,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.144,
+          "wall_time_sec": 0.142,
           "official_rhae_score": 0.0
         },
         {
@@ -711,7 +711,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 898,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.25,
+          "wall_time_sec": 0.251,
           "official_rhae_score": 0.0
         },
         {
@@ -725,7 +725,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 317,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.111,
+          "wall_time_sec": 0.112,
           "official_rhae_score": 0.0
         },
         {
@@ -739,7 +739,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 149,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.159,
+          "wall_time_sec": 0.157,
           "official_rhae_score": 0.0
         },
         {
@@ -753,7 +753,7 @@
           "level_completion_steps": [],
           "unique_nope_states_visited": 669,
           "clock_pixels_masked": 0,
-          "wall_time_sec": 0.07,
+          "wall_time_sec": 0.069,
           "official_rhae_score": 0.0
         }
       ]
@@ -771,9 +771,9 @@
       "official_rhae_scorecard_score_pct": 19.9237,
       "total_actions_taken": 22024,
       "total_tropical_rules_induced": 7420,
-      "total_fsa_latch_states_discovered": 57,
+      "total_fsa_latch_states_discovered": 60,
       "mean_actions_per_completed_level": 349.59,
-      "wall_time_sec": 232.98,
+      "wall_time_sec": 233.08,
       "per_game": [
         {
           "game_id": "ar25-0c556536",
@@ -807,7 +807,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 14.01,
+          "wall_time_sec": 13.995,
           "official_rhae_score": 0.09614806802475812
         },
         {
@@ -842,7 +842,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 21.406,
+          "wall_time_sec": 21.311,
           "official_rhae_score": 0.02577251808021039
         },
         {
@@ -881,7 +881,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 8.743,
+          "wall_time_sec": 8.711,
           "official_rhae_score": 0.43829654088453873
         },
         {
@@ -936,7 +936,7 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 0.585,
+          "wall_time_sec": 0.596,
           "official_rhae_score": 100.0
         },
         {
@@ -971,7 +971,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 7.802,
+          "wall_time_sec": 7.817,
           "official_rhae_score": 0.04216476137906507
         },
         {
@@ -1006,7 +1006,7 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 13.174,
+          "wall_time_sec": 13.138,
           "official_rhae_score": 0.022979274782041766
         },
         {
@@ -1041,7 +1041,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 7.025,
+          "wall_time_sec": 6.988,
           "official_rhae_score": 0.02774243854393237
         },
         {
@@ -1080,7 +1080,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 18.56,
+          "wall_time_sec": 18.45,
           "official_rhae_score": 10.714285714285714
         },
         {
@@ -1115,7 +1115,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 8.328,
+          "wall_time_sec": 8.33,
           "official_rhae_score": 0.3493747760964874
         },
         {
@@ -1150,7 +1150,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 13.916,
+          "wall_time_sec": 13.838,
           "official_rhae_score": 2.7777777777777777
         },
         {
@@ -1185,7 +1185,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 8.029,
+          "wall_time_sec": 8.014,
           "official_rhae_score": 0.04073360893042295
         },
         {
@@ -1220,7 +1220,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 5.847,
+          "wall_time_sec": 5.843,
           "official_rhae_score": 1.4167650531286893
         },
         {
@@ -1241,7 +1241,7 @@
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 126,
           "tropical_rules_induced": 642,
-          "fsa_latch_states_discovered": 1,
+          "fsa_latch_states_discovered": 2,
           "gemma4_calls_made": 9,
           "last_amygdala_state": {
             "valence": 0.236,
@@ -1255,7 +1255,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 10.539,
+          "wall_time_sec": 10.581,
           "official_rhae_score": 0.10381342753758413
         },
         {
@@ -1306,7 +1306,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 5.072,
+          "wall_time_sec": 5.062,
           "official_rhae_score": 41.66666666666667
         },
         {
@@ -1327,7 +1327,7 @@
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 7,
           "tropical_rules_induced": 185,
-          "fsa_latch_states_discovered": 1,
+          "fsa_latch_states_discovered": 2,
           "gemma4_calls_made": 12,
           "last_amygdala_state": {
             "valence": 0.2072,
@@ -1341,7 +1341,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 8.93,
+          "wall_time_sec": 9.165,
           "official_rhae_score": 0.002241879017447199
         },
         {
@@ -1404,7 +1404,7 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 0.612,
+          "wall_time_sec": 0.641,
           "official_rhae_score": 100.0
         },
         {
@@ -1443,7 +1443,7 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 18.708,
+          "wall_time_sec": 18.659,
           "official_rhae_score": 0.3125400063804196
         },
         {
@@ -1506,7 +1506,7 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 3.569,
+          "wall_time_sec": 3.597,
           "official_rhae_score": 100.0
         },
         {
@@ -1541,7 +1541,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 6.267,
+          "wall_time_sec": 6.312,
           "official_rhae_score": 3.917175307115815
         },
         {
@@ -1576,7 +1576,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 11.086,
+          "wall_time_sec": 11.158,
           "official_rhae_score": 2.2222222222222223
         },
         {
@@ -1597,7 +1597,7 @@
           "clock_pixels_masked": 61,
           "remote_actuators_discovered": 3,
           "tropical_rules_induced": 795,
-          "fsa_latch_states_discovered": 1,
+          "fsa_latch_states_discovered": 2,
           "gemma4_calls_made": 7,
           "last_amygdala_state": {
             "valence": 0.2259,
@@ -1666,7 +1666,7 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 1.651,
+          "wall_time_sec": 1.565,
           "official_rhae_score": 100.0
         },
         {
@@ -1709,7 +1709,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 7.546,
+          "wall_time_sec": 7.518,
           "official_rhae_score": 0.8977187236127995
         },
         {
@@ -1748,7 +1748,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 9.209,
+          "wall_time_sec": 9.403,
           "official_rhae_score": 4.1891399416909625
         },
         {
@@ -1799,7 +1799,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 4.515,
+          "wall_time_sec": 4.534,
           "official_rhae_score": 25.257298902824964
         }
       ]
