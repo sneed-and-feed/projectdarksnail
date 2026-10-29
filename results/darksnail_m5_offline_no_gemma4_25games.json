@@ -28,11 +28,11 @@
       "official_rhae_pct": 0.6274
     },
     "darksnail_m5_no_gemma4": {
-      "levels_completed": 30,
-      "level_pct": 16.39,
-      "games_ge_1_level": 18,
-      "full_games_won": 1,
-      "official_rhae_pct": 4.8125
+      "levels_completed": 63,
+      "level_pct": 34.43,
+      "games_ge_1_level": 25,
+      "full_games_won": 4,
+      "official_rhae_pct": 19.9236
     }
   },
   "conditions": {
@@ -1248,43 +1248,52 @@
       "max_actions_per_game": 1000,
       "num_games": 25,
       "total_levels_available": 183,
-      "total_levels_completed": 30,
-      "level_completion_rate_pct": 16.39,
-      "games_with_at_least_1_level_completed": 18,
-      "games_with_at_least_1_level_pct": 72.0,
-      "full_games_won": 1,
-      "official_rhae_scorecard_score_pct": 4.8125,
-      "total_actions_taken": 24124,
-      "mean_actions_per_completed_level": 831.86,
-      "wall_time_sec": 635.51,
+      "total_levels_completed": 63,
+      "level_completion_rate_pct": 34.43,
+      "games_with_at_least_1_level_completed": 25,
+      "games_with_at_least_1_level_pct": 100.0,
+      "full_games_won": 4,
+      "official_rhae_scorecard_score_pct": 19.9236,
+      "total_actions_taken": 22024,
+      "total_tropical_rules_induced": 7437,
+      "total_fsa_latch_states_discovered": 84,
+      "mean_actions_per_completed_level": 349.59,
+      "wall_time_sec": 662.51,
       "per_game": [
         {
           "game_id": "ar25-0c556536",
           "state": "NOT_FINISHED",
           "won": false,
-          "levels_completed": 0,
+          "levels_completed": 1,
           "win_levels": 8,
           "actions_taken": 1000,
-          "resets_taken": 14,
-          "level_completion_steps": [],
-          "unique_nope_states_visited": 310,
+          "resets_taken": 5,
+          "level_completion_steps": [
+            [
+              1,
+              172
+            ]
+          ],
+          "unique_nope_states_visited": 145,
           "clock_pixels_masked": 64,
-          "remote_actuators_discovered": 0,
+          "remote_actuators_discovered": 124,
+          "tropical_rules_induced": 198,
+          "fsa_latch_states_discovered": 3,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.0,
-            "uncertainty": 0.292,
-            "urgency": 0.3792,
-            "gamma_E": 0.4376,
-            "gamma_I": 0.8697,
-            "temperature": 0.2445,
-            "reasoning_steps": 2,
+            "valence": -0.3537,
+            "uncertainty": 0.7712,
+            "urgency": 0.8931,
+            "gamma_E": 0.0341,
+            "gamma_I": 1.7645,
+            "temperature": 0.0838,
+            "reasoning_steps": 9,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
-            "should_call_gemma4_system2": false
+            "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 15.798,
-          "official_rhae_score": 0.0
+          "wall_time_sec": 30.233,
+          "official_rhae_score": 0.09614806802475812
         },
         {
           "game_id": "bp35-0a0ad940",
@@ -1293,31 +1302,33 @@
           "levels_completed": 1,
           "win_levels": 9,
           "actions_taken": 1000,
-          "resets_taken": 89,
+          "resets_taken": 70,
           "level_completion_steps": [
             [
               1,
-              230
+              195
             ]
           ],
-          "unique_nope_states_visited": 329,
+          "unique_nope_states_visited": 376,
           "clock_pixels_masked": 64,
-          "remote_actuators_discovered": 3,
+          "remote_actuators_discovered": 10,
+          "tropical_rules_induced": 395,
+          "fsa_latch_states_discovered": 53,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.1982,
-            "uncertainty": 0.8321,
-            "urgency": 0.68,
-            "gamma_E": 0.0325,
-            "gamma_I": 1.7024,
-            "temperature": 0.0985,
-            "reasoning_steps": 7,
+            "valence": -0.0483,
+            "uncertainty": 0.1,
+            "urgency": 0.3448,
+            "gamma_E": 0.6321,
+            "gamma_I": 0.7686,
+            "temperature": 0.3072,
+            "reasoning_steps": 2,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
-            "should_call_gemma4_system2": true
+            "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 68.475,
-          "official_rhae_score": 0.01852551984877127
+          "wall_time_sec": 66.919,
+          "official_rhae_score": 0.02577251808021039
         },
         {
           "game_id": "cd82-fb555c5d",
@@ -1326,7 +1337,7 @@
           "levels_completed": 2,
           "win_levels": 6,
           "actions_taken": 1000,
-          "resets_taken": 9,
+          "resets_taken": 8,
           "level_completion_steps": [
             [
               1,
@@ -1337,52 +1348,81 @@
               606
             ]
           ],
-          "unique_nope_states_visited": 224,
+          "unique_nope_states_visited": 122,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 19,
+          "tropical_rules_induced": 161,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.2607,
-            "uncertainty": 0.1,
-            "urgency": 0.1047,
-            "gamma_E": 0.8921,
-            "gamma_I": 0.5495,
-            "temperature": 0.5025,
-            "reasoning_steps": 1,
-            "bypass_active": true,
-            "reflex_decision": "System 1 (Reflex Bypass)",
+            "valence": -0.0862,
+            "uncertainty": 0.728,
+            "urgency": 0.8587,
+            "gamma_E": 0.0541,
+            "gamma_I": 1.6741,
+            "temperature": 0.102,
+            "reasoning_steps": 7,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 21.485,
-          "official_rhae_score": 0.43828342245989305
+          "wall_time_sec": 19.927,
+          "official_rhae_score": 0.438264327643778
         },
         {
           "game_id": "cn04-2fe56bfb",
-          "state": "NOT_FINISHED",
-          "won": false,
-          "levels_completed": 0,
+          "state": "WIN",
+          "won": true,
+          "levels_completed": 6,
           "win_levels": 6,
-          "actions_taken": 1000,
-          "resets_taken": 13,
-          "level_completion_steps": [],
-          "unique_nope_states_visited": 372,
+          "actions_taken": 186,
+          "resets_taken": 0,
+          "level_completion_steps": [
+            [
+              1,
+              13
+            ],
+            [
+              2,
+              43
+            ],
+            [
+              3,
+              66
+            ],
+            [
+              4,
+              98
+            ],
+            [
+              5,
+              145
+            ],
+            [
+              6,
+              186
+            ]
+          ],
+          "unique_nope_states_visited": 41,
           "clock_pixels_masked": 32,
-          "remote_actuators_discovered": 84,
+          "remote_actuators_discovered": 6,
+          "tropical_rules_induced": 40,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.2263,
+            "valence": 0.2414,
             "uncertainty": 0.1,
-            "urgency": 0.1048,
-            "gamma_E": 0.8792,
-            "gamma_I": 0.5546,
-            "temperature": 0.4908,
+            "urgency": 0.1047,
+            "gamma_E": 0.8849,
+            "gamma_I": 0.5524,
+            "temperature": 0.4959,
             "reasoning_steps": 1,
             "bypass_active": true,
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 22.563,
-          "official_rhae_score": 0.0
+          "wall_time_sec": 1.817,
+          "official_rhae_score": 100.0
         },
         {
           "game_id": "dc22-fdcac232",
@@ -1391,31 +1431,33 @@
           "levels_completed": 1,
           "win_levels": 6,
           "actions_taken": 1000,
-          "resets_taken": 10,
+          "resets_taken": 9,
           "level_completion_steps": [
             [
               1,
-              692
+              627
             ]
           ],
-          "unique_nope_states_visited": 149,
+          "unique_nope_states_visited": 129,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 2,
+          "tropical_rules_induced": 293,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.0456,
-            "uncertainty": 0.7226,
-            "urgency": 0.6868,
-            "gamma_E": 0.0741,
-            "gamma_I": 1.5373,
-            "temperature": 0.1173,
-            "reasoning_steps": 6,
+            "valence": 0.0069,
+            "uncertainty": 0.8415,
+            "urgency": 0.8724,
+            "gamma_E": 0.0247,
+            "gamma_I": 1.8614,
+            "temperature": 0.0975,
+            "reasoning_steps": 8,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
-            "should_call_gemma4_system2": false
+            "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 20.394,
-          "official_rhae_score": 0.034615653872896016
+          "wall_time_sec": 22.483,
+          "official_rhae_score": 0.04216476137906507
         },
         {
           "game_id": "ft09-0d8bbf25",
@@ -1434,20 +1476,22 @@
           "unique_nope_states_visited": 138,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 287,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.0688,
+            "valence": 0.0729,
             "uncertainty": 0.1,
             "urgency": 0.1047,
-            "gamma_E": 0.8184,
-            "gamma_I": 0.5782,
-            "temperature": 0.4353,
+            "gamma_E": 0.82,
+            "gamma_I": 0.5776,
+            "temperature": 0.4368,
             "reasoning_steps": 1,
             "bypass_active": true,
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 28.026,
+          "wall_time_sec": 37.718,
           "official_rhae_score": 0.022979274782041766
         },
         {
@@ -1467,6 +1511,8 @@
           "unique_nope_states_visited": 39,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 60,
+          "fsa_latch_states_discovered": 3,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
             "valence": -0.1554,
@@ -1480,36 +1526,47 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 19.063,
+          "wall_time_sec": 20.927,
           "official_rhae_score": 0.02774243854393237
         },
         {
           "game_id": "ka59-38d34dbb",
           "state": "NOT_FINISHED",
           "won": false,
-          "levels_completed": 0,
+          "levels_completed": 2,
           "win_levels": 7,
           "actions_taken": 1000,
           "resets_taken": 9,
-          "level_completion_steps": [],
-          "unique_nope_states_visited": 274,
+          "level_completion_steps": [
+            [
+              1,
+              11
+            ],
+            [
+              2,
+              60
+            ]
+          ],
+          "unique_nope_states_visited": 58,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 62,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.0485,
-            "uncertainty": 0.5867,
-            "urgency": 0.8047,
-            "gamma_E": 0.1132,
-            "gamma_I": 1.4478,
-            "temperature": 0.1214,
-            "reasoning_steps": 6,
+            "valence": 0.0029,
+            "uncertainty": 0.7659,
+            "urgency": 0.5906,
+            "gamma_E": 0.0665,
+            "gamma_I": 1.5291,
+            "temperature": 0.1243,
+            "reasoning_steps": 5,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
-            "should_call_gemma4_system2": false
+            "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 21.442,
-          "official_rhae_score": 0.0
+          "wall_time_sec": 54.099,
+          "official_rhae_score": 10.714285714285714
         },
         {
           "game_id": "lf52-271a04aa",
@@ -1525,23 +1582,25 @@
               73
             ]
           ],
-          "unique_nope_states_visited": 108,
+          "unique_nope_states_visited": 118,
           "clock_pixels_masked": 64,
-          "remote_actuators_discovered": 18,
+          "remote_actuators_discovered": 20,
+          "tropical_rules_induced": 256,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.0062,
-            "uncertainty": 0.7616,
+            "valence": -0.1568,
+            "uncertainty": 0.791,
             "urgency": 0.9,
-            "gamma_E": 0.0429,
-            "gamma_I": 1.755,
-            "temperature": 0.1012,
-            "reasoning_steps": 7,
+            "gamma_E": 0.0326,
+            "gamma_I": 1.8007,
+            "temperature": 0.0916,
+            "reasoning_steps": 8,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": true
           },
-          "wall_time_sec": 22.045,
+          "wall_time_sec": 25.092,
           "official_rhae_score": 0.3493747760964874
         },
         {
@@ -1561,20 +1620,22 @@
           "unique_nope_states_visited": 829,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 6,
+          "tropical_rules_induced": 888,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.227,
+            "valence": 0.1916,
             "uncertainty": 0.1,
             "urgency": 0.4067,
-            "gamma_E": 0.6789,
-            "gamma_I": 0.781,
-            "temperature": 0.357,
+            "gamma_E": 0.6685,
+            "gamma_I": 0.7863,
+            "temperature": 0.3485,
             "reasoning_steps": 2,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 48.482,
+          "wall_time_sec": 43.137,
           "official_rhae_score": 2.7777777777777777
         },
         {
@@ -1594,6 +1655,8 @@
           "unique_nope_states_visited": 223,
           "clock_pixels_masked": 62,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 438,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
             "valence": 0.005,
@@ -1607,7 +1670,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 20.048,
+          "wall_time_sec": 22.578,
           "official_rhae_score": 0.04073360893042295
         },
         {
@@ -1624,9 +1687,11 @@
               55
             ]
           ],
-          "unique_nope_states_visited": 134,
+          "unique_nope_states_visited": 136,
           "clock_pixels_masked": 128,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 285,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
             "valence": -0.0,
@@ -1640,7 +1705,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 14.856,
+          "wall_time_sec": 16.796,
           "official_rhae_score": 1.4167650531286893
         },
         {
@@ -1654,55 +1719,80 @@
           "level_completion_steps": [
             [
               1,
-              180
+              149
             ]
           ],
-          "unique_nope_states_visited": 385,
+          "unique_nope_states_visited": 431,
           "clock_pixels_masked": 64,
-          "remote_actuators_discovered": 102,
+          "remote_actuators_discovered": 126,
+          "tropical_rules_induced": 642,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.2337,
+            "valence": 0.236,
             "uncertainty": 0.1,
             "urgency": 0.3448,
-            "gamma_E": 0.7221,
-            "gamma_I": 0.7336,
-            "temperature": 0.3823,
+            "gamma_E": 0.7228,
+            "gamma_I": 0.7332,
+            "temperature": 0.3829,
             "reasoning_steps": 2,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 29.492,
-          "official_rhae_score": 0.07113462669018225
+          "wall_time_sec": 29.254,
+          "official_rhae_score": 0.10381342753758413
         },
         {
           "game_id": "re86-8af5384d",
           "state": "NOT_FINISHED",
           "won": false,
-          "levels_completed": 0,
+          "levels_completed": 5,
           "win_levels": 8,
           "actions_taken": 1000,
-          "resets_taken": 9,
-          "level_completion_steps": [],
-          "unique_nope_states_visited": 722,
+          "resets_taken": 3,
+          "level_completion_steps": [
+            [
+              1,
+              20
+            ],
+            [
+              2,
+              56
+            ],
+            [
+              3,
+              103
+            ],
+            [
+              4,
+              171
+            ],
+            [
+              5,
+              266
+            ]
+          ],
+          "unique_nope_states_visited": 671,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 692,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.2273,
+            "valence": 0.233,
             "uncertainty": 0.1,
-            "urgency": 0.5167,
-            "gamma_E": 0.6059,
-            "gamma_I": 0.8634,
-            "temperature": 0.3191,
+            "urgency": 0.4067,
+            "gamma_E": 0.6806,
+            "gamma_I": 0.7801,
+            "temperature": 0.3584,
             "reasoning_steps": 2,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 18.562,
-          "official_rhae_score": 0.0
+          "wall_time_sec": 14.959,
+          "official_rhae_score": 41.66666666666667
         },
         {
           "game_id": "s5i5-18d95033",
@@ -1721,20 +1811,22 @@
           "unique_nope_states_visited": 156,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 7,
+          "tropical_rules_induced": 185,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.2105,
+            "valence": 0.2072,
             "uncertainty": 0.1,
             "urgency": 0.5373,
-            "gamma_E": 0.5879,
-            "gamma_I": 0.8814,
-            "temperature": 0.3091,
+            "gamma_E": 0.5871,
+            "gamma_I": 0.8819,
+            "temperature": 0.3084,
             "reasoning_steps": 2,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 21.841,
+          "wall_time_sec": 20.71,
           "official_rhae_score": 0.002241879017447199
         },
         {
@@ -1782,6 +1874,8 @@
           "unique_nope_states_visited": 17,
           "clock_pixels_masked": 0,
           "remote_actuators_discovered": 8,
+          "tropical_rules_induced": 16,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
             "valence": 0.2275,
@@ -1795,7 +1889,7 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 2.282,
+          "wall_time_sec": 2.021,
           "official_rhae_score": 100.0
         },
         {
@@ -1819,6 +1913,8 @@
           "unique_nope_states_visited": 269,
           "clock_pixels_masked": 128,
           "remote_actuators_discovered": 4,
+          "tropical_rules_induced": 331,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
             "valence": 0.2275,
@@ -1832,36 +1928,71 @@
             "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 27.51,
+          "wall_time_sec": 50.763,
           "official_rhae_score": 0.3125400063804196
         },
         {
           "game_id": "sk48-d8078629",
-          "state": "NOT_FINISHED",
-          "won": false,
-          "levels_completed": 0,
+          "state": "WIN",
+          "won": true,
+          "levels_completed": 8,
           "win_levels": 8,
-          "actions_taken": 1000,
-          "resets_taken": 5,
-          "level_completion_steps": [],
-          "unique_nope_states_visited": 553,
+          "actions_taken": 498,
+          "resets_taken": 0,
+          "level_completion_steps": [
+            [
+              1,
+              16
+            ],
+            [
+              2,
+              61
+            ],
+            [
+              3,
+              108
+            ],
+            [
+              4,
+              151
+            ],
+            [
+              5,
+              259
+            ],
+            [
+              6,
+              357
+            ],
+            [
+              7,
+              413
+            ],
+            [
+              8,
+              498
+            ]
+          ],
+          "unique_nope_states_visited": 85,
           "clock_pixels_masked": 64,
-          "remote_actuators_discovered": 0,
+          "remote_actuators_discovered": 3,
+          "tropical_rules_induced": 84,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.001,
-            "uncertainty": 0.292,
-            "urgency": 0.1386,
-            "gamma_E": 0.5377,
-            "gamma_I": 0.6892,
-            "temperature": 0.3093,
-            "reasoning_steps": 2,
-            "bypass_active": false,
-            "reflex_decision": "Escalate to System 2",
+            "valence": 0.2275,
+            "uncertainty": 0.1,
+            "urgency": 0.1047,
+            "gamma_E": 0.8797,
+            "gamma_I": 0.5544,
+            "temperature": 0.4912,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 20.727,
-          "official_rhae_score": 0.0
+          "wall_time_sec": 9.436,
+          "official_rhae_score": 100.0
         },
         {
           "game_id": "sp80-589a99af",
@@ -1880,12 +2011,14 @@
           "unique_nope_states_visited": 233,
           "clock_pixels_masked": 128,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 393,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.0,
+            "valence": -0.0008,
             "uncertainty": 0.7459,
             "urgency": 0.4599,
-            "gamma_E": 0.0869,
+            "gamma_E": 0.0868,
             "gamma_I": 1.4013,
             "temperature": 0.1393,
             "reasoning_steps": 4,
@@ -1893,7 +2026,7 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 16.241,
+          "wall_time_sec": 16.7,
           "official_rhae_score": 3.917175307115815
         },
         {
@@ -1903,30 +2036,32 @@
           "levels_completed": 1,
           "win_levels": 9,
           "actions_taken": 1000,
-          "resets_taken": 36,
+          "resets_taken": 40,
           "level_completion_steps": [
             [
               1,
               19
             ]
           ],
-          "unique_nope_states_visited": 155,
+          "unique_nope_states_visited": 169,
           "clock_pixels_masked": 64,
-          "remote_actuators_discovered": 4,
+          "remote_actuators_discovered": 2,
+          "tropical_rules_induced": 241,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.0975,
-            "uncertainty": 0.7458,
-            "urgency": 0.4599,
-            "gamma_E": 0.0827,
-            "gamma_I": 1.4013,
-            "temperature": 0.1307,
-            "reasoning_steps": 5,
+            "valence": -0.0015,
+            "uncertainty": 0.6658,
+            "urgency": 0.5149,
+            "gamma_E": 0.1235,
+            "gamma_I": 1.3295,
+            "temperature": 0.1442,
+            "reasoning_steps": 4,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 27.887,
+          "wall_time_sec": 35.01,
           "official_rhae_score": 2.2222222222222223
         },
         {
@@ -1943,52 +2078,81 @@
               13
             ]
           ],
-          "unique_nope_states_visited": 629,
+          "unique_nope_states_visited": 657,
           "clock_pixels_masked": 61,
           "remote_actuators_discovered": 3,
+          "tropical_rules_induced": 795,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.208,
+            "valence": 0.2259,
             "uncertainty": 0.1,
             "urgency": 0.5219,
-            "gamma_E": 0.5975,
-            "gamma_I": 0.8702,
-            "temperature": 0.3134,
+            "gamma_E": 0.6021,
+            "gamma_I": 0.8675,
+            "temperature": 0.3171,
             "reasoning_steps": 2,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 64.08,
+          "wall_time_sec": 61.298,
           "official_rhae_score": 3.571428571428571
         },
         {
           "game_id": "tr87-cd924810",
-          "state": "NOT_FINISHED",
-          "won": false,
-          "levels_completed": 0,
+          "state": "WIN",
+          "won": true,
+          "levels_completed": 6,
           "win_levels": 6,
-          "actions_taken": 1000,
-          "resets_taken": 7,
-          "level_completion_steps": [],
-          "unique_nope_states_visited": 680,
+          "actions_taken": 216,
+          "resets_taken": 0,
+          "level_completion_steps": [
+            [
+              1,
+              35
+            ],
+            [
+              2,
+              65
+            ],
+            [
+              3,
+              104
+            ],
+            [
+              4,
+              133
+            ],
+            [
+              5,
+              162
+            ],
+            [
+              6,
+              216
+            ]
+          ],
+          "unique_nope_states_visited": 54,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 53,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.2266,
+            "valence": 0.2126,
             "uncertainty": 0.1,
-            "urgency": 0.448,
-            "gamma_E": 0.6514,
-            "gamma_I": 0.812,
-            "temperature": 0.3421,
-            "reasoning_steps": 2,
-            "bypass_active": false,
-            "reflex_decision": "Escalate to System 2",
+            "urgency": 0.1048,
+            "gamma_E": 0.8741,
+            "gamma_I": 0.5567,
+            "temperature": 0.4861,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 29.252,
-          "official_rhae_score": 0.0
+          "wall_time_sec": 5.132,
+          "official_rhae_score": 100.0
         },
         {
           "game_id": "tu93-0768757b",
@@ -2009,27 +2173,29 @@
             ],
             [
               3,
-              504
+              516
             ]
           ],
-          "unique_nope_states_visited": 60,
+          "unique_nope_states_visited": 58,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 84,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": -0.0959,
-            "uncertainty": 0.516,
-            "urgency": 0.4479,
-            "gamma_E": 0.2201,
-            "gamma_I": 1.1022,
-            "temperature": 0.1657,
-            "reasoning_steps": 4,
+            "valence": -0.0488,
+            "uncertainty": 0.66,
+            "urgency": 0.1179,
+            "gamma_E": 0.1775,
+            "gamma_I": 1.0241,
+            "temperature": 0.1957,
+            "reasoning_steps": 3,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 15.008,
-          "official_rhae_score": 0.9007609021341005
+          "wall_time_sec": 19.004,
+          "official_rhae_score": 0.8952684027266916
         },
         {
           "game_id": "vc33-5430563c",
@@ -2052,6 +2218,8 @@
           "unique_nope_states_visited": 244,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 8,
+          "tropical_rules_induced": 515,
+          "fsa_latch_states_discovered": 1,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
             "valence": 0.2251,
@@ -2065,36 +2233,1105 @@
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 23.373,
+          "wall_time_sec": 23.043,
           "official_rhae_score": 4.1891399416909625
         },
         {
           "game_id": "wa30-ee6fef47",
           "state": "NOT_FINISHED",
           "won": false,
-          "levels_completed": 0,
+          "levels_completed": 5,
           "win_levels": 9,
           "actions_taken": 1000,
-          "resets_taken": 4,
-          "level_completion_steps": [],
-          "unique_nope_states_visited": 805,
+          "resets_taken": 6,
+          "level_completion_steps": [
+            [
+              1,
+              29
+            ],
+            [
+              2,
+              223
+            ],
+            [
+              3,
+              317
+            ],
+            [
+              4,
+              699
+            ],
+            [
+              5,
+              950
+            ]
+          ],
+          "unique_nope_states_visited": 43,
           "clock_pixels_masked": 64,
           "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 43,
+          "fsa_latch_states_discovered": 4,
           "gemma4_calls_made": 0,
           "last_amygdala_state": {
-            "valence": 0.4514,
+            "valence": 0.2482,
             "uncertainty": 0.1,
-            "urgency": 0.5442,
-            "gamma_E": 0.6404,
-            "gamma_I": 0.8504,
-            "temperature": 0.3528,
+            "urgency": 0.4067,
+            "gamma_E": 0.685,
+            "gamma_I": 0.7778,
+            "temperature": 0.362,
             "reasoning_steps": 2,
             "bypass_active": false,
             "reflex_decision": "Escalate to System 2",
             "should_call_gemma4_system2": false
           },
-          "wall_time_sec": 16.578,
-          "official_rhae_score": 0.0
+          "wall_time_sec": 13.459,
+          "official_rhae_score": 25.257298902824964
+        }
+      ]
+    },
+    "darksnail_v2_arc3": {
+      "condition": "darksnail_v2_arc3",
+      "max_actions_per_game": 1000,
+      "num_games": 25,
+      "total_levels_available": 183,
+      "total_levels_completed": 63,
+      "level_completion_rate_pct": 34.43,
+      "games_with_at_least_1_level_completed": 25,
+      "games_with_at_least_1_level_pct": 100.0,
+      "full_games_won": 4,
+      "official_rhae_scorecard_score_pct": 19.9236,
+      "total_actions_taken": 22024,
+      "total_tropical_rules_induced": 7437,
+      "total_fsa_latch_states_discovered": 84,
+      "mean_actions_per_completed_level": 349.59,
+      "wall_time_sec": 662.51,
+      "per_game": [
+        {
+          "game_id": "ar25-0c556536",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 8,
+          "actions_taken": 1000,
+          "resets_taken": 5,
+          "level_completion_steps": [
+            [
+              1,
+              172
+            ]
+          ],
+          "unique_nope_states_visited": 145,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 124,
+          "tropical_rules_induced": 198,
+          "fsa_latch_states_discovered": 3,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.3537,
+            "uncertainty": 0.7712,
+            "urgency": 0.8931,
+            "gamma_E": 0.0341,
+            "gamma_I": 1.7645,
+            "temperature": 0.0838,
+            "reasoning_steps": 9,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": true
+          },
+          "wall_time_sec": 30.233,
+          "official_rhae_score": 0.09614806802475812
+        },
+        {
+          "game_id": "bp35-0a0ad940",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 9,
+          "actions_taken": 1000,
+          "resets_taken": 70,
+          "level_completion_steps": [
+            [
+              1,
+              195
+            ]
+          ],
+          "unique_nope_states_visited": 376,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 10,
+          "tropical_rules_induced": 395,
+          "fsa_latch_states_discovered": 53,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.0483,
+            "uncertainty": 0.1,
+            "urgency": 0.3448,
+            "gamma_E": 0.6321,
+            "gamma_I": 0.7686,
+            "temperature": 0.3072,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 66.919,
+          "official_rhae_score": 0.02577251808021039
+        },
+        {
+          "game_id": "cd82-fb555c5d",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 2,
+          "win_levels": 6,
+          "actions_taken": 1000,
+          "resets_taken": 8,
+          "level_completion_steps": [
+            [
+              1,
+              182
+            ],
+            [
+              2,
+              606
+            ]
+          ],
+          "unique_nope_states_visited": 122,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 19,
+          "tropical_rules_induced": 161,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.0862,
+            "uncertainty": 0.728,
+            "urgency": 0.8587,
+            "gamma_E": 0.0541,
+            "gamma_I": 1.6741,
+            "temperature": 0.102,
+            "reasoning_steps": 7,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 19.927,
+          "official_rhae_score": 0.438264327643778
+        },
+        {
+          "game_id": "cn04-2fe56bfb",
+          "state": "WIN",
+          "won": true,
+          "levels_completed": 6,
+          "win_levels": 6,
+          "actions_taken": 186,
+          "resets_taken": 0,
+          "level_completion_steps": [
+            [
+              1,
+              13
+            ],
+            [
+              2,
+              43
+            ],
+            [
+              3,
+              66
+            ],
+            [
+              4,
+              98
+            ],
+            [
+              5,
+              145
+            ],
+            [
+              6,
+              186
+            ]
+          ],
+          "unique_nope_states_visited": 41,
+          "clock_pixels_masked": 32,
+          "remote_actuators_discovered": 6,
+          "tropical_rules_induced": 40,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2414,
+            "uncertainty": 0.1,
+            "urgency": 0.1047,
+            "gamma_E": 0.8849,
+            "gamma_I": 0.5524,
+            "temperature": 0.4959,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 1.817,
+          "official_rhae_score": 100.0
+        },
+        {
+          "game_id": "dc22-fdcac232",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 6,
+          "actions_taken": 1000,
+          "resets_taken": 9,
+          "level_completion_steps": [
+            [
+              1,
+              627
+            ]
+          ],
+          "unique_nope_states_visited": 129,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 2,
+          "tropical_rules_induced": 293,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.0069,
+            "uncertainty": 0.8415,
+            "urgency": 0.8724,
+            "gamma_E": 0.0247,
+            "gamma_I": 1.8614,
+            "temperature": 0.0975,
+            "reasoning_steps": 8,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": true
+          },
+          "wall_time_sec": 22.483,
+          "official_rhae_score": 0.04216476137906507
+        },
+        {
+          "game_id": "ft09-0d8bbf25",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 6,
+          "actions_taken": 1000,
+          "resets_taken": 24,
+          "level_completion_steps": [
+            [
+              1,
+              619
+            ]
+          ],
+          "unique_nope_states_visited": 138,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 287,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.0729,
+            "uncertainty": 0.1,
+            "urgency": 0.1047,
+            "gamma_E": 0.82,
+            "gamma_I": 0.5776,
+            "temperature": 0.4368,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 37.718,
+          "official_rhae_score": 0.022979274782041766
+        },
+        {
+          "game_id": "g50t-5849a774",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 7,
+          "actions_taken": 1000,
+          "resets_taken": 6,
+          "level_completion_steps": [
+            [
+              1,
+              885
+            ]
+          ],
+          "unique_nope_states_visited": 39,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 60,
+          "fsa_latch_states_discovered": 3,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.1554,
+            "uncertainty": 0.196,
+            "urgency": 0.5098,
+            "gamma_E": 0.4279,
+            "gamma_I": 0.9208,
+            "temperature": 0.2124,
+            "reasoning_steps": 3,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 20.927,
+          "official_rhae_score": 0.02774243854393237
+        },
+        {
+          "game_id": "ka59-38d34dbb",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 2,
+          "win_levels": 7,
+          "actions_taken": 1000,
+          "resets_taken": 9,
+          "level_completion_steps": [
+            [
+              1,
+              11
+            ],
+            [
+              2,
+              60
+            ]
+          ],
+          "unique_nope_states_visited": 58,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 62,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.0029,
+            "uncertainty": 0.7659,
+            "urgency": 0.5906,
+            "gamma_E": 0.0665,
+            "gamma_I": 1.5291,
+            "temperature": 0.1243,
+            "reasoning_steps": 5,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": true
+          },
+          "wall_time_sec": 54.099,
+          "official_rhae_score": 10.714285714285714
+        },
+        {
+          "game_id": "lf52-271a04aa",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 10,
+          "actions_taken": 1000,
+          "resets_taken": 1,
+          "level_completion_steps": [
+            [
+              1,
+              73
+            ]
+          ],
+          "unique_nope_states_visited": 118,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 20,
+          "tropical_rules_induced": 256,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.1568,
+            "uncertainty": 0.791,
+            "urgency": 0.9,
+            "gamma_E": 0.0326,
+            "gamma_I": 1.8007,
+            "temperature": 0.0916,
+            "reasoning_steps": 8,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": true
+          },
+          "wall_time_sec": 25.092,
+          "official_rhae_score": 0.3493747760964874
+        },
+        {
+          "game_id": "lp85-305b61c3",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 8,
+          "actions_taken": 1000,
+          "resets_taken": 15,
+          "level_completion_steps": [
+            [
+              1,
+              12
+            ]
+          ],
+          "unique_nope_states_visited": 829,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 6,
+          "tropical_rules_induced": 888,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.1916,
+            "uncertainty": 0.1,
+            "urgency": 0.4067,
+            "gamma_E": 0.6685,
+            "gamma_I": 0.7863,
+            "temperature": 0.3485,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 43.137,
+          "official_rhae_score": 2.7777777777777777
+        },
+        {
+          "game_id": "ls20-9607627b",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 7,
+          "actions_taken": 1000,
+          "resets_taken": 12,
+          "level_completion_steps": [
+            [
+              1,
+              206
+            ]
+          ],
+          "unique_nope_states_visited": 223,
+          "clock_pixels_masked": 62,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 438,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.005,
+            "uncertainty": 0.58,
+            "urgency": 0.3592,
+            "gamma_E": 0.2043,
+            "gamma_I": 1.1051,
+            "temperature": 0.18,
+            "reasoning_steps": 3,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 22.578,
+          "official_rhae_score": 0.04073360893042295
+        },
+        {
+          "game_id": "m0r0-492f87ba",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 6,
+          "actions_taken": 1000,
+          "resets_taken": 6,
+          "level_completion_steps": [
+            [
+              1,
+              55
+            ]
+          ],
+          "unique_nope_states_visited": 136,
+          "clock_pixels_masked": 128,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 285,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.0,
+            "uncertainty": 0.7225,
+            "urgency": 0.5218,
+            "gamma_E": 0.0928,
+            "gamma_I": 1.4133,
+            "temperature": 0.1359,
+            "reasoning_steps": 5,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 16.796,
+          "official_rhae_score": 1.4167650531286893
+        },
+        {
+          "game_id": "r11l-495a7899",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 6,
+          "actions_taken": 1000,
+          "resets_taken": 17,
+          "level_completion_steps": [
+            [
+              1,
+              149
+            ]
+          ],
+          "unique_nope_states_visited": 431,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 126,
+          "tropical_rules_induced": 642,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.236,
+            "uncertainty": 0.1,
+            "urgency": 0.3448,
+            "gamma_E": 0.7228,
+            "gamma_I": 0.7332,
+            "temperature": 0.3829,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 29.254,
+          "official_rhae_score": 0.10381342753758413
+        },
+        {
+          "game_id": "re86-8af5384d",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 5,
+          "win_levels": 8,
+          "actions_taken": 1000,
+          "resets_taken": 3,
+          "level_completion_steps": [
+            [
+              1,
+              20
+            ],
+            [
+              2,
+              56
+            ],
+            [
+              3,
+              103
+            ],
+            [
+              4,
+              171
+            ],
+            [
+              5,
+              266
+            ]
+          ],
+          "unique_nope_states_visited": 671,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 692,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.233,
+            "uncertainty": 0.1,
+            "urgency": 0.4067,
+            "gamma_E": 0.6806,
+            "gamma_I": 0.7801,
+            "temperature": 0.3584,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 14.959,
+          "official_rhae_score": 41.66666666666667
+        },
+        {
+          "game_id": "s5i5-18d95033",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 8,
+          "actions_taken": 1000,
+          "resets_taken": 14,
+          "level_completion_steps": [
+            [
+              1,
+              704
+            ]
+          ],
+          "unique_nope_states_visited": 156,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 7,
+          "tropical_rules_induced": 185,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2072,
+            "uncertainty": 0.1,
+            "urgency": 0.5373,
+            "gamma_E": 0.5871,
+            "gamma_I": 0.8819,
+            "temperature": 0.3084,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 20.71,
+          "official_rhae_score": 0.002241879017447199
+        },
+        {
+          "game_id": "sb26-7fbdac44",
+          "state": "WIN",
+          "won": true,
+          "levels_completed": 8,
+          "win_levels": 8,
+          "actions_taken": 124,
+          "resets_taken": 0,
+          "level_completion_steps": [
+            [
+              1,
+              9
+            ],
+            [
+              2,
+              24
+            ],
+            [
+              3,
+              39
+            ],
+            [
+              4,
+              54
+            ],
+            [
+              5,
+              71
+            ],
+            [
+              6,
+              90
+            ],
+            [
+              7,
+              107
+            ],
+            [
+              8,
+              124
+            ]
+          ],
+          "unique_nope_states_visited": 17,
+          "clock_pixels_masked": 0,
+          "remote_actuators_discovered": 8,
+          "tropical_rules_induced": 16,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2275,
+            "uncertainty": 0.1,
+            "urgency": 0.1047,
+            "gamma_E": 0.8797,
+            "gamma_I": 0.5544,
+            "temperature": 0.4912,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 2.021,
+          "official_rhae_score": 100.0
+        },
+        {
+          "game_id": "sc25-635fd71a",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 2,
+          "win_levels": 6,
+          "actions_taken": 1000,
+          "resets_taken": 23,
+          "level_completion_steps": [
+            [
+              1,
+              141
+            ],
+            [
+              2,
+              543
+            ]
+          ],
+          "unique_nope_states_visited": 269,
+          "clock_pixels_masked": 128,
+          "remote_actuators_discovered": 4,
+          "tropical_rules_induced": 331,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2275,
+            "uncertainty": 0.1,
+            "urgency": 0.1047,
+            "gamma_E": 0.8797,
+            "gamma_I": 0.5544,
+            "temperature": 0.4912,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 50.763,
+          "official_rhae_score": 0.3125400063804196
+        },
+        {
+          "game_id": "sk48-d8078629",
+          "state": "WIN",
+          "won": true,
+          "levels_completed": 8,
+          "win_levels": 8,
+          "actions_taken": 498,
+          "resets_taken": 0,
+          "level_completion_steps": [
+            [
+              1,
+              16
+            ],
+            [
+              2,
+              61
+            ],
+            [
+              3,
+              108
+            ],
+            [
+              4,
+              151
+            ],
+            [
+              5,
+              259
+            ],
+            [
+              6,
+              357
+            ],
+            [
+              7,
+              413
+            ],
+            [
+              8,
+              498
+            ]
+          ],
+          "unique_nope_states_visited": 85,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 3,
+          "tropical_rules_induced": 84,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2275,
+            "uncertainty": 0.1,
+            "urgency": 0.1047,
+            "gamma_E": 0.8797,
+            "gamma_I": 0.5544,
+            "temperature": 0.4912,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 9.436,
+          "official_rhae_score": 100.0
+        },
+        {
+          "game_id": "sp80-589a99af",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 6,
+          "actions_taken": 1000,
+          "resets_taken": 53,
+          "level_completion_steps": [
+            [
+              1,
+              43
+            ]
+          ],
+          "unique_nope_states_visited": 233,
+          "clock_pixels_masked": 128,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 393,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.0008,
+            "uncertainty": 0.7459,
+            "urgency": 0.4599,
+            "gamma_E": 0.0868,
+            "gamma_I": 1.4013,
+            "temperature": 0.1393,
+            "reasoning_steps": 4,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 16.7,
+          "official_rhae_score": 3.917175307115815
+        },
+        {
+          "game_id": "su15-1944f8ab",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 9,
+          "actions_taken": 1000,
+          "resets_taken": 40,
+          "level_completion_steps": [
+            [
+              1,
+              19
+            ]
+          ],
+          "unique_nope_states_visited": 169,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 2,
+          "tropical_rules_induced": 241,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.0015,
+            "uncertainty": 0.6658,
+            "urgency": 0.5149,
+            "gamma_E": 0.1235,
+            "gamma_I": 1.3295,
+            "temperature": 0.1442,
+            "reasoning_steps": 4,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 35.01,
+          "official_rhae_score": 2.2222222222222223
+        },
+        {
+          "game_id": "tn36-ef4dde99",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 1,
+          "win_levels": 7,
+          "actions_taken": 1000,
+          "resets_taken": 15,
+          "level_completion_steps": [
+            [
+              1,
+              13
+            ]
+          ],
+          "unique_nope_states_visited": 657,
+          "clock_pixels_masked": 61,
+          "remote_actuators_discovered": 3,
+          "tropical_rules_induced": 795,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2259,
+            "uncertainty": 0.1,
+            "urgency": 0.5219,
+            "gamma_E": 0.6021,
+            "gamma_I": 0.8675,
+            "temperature": 0.3171,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 61.298,
+          "official_rhae_score": 3.571428571428571
+        },
+        {
+          "game_id": "tr87-cd924810",
+          "state": "WIN",
+          "won": true,
+          "levels_completed": 6,
+          "win_levels": 6,
+          "actions_taken": 216,
+          "resets_taken": 0,
+          "level_completion_steps": [
+            [
+              1,
+              35
+            ],
+            [
+              2,
+              65
+            ],
+            [
+              3,
+              104
+            ],
+            [
+              4,
+              133
+            ],
+            [
+              5,
+              162
+            ],
+            [
+              6,
+              216
+            ]
+          ],
+          "unique_nope_states_visited": 54,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 53,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2126,
+            "uncertainty": 0.1,
+            "urgency": 0.1048,
+            "gamma_E": 0.8741,
+            "gamma_I": 0.5567,
+            "temperature": 0.4861,
+            "reasoning_steps": 1,
+            "bypass_active": true,
+            "reflex_decision": "System 1 (Reflex Bypass)",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 5.132,
+          "official_rhae_score": 100.0
+        },
+        {
+          "game_id": "tu93-0768757b",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 3,
+          "win_levels": 9,
+          "actions_taken": 1000,
+          "resets_taken": 45,
+          "level_completion_steps": [
+            [
+              1,
+              149
+            ],
+            [
+              2,
+              187
+            ],
+            [
+              3,
+              516
+            ]
+          ],
+          "unique_nope_states_visited": 58,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 84,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": -0.0488,
+            "uncertainty": 0.66,
+            "urgency": 0.1179,
+            "gamma_E": 0.1775,
+            "gamma_I": 1.0241,
+            "temperature": 0.1957,
+            "reasoning_steps": 3,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 19.004,
+          "official_rhae_score": 0.8952684027266916
+        },
+        {
+          "game_id": "vc33-5430563c",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 2,
+          "win_levels": 7,
+          "actions_taken": 1000,
+          "resets_taken": 13,
+          "level_completion_steps": [
+            [
+              1,
+              3
+            ],
+            [
+              2,
+              171
+            ]
+          ],
+          "unique_nope_states_visited": 244,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 8,
+          "tropical_rules_induced": 515,
+          "fsa_latch_states_discovered": 1,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2251,
+            "uncertainty": 0.1,
+            "urgency": 0.5167,
+            "gamma_E": 0.6053,
+            "gamma_I": 0.8638,
+            "temperature": 0.3186,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 23.043,
+          "official_rhae_score": 4.1891399416909625
+        },
+        {
+          "game_id": "wa30-ee6fef47",
+          "state": "NOT_FINISHED",
+          "won": false,
+          "levels_completed": 5,
+          "win_levels": 9,
+          "actions_taken": 1000,
+          "resets_taken": 6,
+          "level_completion_steps": [
+            [
+              1,
+              29
+            ],
+            [
+              2,
+              223
+            ],
+            [
+              3,
+              317
+            ],
+            [
+              4,
+              699
+            ],
+            [
+              5,
+              950
+            ]
+          ],
+          "unique_nope_states_visited": 43,
+          "clock_pixels_masked": 64,
+          "remote_actuators_discovered": 0,
+          "tropical_rules_induced": 43,
+          "fsa_latch_states_discovered": 4,
+          "gemma4_calls_made": 0,
+          "last_amygdala_state": {
+            "valence": 0.2482,
+            "uncertainty": 0.1,
+            "urgency": 0.4067,
+            "gamma_E": 0.685,
+            "gamma_I": 0.7778,
+            "temperature": 0.362,
+            "reasoning_steps": 2,
+            "bypass_active": false,
+            "reflex_decision": "Escalate to System 2",
+            "should_call_gemma4_system2": false
+          },
+          "wall_time_sec": 13.459,
+          "official_rhae_score": 25.257298902824964
         }
       ]
     }
@@ -2102,86 +3339,58 @@
   "paired_statistics": {
     "darksnail_vs_random_levels_completed": {
       "n_pairs": 25,
-      "mean_diff": 1.08,
-      "sum_diff": 27.0,
-      "wins": 16,
+      "mean_diff": 2.44,
+      "sum_diff": 61.0,
+      "wins": 23,
       "losses": 0,
-      "ties": 9,
-      "sign_test_p_value": 3.0517578125e-05,
-      "wilcoxon_p_value": 3.0517578125e-05,
+      "ties": 2,
+      "sign_test_p_value": 2.384185791015625e-07,
+      "wilcoxon_p_value": 1.9393619764988376e-05,
       "bootstrap_95_ci": [
-        0.56,
-        1.8
+        1.6,
+        3.44
       ]
     },
     "darksnail_vs_unshielded_greedy_levels_completed": {
       "n_pairs": 25,
-      "mean_diff": 1.12,
-      "sum_diff": 28.0,
-      "wins": 17,
+      "mean_diff": 2.48,
+      "sum_diff": 62.0,
+      "wins": 24,
       "losses": 0,
-      "ties": 8,
-      "sign_test_p_value": 1.52587890625e-05,
-      "wilcoxon_p_value": 1.52587890625e-05,
+      "ties": 1,
+      "sign_test_p_value": 1.1920928955078125e-07,
+      "wilcoxon_p_value": 1.239021912731946e-05,
       "bootstrap_95_ci": [
-        0.64,
-        1.84
+        1.64,
+        3.44
       ]
     },
     "darksnail_vs_random_rhae_score": {
       "n_pairs": 25,
-      "mean_diff": 4.81111456938669,
-      "sum_diff": 120.27786423466723,
-      "wins": 18,
+      "mean_diff": 19.922305458251024,
+      "sum_diff": 498.0576364562756,
+      "wins": 25,
       "losses": 0,
-      "ties": 7,
-      "sign_test_p_value": 7.62939453125e-06,
-      "wilcoxon_p_value": 7.62939453125e-06,
+      "ties": 0,
+      "sign_test_p_value": 5.960464477539063e-08,
+      "wilcoxon_p_value": 1.2179318639780734e-05,
       "bootstrap_95_ci": [
-        0.44739284081205455,
-        13.051426979765461
+        7.134638662959232,
+        35.16807745864796
       ]
     },
     "darksnail_vs_unshielded_greedy_rhae_score": {
       "n_pairs": 25,
-      "mean_diff": 4.812241647436845,
-      "sum_diff": 120.30604118592112,
-      "wins": 18,
+      "mean_diff": 19.923432536301178,
+      "sum_diff": 498.08581340752943,
+      "wins": 25,
       "losses": 0,
-      "ties": 7,
-      "sign_test_p_value": 7.62939453125e-06,
-      "wilcoxon_p_value": 7.62939453125e-06,
+      "ties": 0,
+      "sign_test_p_value": 5.960464477539063e-08,
+      "wilcoxon_p_value": 1.2179318639780734e-05,
       "bootstrap_95_ci": [
-        0.44780219875089644,
-        13.051483333667969
-      ]
-    },
-    "darksnail_m5_vs_m4_levels_completed": {
-      "n_pairs": 25,
-      "mean_diff": 0.4,
-      "sum_diff": 10.0,
-      "wins": 4,
-      "losses": 1,
-      "ties": 20,
-      "sign_test_p_value": 0.375,
-      "wilcoxon_p_value": 0.375,
-      "bootstrap_95_ci": [
-        -0.04,
-        1.12
-      ]
-    },
-    "darksnail_m5_vs_m4_rhae_score": {
-      "n_pairs": 25,
-      "mean_diff": 4.185006876987035,
-      "sum_diff": 104.62517192467588,
-      "wins": 12,
-      "losses": 7,
-      "ties": 6,
-      "sign_test_p_value": 0.359283447265625,
-      "wilcoxon_p_value": 0.359283447265625,
-      "bootstrap_95_ci": [
-        -0.13148754121871514,
-        12.454095398052967
+        7.1368928190595415,
+        35.16807745864796
       ]
     }
   }

@@ -962,6 +962,383 @@ def test_contact_graph_sheaf_kinematics_and_dreamer():
     assert np.all(s_next[14:16, 13:15] == 15)
 
 
+def test_gate_2i_tropical_kleene_and_se2_fsa_latch_sheaf() -> None:
+    """
+    Gate 2i Acceptance Test:
+      1. Tropical Min-Plus Semiring Algebra (`tropical_min_plus_matmul`) and Tropical Kleene
+         Closure (`tropical_kleene_closure`) in `oatse.engine` and `darksnail` (both NumPy and PyTorch,
+         including unreachable `-1` routing under `1e12` sentinels and empty tensor matmul).
+      2. Background-mode clock projection (`_mask_clock_to_bg`) & `hud_latch_mask`
+         (`H_clock = H_clock^mono (+) H_clock^latch`) in `TemporalClockContentSplitter`,
+         ensuring zero synthetic color-0 foreground artifacts on non-zero background canvases.
+      3. `TropicalStateLatchSheaf` one-shot rule induction, dynamic conductance unlocking, and
+         tropical Kleene shortest-path synthesis over `(H_nope, H_clock^latch)`.
+      4. `ContactGraphSheaf` dual-background playfield floor guard, symmetric `update_conductance`,
+         and `RelationalOperatorDreamer.solve_se2_fsa_plan` over `SE(2) |x FSA` including
+         multi-step key/switch door unlocking before cavity docking.
+      5. `DarkSnailArc3WorldModel.synthesize_d4_monoid_homomorphism_plan` for `D_4`-equivariant
+         (`flipud`, `rot90`) and `S_16`-equivariant typed monoid string homomorphisms.
+    """
+    from darksnail import tropical_kleene_closure, tropical_min_plus_matmul
+    from darksnail.arc3 import (
+        ContactGraphSheaf,
+        DarkSnailArc3WorldModel,
+        RelationalOperatorDreamer,
+        TemporalClockContentSplitter,
+        TropicalStateLatchSheaf,
+    )
 
+    # 1. Tropical Min-Plus Matmul & Kleene Closure (NumPy + PyTorch + Unreachable Sentinels + Empty Inner Dim)
+    inf = float("inf")
+    adj_np = np.array(
+        [
+            [0.0, 2.0, inf, 9.0],
+            [inf, 0.0, 3.0, inf],
+            [inf, inf, 0.0, 1.0],
+            [inf, inf, inf, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    sq_np, wit_np = tropical_min_plus_matmul(adj_np, adj_np, return_witness=True)
+    assert float(sq_np[0, 2]) == pytest.approx(5.0)
+    assert int(wit_np[0, 2]) == 1
+
+    closure_np, route_np = tropical_kleene_closure(adj_np, return_routing=True)
+    assert float(closure_np[0, 3]) == pytest.approx(6.0)  # 0 -> 1 (2) -> 2 (3) -> 3 (1) = 6 < 9
+    assert int(route_np[0, 3]) == 1
+    assert int(route_np[3, 0]) == -1  # Unreachable pair must have next_hop == -1
+
+    # Verify finite sentinel 1e12 unreachable routing in both NumPy and PyTorch
+    sent_np = np.full((3, 3), 1e12, dtype=np.float64)
+    np.fill_diagonal(sent_np, 0.0)
+    sent_np[0, 1] = 2.5
+    _, r_sent_np = tropical_kleene_closure(sent_np, return_routing=True)
+    assert int(r_sent_np[0, 1]) == 1
+    assert int(r_sent_np[0, 2]) == -1
+    assert int(r_sent_np[2, 0]) == -1
+
+    adj_t = torch.tensor(adj_np, dtype=torch.float32)
+    closure_t, route_t = tropical_kleene_closure(adj_t, return_routing=True)
+    assert torch.allclose(closure_t, torch.tensor(closure_np, dtype=torch.float32))
+    assert int(route_t[0, 3].item()) == 1
+    assert int(route_t[3, 0].item()) == -1
+
+    empty_t = tropical_min_plus_matmul(torch.zeros((2, 0)), torch.zeros((0, 2)))
+    assert empty_t.shape == (2, 2) and bool(torch.isinf(empty_t).all())
+
+    # 2. Background-mode clock projection (`_mask_clock_to_bg`) & `hud_latch_mask`
+    splitter = TemporalClockContentSplitter()
+    bg_color = 5
+    f0 = np.full((64, 64), bg_color, dtype=np.int32)
+    f0[63, 4:24] = 11  # 20px monotone timer bar at row 63
+    f0[20:24, 20:24] = 9
+    splitter.initialize_level(f0)
+    f1 = f0.copy()
+    f1[20:24, 20:24] = bg_color
+    f1[20:24, 24:28] = 9  # conservative 4x4 sprite translation
+    f1[63, 22:24] = 3  # timer depletes monotonically by 2px
+    splitter.observe_transition(f0, f1, action_key=4)
+    assert splitter.clock_mask is not None and int(splitter.clock_mask.sum()) == 20
+    proj_f1 = splitter.project_nope(f1)
+    # Masked clock pixels must equal background mode `5`, NOT `0`!
+    assert int(np.sum(proj_f1 == 0)) == 0
+    assert bool(np.all(proj_f1[splitter.clock_mask] == bg_color))
+
+    # Non-monotone border HUD latch indicator -> classified into `hud_latch_mask`, NOT `clock_mask`
+    f2 = f1.copy()
+    f2[61:63, 2:4] = 14  # border HUD latch indicator turns on
+    f3 = f2.copy()
+    f3[61:63, 2:4] = 12  # border HUD latch indicator changes state non-monotonically
+    splitter.observe_transition(f1, f2, action_key=2)
+    splitter.observe_transition(f2, f3, action_key=3)
+    latch_sig = splitter.extract_fsa_latch_signature(f3)
+    assert isinstance(latch_sig, str)
+
+    # 3. TropicalStateLatchSheaf rule induction and tropical Kleene shortest path
+    sheaf = TropicalStateLatchSheaf()
+    sheaf.observe_transition(f0, f1, action_key=1, sh_prev="s0", sh_next="s1", latch_prev=(0,), latch_next=(0,))
+    sheaf.observe_transition(f1, f2, action_key=2, sh_prev="s1", sh_next="s2", latch_prev=(0,), latch_next=(1,))
+    sheaf.observe_transition(f2, f3, action_key=3, sh_prev="s2", sh_next="s3", latch_prev=(1,), latch_next=(2,))
+    assert sheaf.num_rules_induced >= 2
+    assert sheaf.num_latch_states >= 2
+    t_path = sheaf.shortest_tropical_path("s0", {"s3": 10.0})
+    assert t_path is not None
+    assert t_path[0] == "s3"
+    assert t_path[1] == [1, 2, 3]
+
+    # 3b. Dual-background playfield floor guard & symmetric ContactGraphSheaf.update_conductance
+    dual_bg_board = np.full((64, 64), 5, dtype=np.int32)
+    dual_bg_board[10:50, 10:50] = 0  # 40x40 interior playfield floor of color 0 inside outer frame 5
+    dual_bg_board[20:23, 20:23] = 9  # 3x3 ego of color 9 inside playfield floor
+    dual_bg_board[20:23, 23:25] = 8  # wall/door of color 8 adjacent to ego
+    sh_dual = ContactGraphSheaf.from_board(
+        dual_bg_board, bg_mode=5, ego_colors={9}, wall_colors={8}
+    )
+    # Playfield floor 0 must not become a blocking wall node; ego moving left (0, -1) succeeds
+    ok_left, disp_left, _ = sh_dual.propagate_displacement((0, -1), ego_node_id=sh_dual.ego_node_id)
+    assert ok_left and disp_left[sh_dual.ego_node_id] == (0, -1)
+    # Moving right (0, 1) into locked door 8 fails with wall_lock until update_conductance unlocks it
+    ok_right0, _, reason_r0 = sh_dual.propagate_displacement((0, 1), ego_node_id=sh_dual.ego_node_id)
+    assert not ok_right0 and reason_r0 == "wall_lock"
+    wall_nid = [nid for nid, nd in sh_dual.nodes.items() if nd.color == 8][0]
+    sh_dual.update_conductance(wall_nid, sh_dual.ego_node_id, 1.0, required_latch="latch_open")
+    assert not sh_dual.nodes[wall_nid].is_wall
+    ok_right1, disp_right1, _ = sh_dual.propagate_displacement((0, 1), ego_node_id=sh_dual.ego_node_id)
+    assert ok_right1 and disp_right1[sh_dual.ego_node_id] == (0, 1)
+
+    # 4. RelationalOperatorDreamer.solve_se2_fsa_plan over SE(2) |x FSA using learned kinematic_generators
+    dreamer = RelationalOperatorDreamer()
+    se2_b0 = np.full((64, 64), 3, dtype=np.int32)
+    # 3x3 ego of color 9 at (21..24, 14..17)
+    se2_b0[21:24, 14:17] = 9
+    # Hollow 5x5 receptor cavity of color 12 at (20..25, 22..27)
+    se2_b0[20:25, 22:27] = 12
+    se2_b0[21:24, 23:26] = 3
+    se2_b1 = se2_b0.copy()
+    se2_b1[21:24, 14:17] = 3
+    se2_b1[21:24, 17:20] = 9  # Ego translated +3 right under ACTION4
+    dreamer.observe_transition(se2_b0, se2_b1, action_key=4, sh_prev="h0", sh_next="h1", nope_d=18)
+    plan_se2 = dreamer.solve_se2_fsa_plan(se2_b1, available_actions=[1, 2, 3, 4])
+    assert plan_se2 == [4, 4]  # Two steps of +3 right dock ego at (21..24, 23..26) inside hollow cavity!
+
+    # 4b. Multi-step SE(2) |x FSA plan with locked door (color 8) and key/switch trigger (color 14)
+    dreamer_lock = RelationalOperatorDreamer()
+    dreamer_lock.kinematic_generators = {
+        1: (-3, 0, False),
+        2: (3, 0, False),
+        3: (0, -3, False),
+        4: (0, 3, False),
+    }
+    dreamer_lock.ego_colors = {9}
+    dreamer_lock.wall_colors = {8}
+    lock_b = se2_b1.copy()  # Ego at (21..24, 17..20), cavity at (20..25, 22..27)
+    lock_b[20:25, 20:22] = 8   # Locked door of color 8 directly blocking the cavity entrance!
+    lock_b[16:18, 17:20] = 14  # Switch/key of color 14 just above ego (contacted after ACTION1)
+    plan_unlock = dreamer_lock.solve_se2_fsa_plan(lock_b, available_actions=[1, 2, 3, 4])
+    # Must step up (1) to touch switch 14, step down (2), then step right twice (4, 4) through unlocked door 8!
+    assert plan_unlock == [1, 2, 4, 4]
+
+    # Verify S_16 color-permutation equivariance of solve_se2_fsa_plan
+    perm = np.array([7, 6, 5, 13, 4, 2, 1, 0, 10, 14, 8, 9, 11, 3, 15, 12], dtype=np.int32)
+    dreamer_perm = RelationalOperatorDreamer()
+    dreamer_perm.observe_transition(
+        perm[se2_b0], perm[se2_b1], action_key=4, sh_prev="hp0", sh_next="hp1", nope_d=18
+    )
+    assert dreamer_perm.solve_se2_fsa_plan(perm[se2_b1], available_actions=[1, 2, 3, 4]) == plan_se2
+
+    # 5. DarkSnailArc3WorldModel.synthesize_d4_monoid_homomorphism_plan + S_16 & D_4 equivariance
+    wm = DarkSnailArc3WorldModel()
+    tr_board = np.full((64, 64), 15, dtype=np.int32)
+    rules = [(11, 12, 2, 2), (12, 14, 2, 18), (14, 9, 2, 34), (9, 3, 2, 49)]
+    for src_c, dst_c, r0, c0 in rules:
+        tr_board[r0 : r0 + 9, c0 : c0 + 15] = 5
+        tr_board[r0 + 1 : r0 + 8, c0 + 1 : c0 + 14] = 15
+        tr_board[r0 + 3 : r0 + 6, c0 + 2 : c0 + 5] = src_c
+        tr_board[r0 + 4, c0 + 6 : c0 + 9] = 1
+        tr_board[r0 + 3 : r0 + 6, c0 + 10 : c0 + 13] = dst_c
+    in_cols = [11, 12, 14, 9]
+    out_cols = [12, 12, 12, 12]
+    xs = [12, 24, 36, 48]
+    for idx_b, (x_b, ic, oc) in enumerate(zip(xs, in_cols, out_cols)):
+        if idx_b == 0:
+            tr_board[23:33, x_b - 1 : x_b + 5] = 5
+            tr_board[24:32, x_b : x_b + 4] = 15
+        tr_board[26:30, x_b : x_b + 4] = ic
+        tr_board[45:49, x_b : x_b + 4] = oc
+    d4_plan = wm.synthesize_d4_monoid_homomorphism_plan(tr_board, available_actions=[5, 6])
+    assert len(d4_plan) > 0
+    assert d4_plan[0] == 5  # Slot 0: 11 -> 12 (already 12, 0 clicks, then ACTION5)
+    assert d4_plan[1] == (6, 25, 46)  # Slot 1: 12 -> 14 (1 click on slot 1, then ACTION5)
+    # Verify S_16 color-permutation equivariance on synthesize_d4_monoid_homomorphism_plan
+    assert wm.synthesize_d4_monoid_homomorphism_plan(perm[tr_board], available_actions=[5, 6]) == d4_plan
+    # Verify D_4 reflection (flipud) and 90-degree rotation (rot90) equivariance
+    d4_flipud = wm.synthesize_d4_monoid_homomorphism_plan(np.flipud(tr_board), available_actions=[5, 6])
+    d4_rot90 = wm.synthesize_d4_monoid_homomorphism_plan(np.rot90(tr_board, 1), available_actions=[5, 6])
+    assert len(d4_flipud) == len(d4_plan) and d4_flipud[0] == 5
+    assert len(d4_rot90) == len(d4_plan) and d4_rot90[0] == 5
+
+    # 6. Exogenous border clock refill / cycle guard in TemporalClockContentSplitter
+    f_refill = f1.copy()
+    f_refill[20:24, 24:28] = bg_color
+    f_refill[20:24, 28:32] = 9
+    f_refill[63, 22:24] = 11  # border clock bar refills back to initial color 11
+    splitter.observe_transition(f1, f_refill, action_key=4)
+    assert bool(np.all(splitter.clock_mask[63, 22:24]))
+    assert not bool(np.any(splitter.hud_latch_mask[63, 22:24]))
+
+    # 7. Coupled SE(2) |x Gripper pick-and-place and Multi-Sprite kick cavity planners + S_16 equivariance
+    pp_board = np.full((64, 64), 3, dtype=np.int32)
+    # Cavity at (16..20, 16..20) with outer frame c_core=0 and inner 2x2 c_cav=4, plus target blocks at (16..20, 20..24) and (20..24, 16..20)
+    pp_board[16:20, 16:20] = 0
+    pp_board[17:19, 17:19] = 4
+    pp_board[16:20, 20:24] = 8
+    pp_board[17:19, 21:23] = 0
+    pp_board[20:24, 16:20] = 8
+    pp_board[21:23, 17:19] = 0
+    # Movable block at (16..20, 32..36) with frame=8 and inner 2x2 core=0
+    pp_board[16:20, 32:36] = 8
+    pp_board[17:19, 33:35] = 0
+    # Coupled ego body (3x4 of color 12 + 1x4 bar of color 14) at (32..36, 32..36) and gripper (4x4 of color 14) at (28..32, 32..36)
+    pp_board[33:36, 32:36] = 12
+    pp_board[32, 32:36] = 14
+    pp_board[28:32, 32:36] = 14
+    pp_dreamer = RelationalOperatorDreamer()
+    pp_plan = pp_dreamer.solve_se2_fsa_plan(pp_board, available_actions=[1, 2, 3, 4, 5])
+    assert len(pp_plan) > 0 and 5 in pp_plan
+    pp_dreamer_perm = RelationalOperatorDreamer()
+    assert pp_dreamer_perm.solve_se2_fsa_plan(perm[pp_board], available_actions=[1, 2, 3, 4, 5]) == pp_plan
+
+    ms_board = np.full((64, 64), 3, dtype=np.int32)
+    ms_board[9:51, 9:51] = 4
+    # Active 6x6 sprite at (18..24, 15..21) with outer 6x6 body 8 and inner 2x2 active core 14
+    ms_board[18:24, 15:21] = 8
+    ms_board[20:22, 17:19] = 14
+    # Two inactive 6x6 sprites with outer 6x6 body 8 and inner 2x2 core 9
+    ms_board[18:24, 24:30] = 8
+    ms_board[20:22, 26:28] = 9
+    ms_board[33:39, 15:21] = 8
+    ms_board[35:37, 17:19] = 9
+    # Hollow 8x8 cavity frame of color 2 at (17..25, 35..43) with 6x6 interior cavity at (18..24, 36..42)
+    ms_board[17:25, 35:43] = 2
+    ms_board[18:24, 36:42] = 4
+    ms_dreamer = RelationalOperatorDreamer()
+    ms_plan = ms_dreamer.solve_se2_fsa_plan(ms_board, available_actions=[1, 2, 3, 4, 6])
+    assert len(ms_plan) > 0
+    ms_dreamer_perm = RelationalOperatorDreamer()
+    assert ms_dreamer_perm.solve_se2_fsa_plan(perm[ms_board], available_actions=[1, 2, 3, 4, 6]) == ms_plan
+
+    # 8. Fast sliding predict_step and solve_se2_fsa_plan with is_sliding=True
+    sl_board0 = np.full((64, 64), 3, dtype=np.int32)
+    sl_board0[10:14, 10:14] = 8  # ego at (10..14, 10..14)
+    sl_board0[10:14, 40:44] = 2  # wall block at col 40..44
+    sl_board1 = np.full((64, 64), 3, dtype=np.int32)
+    sl_board1[10:14, 36:40] = 8  # slid right 26 px until stopping at wall
+    sl_board1[10:14, 40:44] = 2
+    sl_dreamer = RelationalOperatorDreamer()
+    sl_dreamer.observe_transition(sl_board0, sl_board1, action_key=4)
+    sl_dreamer.wall_colors.add(2)
+    pred_sl = sl_dreamer.predict_step(sl_board0, action_key=4)
+    assert pred_sl is not None and np.array_equal(pred_sl, sl_board1)
+
+    # 9. Categorical D_4-Equivariant Free-Monoid Glyph Homomorphism & Word-Equation Planner + S_16/D_4 equivariance
+    gm_board = np.full((64, 64), 5, dtype=np.int32)
+    S_gm = 8
+
+    def draw_hollow_box(b: np.ndarray, r0: int, c0: int, h: int, w: int, col: int) -> None:
+        b[r0, c0 : c0 + w] = col
+        b[r0 + h - 1, c0 : c0 + w] = col
+        b[r0 : r0 + h, c0] = col
+        b[r0 : r0 + h, c0 + w - 1] = col
+
+    g_L1 = np.array([[1, 1, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0]], dtype=np.int32)
+    g_R1 = np.array([[0, 1, 0, 0], [1, 1, 1, 0], [0, 1, 0, 0], [0, 0, 0, 0]], dtype=np.int32)
+    g_L2 = np.array([[1, 1, 1, 0], [0, 0, 1, 0], [0, 0, 1, 0], [0, 0, 0, 0]], dtype=np.int32)
+    g_R2 = np.array([[1, 0, 1, 0], [1, 1, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0]], dtype=np.int32)
+    # Rule 1 at row 4: (4, 8) -> (4, 18), Rule 2 at row 14: (14, 8) -> (14, 18)
+    for r_b, gL, gR in ((4, g_L1, g_R1), (14, g_L2, g_R2)):
+        draw_hollow_box(gm_board, r_b, 8, S_gm, S_gm, 11)
+        gm_board[r_b + 2 : r_b + 6, 10:14] = np.where(gL > 0, 11, 5)
+        draw_hollow_box(gm_board, r_b, 18, S_gm, S_gm, 14)
+        gm_board[r_b + 2 : r_b + 6, 20:24] = np.where(gR > 0, 14, 5)
+    # Input strip at row 36 (2 cells: g_L1 rotated 90 deg, g_L2)
+    draw_hollow_box(gm_board, 36, 8, S_gm, 2 * S_gm, 11)
+    gm_board[38:42, 10:14] = np.where(np.rot90(g_L1, 1) > 0, 11, 5)
+    gm_board[38:42, 18:22] = np.where(g_L2 > 0, 11, 5)
+    # Output strip at row 48 (cell 0 already matches g_R1 rotated 180 deg; cell 1 has g_R1)
+    draw_hollow_box(gm_board, 48, 8, S_gm, 2 * S_gm, 14)
+    gm_board[50:54, 10:14] = np.where(np.rot90(g_R1, 2) > 0, 14, 5)
+    gm_board[50:54, 18:22] = np.where(g_R1 > 0, 14, 5)
+    gm_dreamer = RelationalOperatorDreamer()
+    gm_plan = gm_dreamer.solve_se2_fsa_plan(gm_board, available_actions=[1, 4])
+    assert gm_plan == [4]  # Cell 0 matches under D_4 rotation -> advance cursor right (ACTION4)
+    gm_dreamer_perm = RelationalOperatorDreamer()
+    assert gm_dreamer_perm.solve_se2_fsa_plan(perm[gm_board], available_actions=[1, 4]) == gm_plan
+
+    # 9b. Inverse Free-Monoid Word-Equation Synthesis (cursor_on_rules=True) + S_16 equivariance
+    gm_inv_board = gm_board.copy()
+    # Place cursor bracket cap 3 rows above rule_boxes[0] at (4, 8): row 1, cols 9..15
+    gm_inv_board[1, 9:15] = 8
+    # Corrupt rule 1 RHS (at row 4, col 18) from g_R1 to g_L1 so synthesis must recover [g_L1, g_R1, g_L2, g_R2]
+    gm_inv_board[6:10, 20:24] = np.where(g_L1 > 0, 14, 5)
+    # Set output strip cell 1 to g_R2 so out_w = [canon(g_R1), canon(g_R2)]
+    gm_inv_board[50:54, 18:22] = np.where(g_R2 > 0, 14, 5)
+    gm_inv_dreamer = RelationalOperatorDreamer()
+    gm_inv_plan0 = gm_inv_dreamer.solve_se2_fsa_plan(gm_inv_board, available_actions=[1, 4])
+    assert gm_inv_plan0 == [4]  # Box 0 (LHS of Rule 1) already matches g_L1 -> advance cursor right
+    gm_inv_plan1 = gm_inv_dreamer.solve_se2_fsa_plan(gm_inv_board, available_actions=[1, 4])
+    assert gm_inv_plan1 == [1]  # Box 1 (RHS of Rule 1) is g_L1 != synthesized target g_R1 -> cycle glyph (ACTION1)
+    gm_inv_dreamer_perm = RelationalOperatorDreamer()
+    assert gm_inv_dreamer_perm.solve_se2_fsa_plan(perm[gm_inv_board], available_actions=[1, 4]) == gm_inv_plan0
+
+    # 10. D_4-Locus Minkowski Cover Planner + S_16 equivariance
+    dl_board = np.full((64, 64), 5, dtype=np.int32)
+    # Two target 3x3 frames of color 0 centered at (20, 17) and (20, 29) with inner target color 11
+    dl_board[19:22, 16:19] = 0
+    dl_board[20, 17] = 11
+    dl_board[19:22, 28:31] = 0
+    dl_board[20, 29] = 11
+    # Cardinal cross of color 11 centered at (26, 23) with arm radius R=8 and 1px active marker color 8
+    dl_board[26, 15:32] = 11
+    dl_board[18:35, 23] = 11
+    dl_board[26, 23] = 8
+    dl_dreamer = RelationalOperatorDreamer()
+    dl_plan = dl_dreamer.solve_se2_fsa_plan(dl_board, available_actions=[1, 2, 3, 4, 5])
+    assert len(dl_plan) > 0 and set(dl_plan).issubset({1, 2, 3, 4, 5})
+    dl_dreamer_perm = RelationalOperatorDreamer()
+    assert dl_dreamer_perm.solve_se2_fsa_plan(perm[dl_board], available_actions=[1, 2, 3, 4, 5]) == dl_plan
+
+    # 11. SE(2) Pin-Matching Polyomino Planner + S_16 equivariance + 2x Kronecker scale-invariance
+    pm_grid = np.full((20, 20), 5, dtype=np.int32)
+    # Piece 0: body at (4,4), (4,5), (5,4), pin at (4,6) (color 8)
+    for ry, rx in ((4, 4), (4, 5), (5, 4)):
+        pm_grid[ry, rx] = 11
+    pm_grid[4, 6] = 8
+    # Piece 1: body at (10,10), (10,11), (11,11), pin at (10,9) (color 8) -> needs shift (-6, -3) to overlap pin (4,6)
+    for ry, rx in ((10, 10), (10, 11), (11, 11)):
+        pm_grid[ry, rx] = 14
+    pm_grid[10, 9] = 8
+    pm_board = np.full((64, 64), 3, dtype=np.int32)
+    pm_board[2:62, 2:62] = np.kron(pm_grid, np.ones((3, 3), dtype=np.int32))
+    pm_dreamer = RelationalOperatorDreamer()
+    pm_plan = pm_dreamer.solve_se2_fsa_plan(pm_board, available_actions=[1, 2, 3, 4, 5, 6])
+    assert len(pm_plan) > 0
+    pm_dreamer_perm = RelationalOperatorDreamer()
+    assert pm_dreamer_perm.solve_se2_fsa_plan(perm[pm_board], available_actions=[1, 2, 3, 4, 5, 6]) == pm_plan
+    # 2x Kronecker-scaled 128x128 board
+    pm_board_2x = np.kron(pm_board, np.ones((2, 2), dtype=np.int32))
+    pm_dreamer_2x = RelationalOperatorDreamer()
+    pm_plan_2x = pm_dreamer_2x.solve_se2_fsa_plan(pm_board_2x, available_actions=[1, 2, 3, 4, 5, 6])
+    assert len(pm_plan_2x) == len(pm_plan)
+    assert [a[0] if isinstance(a, tuple) else a for a in pm_plan_2x] == [
+        a[0] if isinstance(a, tuple) else a for a in pm_plan
+    ]
+
+    # 12. Skewer-Rail Permutation Planner + S_16 equivariance + 2x Kronecker scale-invariance
+    sk_board = np.full((64, 64), 3, dtype=np.int32)  # wall_col = 3
+    S_sk = 6
+    y_div_sk = 52
+    sk_board[y_div_sk + 1 :, :] = 5  # bg_col = 5 below divider
+    y0_sk, x0_sk, R_sk, C_sk = 12, 14, 5, 5
+    sk_board[y0_sk : y0_sk + R_sk * S_sk, x0_sk : x0_sk + C_sk * S_sk] = 5
+    # Target legend at y_t = 55: H-skewer color 11 requires block [14]
+    y_t_sk = 55
+    sk_board[y_t_sk : y_t_sk + S_sk, 6 : 6 + S_sk] = 11
+    sk_board[y_t_sk + 1 : y_t_sk + S_sk - 1, 12 + 1 : 12 + S_sk - 1] = 14
+    # Left carriage track at rows 1 and 2, with H carriage at r=1 (color 11) and h_len=0
+    for r_tr in (1, 2):
+        sk_board[y0_sk + S_sk * r_tr + S_sk // 3, x0_sk - S_sk + S_sk // 3] = 2
+    sk_board[y0_sk + S_sk * 1 : y0_sk + S_sk * 2, x0_sk - S_sk : x0_sk] = 11
+    # Place block of color 14 at (r=2, c=0) and wall at (r=2, c=1) so extending right impales it immediately
+    sk_board[y0_sk + S_sk * 2 + 1 : y0_sk + S_sk * 3 - 1, x0_sk + 1 : x0_sk + S_sk - 1] = 14
+    sk_board[y0_sk + S_sk * 2 : y0_sk + S_sk * 3, x0_sk + S_sk : x0_sk + 2 * S_sk] = 3
+    sk_dreamer = RelationalOperatorDreamer()
+    sk_plan = sk_dreamer.solve_se2_fsa_plan(sk_board, available_actions=[1, 2, 3, 4, 6])
+    assert sk_plan == [2, 4]  # Move H-carriage down to r=2 (ACTION2), extend skewer right to c=0 (ACTION4)
+    sk_dreamer_perm = RelationalOperatorDreamer()
+    assert sk_dreamer_perm.solve_se2_fsa_plan(perm[sk_board], available_actions=[1, 2, 3, 4, 6]) == sk_plan
+    # 2x Kronecker-scaled 128x128 board
+    sk_board_2x = np.kron(sk_board, np.ones((2, 2), dtype=np.int32))
+    sk_dreamer_2x = RelationalOperatorDreamer()
+    assert sk_dreamer_2x.solve_se2_fsa_plan(sk_board_2x, available_actions=[1, 2, 3, 4, 6]) == sk_plan
 
 

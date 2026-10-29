@@ -301,6 +301,8 @@ def evaluate_condition(
             f"[{condition_name}] ({idx+1:02d}/{len(game_ids):02d}) {res['game_id']}: "
             f"levels={res['levels_completed']}/{res['win_levels']} won={res['won']} "
             f"actions={res['actions_taken']} clock_px={res['clock_pixels_masked']} "
+            f"trop_rules={res.get('tropical_rules_induced', 0)} "
+            f"latch_states={res.get('fsa_latch_states_discovered', 0)} "
             f"({res['wall_time_sec']:.2f}s)",
             flush=True,
         )
@@ -318,6 +320,8 @@ def evaluate_condition(
     games_with_level_solved = sum(1 for g in per_game if int(g["levels_completed"]) >= 1)
     full_games_won = sum(1 for g in per_game if bool(g["won"]))
     total_actions = sum(int(g["actions_taken"]) for g in per_game)
+    total_tropical_rules = sum(int(g.get("tropical_rules_induced", 0)) for g in per_game)
+    total_latch_states = sum(int(g.get("fsa_latch_states_discovered", 0)) for g in per_game)
 
     return {
         "condition": condition_name,
@@ -335,6 +339,8 @@ def evaluate_condition(
         "full_games_won": full_games_won,
         "official_rhae_scorecard_score_pct": round(float(sc_dict.get("score", 0.0)), 4),
         "total_actions_taken": total_actions,
+        "total_tropical_rules_induced": total_tropical_rules,
+        "total_fsa_latch_states_discovered": total_latch_states,
         "mean_actions_per_completed_level": round(
             float(total_actions) / float(total_levels_completed), 2
         )

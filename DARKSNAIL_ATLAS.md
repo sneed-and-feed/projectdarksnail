@@ -4,7 +4,7 @@
 
 The DarkSnail ecosystem unites relational foundation world modeling, high-throughput embodied robotics, sub-35% causal attention sparsity, Level-3 tick microstructure tomography, non-symmetric magnetohydrodynamic and anisotropic topology optimization, optical relative guidance and navigation, and global spherical geophysics into a single machine-verified architecture.
 
-Every mathematical claim in the ecosystem is grounded in machine-checked formal proofs in Lean 4 (`formalization/OcclusionTriad.lean`), simulated on Broadcom BCM2712 Cortex-A76 hardware cache geometry (Raspberry Pi 5), audited for zero dynamic heap allocations in `#![no_std]` Rust static arenas, and benchmarked against physical and empirical ground truth across 8 spokes and QuakeSnail.
+Every mathematical claim in the ecosystem is grounded in machine-checked formal proofs in Lean 4 (`formalization/OcclusionTriad.lean`), simulated on Broadcom BCM2712 Cortex-A76 hardware cache geometry (Raspberry Pi 5), audited for zero dynamic heap allocations in `#![no_std]` Rust static arenas, and benchmarked against physical and empirical ground truth across 8 spokes, QuakeSnail, and CellSnail.
 
 ```
                            [DarkSnail Core Hub]
@@ -22,7 +22,13 @@ Embodied Robotics             Sub-35% Sparse Router            Microstructure L3
 3D MHD & TTI Topology         Optical Autonomous Intercept     Crust-to-Core 3D Raytracing
 1.47 MB / b2 = 0              673 KB / 0 Weights / 0 Swaps     1.75 MB / 94.6% RMSE Red.
     │                               │                               │
-    └───────────────────────────────┼───────────────────────────────┘
+    ├───────────────────────────────┴───────────────────────────────┤
+    ▼                                                               ▼
+[OATSE]                                                       [CellSnail]
+Ocean Acoustic Tomography & SAS Inversion                     Single-Cell Data Science Spoke
+1.62 MB / Zero Ringing                                        983 KB Arena / 0 Spurious / 0.03075% LLd
+    │                                                               │
+    └───────────────────────────────┬───────────────────────────────┘
                                     ▼
                  [Theorem-to-Silicon Verification Layer]
             Lean 4 (0 sorry) // BCM2712 Cache (< 0.05% LLd) // 0 Alloc
@@ -200,6 +206,7 @@ Every real-time spoke executes inside a pre-allocated static arena adhering to `
 | `robosnail` | `RoboSnailArena` | 731,456 B | 2.00 MB | 64-byte | 0 alloc |
 | `lob-triad` | `LOBStateArena` | 254,720 B | 1.50 MB | 64-byte | 0 alloc |
 | `quakesnail` | `QuakeSnailArena` | 1,745,552 B | 2.00 MB | 64-byte | 0 alloc |
+| `cellsnail` | `CellSnailArena` | 983,872 B | 2.00 MB | 64-byte | 0 alloc |
 
 ### Arena Component Allocations
 
@@ -239,6 +246,13 @@ Every real-time spoke executes inside a pre-allocated static arena adhering to `
 - Damped Huber-IRLS normal equation working buffers: 32,768 B
 - Cross-station triad association tensor: 8,848 B
 
+#### `CellSnailArena` (cellsnail, 983,872 B)
+- Spatial input and output expression buffers: 131,072 B
+- Salience map and 1D Morse curl buffers: 131,072 B
+- Temporal/pseudotime circular ring buffer: 524,288 B
+- Cell-cycle mask, 10-state genotype tensor & trajectory: 131,712 B
+- Cellular sheaf coboundary and 6x6 multi-omic covariance: 65,728 B
+
 ---
 
 ## 4. Broadcom BCM2712 Cortex-A76 Hardware Cache Telemetry
@@ -261,6 +275,7 @@ Hardware cache verification was conducted using the Broadcom BCM2712 Cortex-A76 
 | `robosnail` | `RoboSnailArena` | 714.31 KB | 50,000,000 | 93.92% | 73.75% | 98.57% | 0.02286% | PASS (< 0.100%) |
 | `lob-triad` | `LOBStateArena` | 248.75 KB | 50,000,000 | 91.75% | 99.90% | 0.00% | 0.00796% | PASS (< 0.100%) |
 | `quakesnail` | `QuakeSnailArena` | 1704.64 KB | 50,000,000 | 67.18% | 70.12% | 99.44% | 0.05455% | PASS (< 0.100%) |
+| `cellsnail` | `CellSnailArena` | 960.81 KB | 50,000,000 | 63.09% | 82.39% | 99.53% | 0.03075% | PASS (< 0.100%) |
 | **Combined** | **5 Static Arenas** | **4763.64 KB** | **250,000,000** | **81.32%** | **72.78%** | **79.32%** | **0.03049%** | **PASS (< 0.100%)** |
 
 ### Cache Verification Analysis
@@ -281,6 +296,7 @@ Static PE binary analysis was performed on all compiled release DLL libraries us
 | `robosnail` | `robosnail_rs.dll` | 0 (malloc, calloc, realloc absent) | 0 in `robosnail_process_cable_glare` | ZERO ALLOC VERIFIED |
 | `lob-triad` | `lob_triad_rs.dll` | 0 (malloc, calloc, realloc absent) | 0 in `lob_arena_process_tick` | ZERO ALLOC VERIFIED |
 | `quakesnail` | `quakesnail_rs.dll` | 0 (malloc, calloc, realloc absent) | 0 in `quakesnail_process_station_waveform` | ZERO ALLOC VERIFIED |
+| `cellsnail` | `cellsnail_rs.dll` | 0 (malloc, calloc, realloc absent) | 0 in stepping loop / zero-alloc FFI | ZERO ALLOC VERIFIED |
 
 All stepping loops operate exclusively on pointers to pre-allocated static arenas or thread-local registers, guaranteeing deterministic Worst-Case Execution Time (WCET) free from heap fragmentation, lock contention, or garbage collection jitter.
 
@@ -301,6 +317,7 @@ All stepping loops operate exclusively on pointers to pre-allocated static arena
 | `g3vm` Utah FORGE | Straight ray: 0.1506 km | Blind LET: 0.0243 km | 83.86% RMSE reduction (0.0 smearing, 96 KB heap) | `g3vm_v070_let_benchmark_summary.json` |
 | `g3vm` Lunar ISRU | Straight ray: 0.5059 km | Blind LET: 0.0215 km | 95.75% RMSE reduction (0.0 smearing, 41 KB heap) | `g3vm_v070_let_benchmark_summary.json` |
 | `quakesnail` EEW | Legacy 3D error: 41.34 km | QuakeSnail 3D error: 0.0012 km | 94.6% RMSE reduction under Mode B noise (SNR = 20 dB) | `quakesnail_evaluation_summary.json` |
+| `cellsnail` Single-Cell | MAGIC kNN (132 spur. pairs), ALRA SVD (437 spur. pairs), HMMcopy (F_edge=0.369) | 0 spurious ERCC pairs (`GSE118767`/`GSE54695`), F1=1.0 rare persister (`< 0.5%`), F_edge=0.971 focal CNV stringers (`GSE148673`/`GSE57872`) | 46.2x faster than MAGIC, 0 boundary bleed (`85.35x` `GSE144239` cSCC contrast), Tr(M cov Mᵀ) = Tr(cov) | `cellsnail_evaluation_summary.json` |
 
 ---
 
@@ -317,6 +334,7 @@ All formal verification suites verify with 0 `sorry` tokens and 0 custom axioms:
 - `robosnail/formalization/OcclusionTriad.lean`
 - `lob-triad/formalization/OcclusionTriad.lean`
 - `quakesnail/formalization/OcclusionTriad.lean`
+- `cellsnail/formalization/OcclusionTriad.lean`
 
 ### Portable WebGL2 Studios
 Self-contained single-file browser visualization engines:
@@ -324,6 +342,7 @@ Self-contained single-file browser visualization engines:
 - `lob-triad/studio/lob_triad_portable_studio.html`: 10,000+ ticks/s Level-3 order book reconstruction in < 1.5 MB SRAM
 - `g3vm/studio/g3vm_portable_studio.html`: Global 3D spherical Earth crust-to-core bent ray paths (P, S, PmP, PcP, PKIKP)
 - `stylo/studio/darksnail_tracker_studio.html`: Real-time pixel-plane bearing innovations and 6-DOF relative intercept
+- `cellsnail/studio/cellsnail_portable_studio.html`: 4-quad synchronized single-cell multi-omic studio & live client-side drag-and-drop
 
 ### Colab Pro+ Deliverables
 Self-contained valid `.ipynb` notebooks ready for remote GPU execution:
@@ -343,6 +362,8 @@ Self-contained valid `.ipynb` notebooks ready for remote GPU execution:
 - `quakesnail/results/quakesnail_evaluation_summary.json`: QuakeSnail Mode A/B real-time seismic receipts
 - `bmhd/results/bmhd_stylo_bridge_summary.json`: BMHD to Stylo diagnostic bridge and 5-scenario MHD tomography receipts
 - `oatse/results/oatse_evaluation_summary.json`: OATSE Mode A/B ocean acoustic and SAS impedance inversion receipts
+- `cellsnail/results/cellsnail_evaluation_summary.json`: Mode A/B single-cell benchmark and discovery receipts
+- `cellsnail/results/bcm2712_cache_receipts.json`: CellSnail Broadcom BCM2712 50,000,000-reference hardware cache telemetry
 
 ---
 

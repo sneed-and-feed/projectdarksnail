@@ -52,6 +52,9 @@ from .arc3 import (
     Arc3AffectiveAmygdalaRouter,
     Arc3EpisodicBeltramiShell,
     Arc3HRMRecurrentCore,
+    ContactEdge,
+    ContactGraphSheaf,
+    ContactNode,
     CrossLevelGoalInvariantDistiller,
     DarkSnailArc3Agent,
     DarkSnailArc3WorldModel,
@@ -61,11 +64,16 @@ from .arc3 import (
     RelationalOperatorDreamer,
     TemporalClockContentSplitter,
     TransitionRecord,
+    TropicalStateLatchSheaf,
+    TropicalTransitionRule,
     compute_canvas_target_alignment,
     compute_marginal_wasserstein1_distance,
     compute_topological_symmetry_potential,
     extract_arc3_beltrami_medoids,
+    tropical_kleene_closure,
+    tropical_min_plus_matmul,
 )
+
 
 Arc3TransitionRecord = TransitionRecord
 
@@ -142,6 +150,9 @@ __all__ = [
     "Arc3EpisodicBeltramiShell",
     "Arc3HRMRecurrentCore",
     "Arc3TransitionRecord",
+    "ContactEdge",
+    "ContactGraphSheaf",
+    "ContactNode",
     "CrossLevelGoalInvariantDistiller",
     "DarkSnailArc3Agent",
     "DarkSnailArc3WorldModel",
@@ -151,11 +162,16 @@ __all__ = [
     "RelationalOperatorDreamer",
     "TemporalClockContentSplitter",
     "TransitionRecord",
+    "TropicalStateLatchSheaf",
+    "TropicalTransitionRule",
     "compute_canvas_target_alignment",
     "compute_marginal_wasserstein1_distance",
     "compute_topological_symmetry_potential",
     "extract_arc3_beltrami_medoids",
+    "tropical_kleene_closure",
+    "tropical_min_plus_matmul",
     # Gemma 4 31B and p-RoPE Symbols
+
     "DarkSnailGemma4GlobalHook",
     "GEMMA4_31B_SPEC",
     "GLOBAL_LAYER_INDICES",

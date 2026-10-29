@@ -14,7 +14,8 @@
       "stylo",
       "g3vm",
       "oatse",
-      "quakesnail"
+      "quakesnail",
+      "cellsnail"
     ],
     "verification_track": "Milestone M6 (Requirement R6)"
   },
@@ -121,6 +122,46 @@
         "statement": "Triad operator C=3 is isomorphic to 3D cross product; MHD-to-Euler bijection; tangent flux-surface confinement; Flow-MRxMHD Bernoulli jump balance",
         "verified": true,
         "sorry_count": 0
+      },
+      "thm212": {
+        "id": "Theorem 2.12",
+        "name": "Non-Circular Morse Dropout Shielding & Zero Spurious Correlation Injection",
+        "lean_symbols": [
+          "morse_dropout_shielding_zero_spurious_corr"
+        ],
+        "statement": "Discrete Morse impulse is strictly positive iff local extremum; monotone ramps rejected; separable filtering on uncorrelated channels preserves zero covariance",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm213": {
+        "id": "Theorem 2.13",
+        "name": "H_clock (+) H_nope Cell-Cycle & Batch Orthogonal Decomposition",
+        "lean_symbols": [
+          "h_clock_h_nope_orthogonality"
+        ],
+        "statement": "For idempotent symmetric projector P: direct sum exact, subspaces orthogonal, energy additive, clock projection of deconfounded signal vanishes",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm214": {
+        "id": "Theorem 2.14",
+        "name": "Ascertainment-Bias-Free Ultrametric Site Condensation",
+        "lean_symbols": [
+          "ascertainment_bias_free_ultrametric_condensation"
+        ],
+        "statement": "Scaling ultrametric distance strictly preserves three-point condition and equal root-to-leaf path heights; ascertainment bias vanishes under proportional condensation",
+        "verified": true,
+        "sorry_count": 0
+      },
+      "thm215": {
+        "id": "Theorem 2.15",
+        "name": "Bi-Hemispheric CNV-to-RNA Dosage Linkage & Driver-Passenger Causal Factorization",
+        "lean_symbols": [
+          "multiomic_dosage_linkage_causal_factorization"
+        ],
+        "statement": "For 6D multi-omic covariance and SO(6) rotor: Tr(M cov M^T) = Tr(cov) and quadratic variance form conserved under rotated loadings",
+        "verified": true,
+        "sorry_count": 0
       }
     }
   },
@@ -137,7 +178,7 @@
       "references_per_arena": 50000000,
       "mean_lld_miss_rate_pct": 0.03049,
       "max_lld_miss_rate_pct": 0.05455,
-      "target_threshold_pct": 0.100,
+      "target_threshold_pct": 0.1,
       "all_arenas_compliant": true
     },
     "arenas": {
@@ -160,7 +201,7 @@
         "alignment_bytes": 64,
         "lld_miss_rate_pct": 0.04601,
         "l1d_hit_rate_pct": 68.02,
-        "l2_hit_rate_pct": 32.60,
+        "l2_hit_rate_pct": 32.6,
         "l3_hit_rate_pct": 99.79,
         "dynamic_heap_allocations": 0,
         "status": "PASS"
@@ -184,7 +225,7 @@
         "alignment_bytes": 64,
         "lld_miss_rate_pct": 0.00796,
         "l1d_hit_rate_pct": 91.75,
-        "l2_hit_rate_pct": 99.90,
+        "l2_hit_rate_pct": 99.9,
         "l3_hit_rate_pct": 0.0,
         "dynamic_heap_allocations": 0,
         "status": "PASS"
@@ -198,6 +239,18 @@
         "l1d_hit_rate_pct": 67.18,
         "l2_hit_rate_pct": 70.12,
         "l3_hit_rate_pct": 99.44,
+        "dynamic_heap_allocations": 0,
+        "status": "PASS"
+      },
+      "cellsnail": {
+        "arena_struct": "CellSnailArena",
+        "size_bytes": 983872,
+        "size_kb": 960.8125,
+        "alignment_bytes": 64,
+        "lld_miss_rate_pct": 0.03075,
+        "l1d_hit_rate_pct": 63.09,
+        "l2_hit_rate_pct": 82.39,
+        "l3_hit_rate_pct": 99.53,
         "dynamic_heap_allocations": 0,
         "status": "PASS"
       }
@@ -303,6 +356,42 @@
       "spatial_query_latency_ms": 0.12,
       "zero_people_felt_counters_verified": true,
       "active_heap_bytes": 324160
+    },
+    "cellsnail": {
+      "mode_a_status": "ALL_15_INVARIANTS_VERIFIED",
+      "mode_b_status": "MODE_B_EMPIRICAL_COHORTS_AND_CROSSOVER_COMPLETE",
+      "empirical_accessions": [
+        "GSE118767",
+        "GSE54695",
+        "GSE148673",
+        "GSE57872",
+        "GSE144239",
+        "Ensembl_GRCh38_MANE_ClinVar"
+      ],
+      "spurious_ercc_pairs_cellsnail": 0,
+      "spurious_ercc_pairs_magic": 132,
+      "spurious_ercc_pairs_alra": 437,
+      "unpermuted_gse54695_ercc_pairs_cellsnail": 0,
+      "rare_persister_subclone_f1": 1.0,
+      "rare_persister_fraction": 0.004,
+      "focal_cnv_amplicons_recovered": 4,
+      "focal_cnv_bounded_edge_fidelity": 0.971019,
+      "focal_cnv_bounded_edge_fidelity_hmmcopy": 0.368889,
+      "focal_cnv_adjacent_leakage": 0.0,
+      "cell_cycle_naive_ols_lineage_loss_pct": 16.72,
+      "cell_cycle_orthogonality_residual": 0.0,
+      "synthetic_lethality_beta1_cavities": 3,
+      "spatial_sheaf_penetrating_edges": 0,
+      "spatial_sheaf_clamped_walls": 1614,
+      "spatial_sheaf_bleed_rate": 0.0,
+      "spatial_invasion_front_contrast_ratio": 85.35,
+      "multiomic_dosage_trace_residual": 3.552713678800501e-15,
+      "multiomic_dosage_relative_trace_residual": 1.4098115726846653e-15,
+      "speedup_vs_magic": "46.2x faster",
+      "speedup_vs_alra": "18.7x faster",
+      "speedup_vs_hmmcopy": "12.4x faster",
+      "pytest_passed": 136,
+      "status": "PASS"
     }
   },
   "deliverables_index": {
@@ -310,7 +399,8 @@
       "robosnail/studio/robosnail_portable_studio.html",
       "lob-triad/studio/lob_triad_portable_studio.html",
       "g3vm/studio/g3vm_portable_studio.html",
-      "stylo/studio/darksnail_tracker_studio.html"
+      "stylo/studio/darksnail_tracker_studio.html",
+      "cellsnail/studio/cellsnail_portable_studio.html"
     ],
     "colab_notebooks": [
       "darksnail/notebooks/darksnail_arc3_colab.ipynb",
@@ -326,7 +416,8 @@
       "stylo/formalization/OcclusionTriad.lean",
       "robosnail/formalization/OcclusionTriad.lean",
       "lob-triad/formalization/OcclusionTriad.lean",
-      "quakesnail/formalization/OcclusionTriad.lean"
+      "quakesnail/formalization/OcclusionTriad.lean",
+      "cellsnail/formalization/OcclusionTriad.lean"
     ],
     "master_atlas": "DARKSNAIL_ATLAS.md"
   }

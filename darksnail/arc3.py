@@ -70,6 +70,131 @@ from .readout import (
 )
 from .shell import BeltramiCallosalShell
 
+from pathlib import Path
+import sys
+
+_OATSE_SIBLING = Path(__file__).resolve().parents[2] / "oatse"
+if _OATSE_SIBLING.exists() and str(_OATSE_SIBLING) not in sys.path:
+    sys.path.insert(0, str(_OATSE_SIBLING))
+
+try:
+    from oatse.engine import tropical_kleene_closure, tropical_min_plus_matmul
+except ImportError:
+    def tropical_min_plus_matmul(
+        A: Any,
+        B: Any,
+        return_witness: bool = False,
+        inf_threshold: float = 1e12,
+    ) -> Any:
+        if isinstance(A, torch.Tensor) or isinstance(B, torch.Tensor):
+            tA = A if isinstance(A, torch.Tensor) else torch.as_tensor(A, dtype=torch.float64)
+            tB = B if isinstance(B, torch.Tensor) else torch.as_tensor(B, dtype=tA.dtype, device=tA.device)
+            if tA.ndim != 2 or tB.ndim != 2 or tA.shape[1] != tB.shape[0]:
+                raise ValueError(
+                    f"tropical_min_plus_matmul requires compatible 2D shapes, got {tuple(tA.shape)} and {tuple(tB.shape)}"
+                )
+            orig_dtype = tA.dtype
+            if tA.shape[1] == 0:
+                empty_c = torch.full((tA.shape[0], tB.shape[1]), float("inf"), dtype=orig_dtype, device=tA.device)
+                empty_w = torch.full((tA.shape[0], tB.shape[1]), -1, dtype=torch.long, device=tA.device)
+                return (empty_c, empty_w) if return_witness else empty_c
+            a64 = torch.where(tA.to(torch.float64) >= inf_threshold, float("inf"), tA.to(torch.float64))
+            b64 = torch.where(tB.to(torch.float64) >= inf_threshold, float("inf"), tB.to(torch.float64))
+            sums = a64.unsqueeze(-1) + b64.unsqueeze(-3)
+            min_vals, min_idx = torch.min(sums, dim=-2)
+            valid = torch.isfinite(min_vals) & (min_vals < inf_threshold)
+            min_idx = torch.where(valid, min_idx, torch.full_like(min_idx, -1))
+            out = torch.where(valid, min_vals, torch.full_like(min_vals, float("inf"))).to(orig_dtype)
+            return (out, min_idx) if return_witness else out
+
+        arr_a = np.asarray(A, dtype=np.float64)
+        arr_b = np.asarray(B, dtype=np.float64)
+        if arr_a.ndim != 2 or arr_b.ndim != 2 or arr_a.shape[1] != arr_b.shape[0]:
+            raise ValueError(
+                f"tropical_min_plus_matmul requires compatible 2D shapes, got {arr_a.shape} and {arr_b.shape}"
+            )
+        if arr_a.shape[1] == 0:
+            empty_c = np.full((arr_a.shape[0], arr_b.shape[1]), np.inf, dtype=np.float64)
+            empty_w = np.full((arr_a.shape[0], arr_b.shape[1]), -1, dtype=np.int64)
+            return (empty_c, empty_w) if return_witness else empty_c
+        a_clean = np.where(arr_a >= inf_threshold, np.inf, arr_a)
+        b_clean = np.where(arr_b >= inf_threshold, np.inf, arr_b)
+        sums = a_clean[:, :, None] + b_clean[None, :, :]
+        min_idx = np.argmin(sums, axis=1)
+        i_grid, j_grid = np.ogrid[: arr_a.shape[0], : arr_b.shape[1]]
+        min_vals = sums[i_grid, min_idx, j_grid]
+        valid = np.isfinite(min_vals) & (min_vals < inf_threshold)
+        min_idx = np.where(valid, min_idx, -1).astype(np.int64)
+        min_vals = np.where(valid, min_vals, np.inf)
+        return (min_vals, min_idx) if return_witness else min_vals
+
+    def tropical_kleene_closure(
+        A: Any,
+        max_steps: Optional[int] = None,
+        return_routing: bool = False,
+        inf_threshold: float = 1e12,
+    ) -> Any:
+        is_tensor = isinstance(A, torch.Tensor)
+        if is_tensor:
+            orig_device = A.device
+            orig_dtype = A.dtype
+            W_raw = A.detach().cpu().numpy().astype(np.float64)
+        else:
+            W_raw = np.asarray(A, dtype=np.float64)
+        if W_raw.ndim != 2 or W_raw.shape[0] != W_raw.shape[1]:
+            raise ValueError(f"tropical_kleene_closure requires a square 2D matrix, got {W_raw.shape}")
+        n = int(W_raw.shape[0])
+        if n == 0:
+            empty_star = np.zeros((0, 0), dtype=np.float64)
+            empty_hop = np.zeros((0, 0), dtype=np.int64)
+            if is_tensor:
+                t_star = torch.as_tensor(empty_star, dtype=orig_dtype, device=orig_device)
+                t_hop = torch.as_tensor(empty_hop, dtype=torch.long, device=orig_device)
+                return (t_star, t_hop) if return_routing else t_star
+            return (empty_star, empty_hop) if return_routing else empty_star
+        steps = max(1, int(max_steps) if max_steps is not None else max(1, n - 1))
+        W = np.where(W_raw >= inf_threshold, np.inf, W_raw)
+        star = np.minimum(W, np.inf)
+        np.fill_diagonal(star, 0.0)
+        next_hop = np.full((n, n), -1, dtype=np.int64)
+        off_diag = ~np.eye(n, dtype=bool)
+        valid_1hop = off_diag & np.isfinite(W) & (W < inf_threshold)
+        j_idx = np.broadcast_to(np.arange(n, dtype=np.int64)[None, :], (n, n))
+        next_hop = np.where(valid_1hop, j_idx, next_hop)
+        star = np.where(off_diag, np.where(valid_1hop, W, np.inf), 0.0)
+        if steps >= max(1, n - 1) and n > 1:
+            num_iters = max(1, int(math.ceil(math.log2(max(1, n - 1)))))
+            for _ in range(num_iters):
+                d_new, mid_k = tropical_min_plus_matmul(
+                    star, star, return_witness=True, inf_threshold=inf_threshold
+                )
+                improved = off_diag & (d_new + 1e-12 < star)
+                if not np.any(improved):
+                    break
+                if return_routing:
+                    safe_k = np.maximum(0, mid_k)
+                    first_hop = np.take_along_axis(next_hop, safe_k, axis=1)
+                    next_hop = np.where(improved, first_hop, next_hop)
+                star = np.where(improved, d_new, star)
+        elif steps > 1 and n > 1:
+            w_off = np.where(off_diag, W, np.inf)
+            power = w_off.copy()
+            for _ in range(2, steps + 1):
+                next_power, mid_k = tropical_min_plus_matmul(
+                    w_off, power, return_witness=True, inf_threshold=inf_threshold
+                )
+                improved = off_diag & (next_power + 1e-12 < star)
+                if return_routing and np.any(improved):
+                    next_hop = np.where(improved, mid_k, next_hop)
+                star = np.where(improved, next_power, star)
+                power = next_power
+        if is_tensor:
+            t_star = torch.as_tensor(star, dtype=orig_dtype, device=orig_device)
+            t_hop = torch.as_tensor(next_hop, dtype=torch.long, device=orig_device)
+            return (t_star, t_hop) if return_routing else t_star
+        return (star, next_hop) if return_routing else star
+
+
 
 ActionKey = Union[int, Tuple[int, int, int]]
 
@@ -81,7 +206,9 @@ def _frame_to_2d_numpy(frame_obj: Any) -> np.ndarray:
     """
     if hasattr(frame_obj, "frame"):
         frames = frame_obj.frame
-        if isinstance(frames, (list, tuple)) and len(frames) > 0:
+        if isinstance(frames, (list, tuple)):
+            if len(frames) == 0:
+                return np.zeros((64, 64), dtype=np.int32)
             arr = np.asarray(frames[-1], dtype=np.int32)
         else:
             arr = np.asarray(frames, dtype=np.int32)
@@ -104,6 +231,22 @@ def _frame_to_2d_numpy(frame_obj: Any) -> np.ndarray:
     if arr.ndim != 2 or arr.size == 0:
         return np.zeros((64, 64), dtype=np.int32)
     return np.clip(arr, 0, 15)
+
+
+def _mask_clock_to_bg(grid_2d: np.ndarray, clock_mask: Optional[np.ndarray]) -> np.ndarray:
+    """
+    Projects out exogenous clock pixels `clock_mask` by replacing them with the modal
+    background color `bg_mode` computed over non-clock pixels `~clock_mask` (avoiding
+    synthetic color-`0` foreground artifacts on boards whose background is non-zero).
+    """
+    if clock_mask is None or clock_mask.shape != grid_2d.shape or not np.any(clock_mask):
+        return grid_2d
+    non_clk = grid_2d[~clock_mask]
+    if non_clk.size > 0:
+        bg_mode = int(np.bincount(non_clk.ravel(), minlength=16).argmax())
+    else:
+        bg_mode = int(np.bincount(grid_2d.ravel(), minlength=16).argmax())
+    return np.where(clock_mask, bg_mode, grid_2d)
 
 
 def _extract_subframes_2d(frame_obj: Any) -> List[np.ndarray]:
@@ -513,6 +656,7 @@ class TemporalClockContentSplitter:
         self.comp_id_map: Optional[np.ndarray] = None
         self.comp_by_id: Dict[int, Dict[str, Any]] = {}
         self.clock_mask: Optional[np.ndarray] = None
+        self.hud_latch_mask: Optional[np.ndarray] = None
         self.reversible_mask: Optional[np.ndarray] = None
         self.last_changed_from_color: Optional[np.ndarray] = None
         self.prev_nonreset_color: Optional[np.ndarray] = None
@@ -524,10 +668,13 @@ class TemporalClockContentSplitter:
     def initialize_level(self, frame_2d: np.ndarray, preserve_clock_mask: bool = False) -> None:
         prev_mask: Optional[np.ndarray] = None
         prev_rev: Optional[np.ndarray] = None
+        prev_latch: Optional[np.ndarray] = None
         if preserve_clock_mask and self.clock_mask is not None:
             prev_mask = self.clock_mask.copy()
             if self.reversible_mask is not None:
                 prev_rev = self.reversible_mask.copy()
+            if self.hud_latch_mask is not None:
+                prev_latch = self.hud_latch_mask.copy()
         self.reset()
         f0 = np.asarray(frame_2d, dtype=np.int32).copy()
         H, W = f0.shape
@@ -538,8 +685,12 @@ class TemporalClockContentSplitter:
             self.reversible_mask = prev_rev
         else:
             self.reversible_mask = np.zeros((H, W), dtype=bool)
+        if prev_latch is not None and prev_latch.shape == (H, W):
+            self.hud_latch_mask = prev_latch
+        else:
+            self.hud_latch_mask = np.zeros((H, W), dtype=bool)
         if prev_mask is not None and prev_mask.shape == (H, W):
-            self.clock_mask = prev_mask & (~self.reversible_mask)
+            self.clock_mask = prev_mask & (~self.reversible_mask) & (~self.hud_latch_mask)
         else:
             self.clock_mask = np.zeros((H, W), dtype=bool)
         self.comp_id_map = np.full((H, W), -1, dtype=np.int32)
@@ -616,6 +767,7 @@ class TemporalClockContentSplitter:
         if (
             self.initial_frame is None
             or self.clock_mask is None
+            or self.hud_latch_mask is None
             or self.comp_id_map is None
             or self.reversible_mask is None
             or self.last_changed_from_color is None
@@ -624,6 +776,7 @@ class TemporalClockContentSplitter:
         assert (
             self.initial_frame is not None
             and self.clock_mask is not None
+            and self.hud_latch_mask is not None
             and self.comp_id_map is not None
             and self.reversible_mask is not None
             and self.last_changed_from_color is not None
@@ -674,15 +827,30 @@ class TemporalClockContentSplitter:
             return mask_expanded, int(nope_diff.sum()), True
 
         # Thermodynamic Irreversibility Law:
-        # Exogenous clocks evolve monotonically until a global phase reset. Any interior pixel that
+        # Exogenous clocks evolve monotonically until a global phase reset. Any pixel that
         # reverses its color transition (`c_old -> c_new -> c_old`) on a non-reset step has positive
-        # action contingency and belongs permanently to `H_nope`.
+        # action contingency and belongs to `H_nope` (and if on the HUD/border or co-changing
+        # as a discrete status indicator, to `H_clock^latch`).
         ch_rs, ch_cs = np.nonzero(diff_mask)
         H, W = next_frame.shape
         interior_ch = (ch_rs >= 2) & (ch_rs < H - 2) & (ch_cs >= 2) & (ch_cs < W - 2)
-        reverted_mask = interior_ch & (
-            self.last_changed_from_color[ch_rs, ch_cs] == next_frame[ch_rs, ch_cs]
-        )
+        not_already_clock = ~self.clock_mask[ch_rs, ch_cs]
+        reverted_any = self.last_changed_from_color[ch_rs, ch_cs] == next_frame[ch_rs, ch_cs]
+        reverted_mask = interior_ch & reverted_any
+        border_reverted = (~interior_ch) & reverted_any & not_already_clock
+        if np.any(border_reverted) and not clock_refilled:
+            b_rs = ch_rs[border_reverted]
+            b_cs = ch_cs[border_reverted]
+            b_cids = self.comp_id_map[b_rs, b_cs]
+            valid_latch = np.zeros(b_rs.shape, dtype=bool)
+            for idx_b, cid_b in enumerate(b_cids.tolist()):
+                if cid_b >= 0 and cid_b not in self.clock_comp_ids:
+                    comp_b = self.comp_by_id.get(int(cid_b))
+                    if comp_b is not None and int(comp_b["area"]) <= 16 and max(int(comp_b["h"]), int(comp_b["w"])) <= 6:
+                        valid_latch[idx_b] = True
+            if np.any(valid_latch):
+                self.hud_latch_mask[b_rs[valid_latch], b_cs[valid_latch]] = True
+                self.reversible_mask[b_rs[valid_latch], b_cs[valid_latch]] = True
         if np.any(reverted_mask):
             rev_rs = ch_rs[reverted_mask]
             rev_cs = ch_cs[reverted_mask]
@@ -730,7 +898,7 @@ class TemporalClockContentSplitter:
             area = cl["area"]
             if area > self.max_clock_tick_area or cl["h"] > 3 or cl["w"] > 3:
                 continue
-            if np.any(self.reversible_mask[rs, cs]):
+            if np.any(self.reversible_mask[rs, cs]) or np.any(self.hud_latch_mask[rs, cs]):
                 continue
 
             old_vals = prev_frame[rs, cs]
@@ -769,13 +937,39 @@ class TemporalClockContentSplitter:
 
             cids = self.comp_id_map[rs, cs]
             dom_cid = int(Counter(cids.tolist()).most_common(1)[0][0])
+            comp_dom = self.comp_by_id.get(dom_cid)
+            is_thin_or_border_comp = comp_dom is not None and (
+                min(int(comp_dom["h"]), int(comp_dom["w"])) <= 2
+                or int(comp_dom["r0"]) <= 4
+                or int(comp_dom["r1"]) >= H - 4
+                or int(comp_dom["c0"]) <= 4
+                or int(comp_dom["c1"]) >= W - 4
+            )
+            if not is_thin_or_border_comp:
+                continue
 
-            # Law 1: Multi-Cluster Decoupling (co-ticking alongside a >= 3x larger content move)
+            # Law 1: Multi-Cluster Decoupling (co-ticking alongside a >= 3x larger spatially disjoint content move)
             other_area = total_diff_area - area
             if len(clusters) >= 2 and other_area >= max(4, 3 * area):
-                if self._mark_component_as_clock(dom_cid, rs, cs):
-                    mask_expanded = True
-                continue
+                other_mask = diff_mask.copy()
+                other_mask[rs, cs] = False
+                ors, ocs = np.where(other_mask)
+                min_dist_inf = (
+                    int(
+                        np.min(
+                            np.maximum(
+                                np.abs(rs[:, None] - ors[None, :]),
+                                np.abs(cs[:, None] - ocs[None, :]),
+                            )
+                        )
+                    )
+                    if ors.size > 0
+                    else 0
+                )
+                if min_dist_inf > 5:
+                    if self._mark_component_as_clock(dom_cid, rs, cs):
+                        mask_expanded = True
+                    continue
 
             # Law 2 (Cross-Action Invariance) & Law 3 (Constant-Velocity Phase Front Propagation)
             hist = self.depletion_history.setdefault(dom_cid, [])
@@ -803,13 +997,22 @@ class TemporalClockContentSplitter:
 
     def project_nope(self, frame_2d: np.ndarray) -> np.ndarray:
         """Projects `frame_2d` onto the action-contingent controllable subspace `H_nope`."""
-        if self.clock_mask is None or not np.any(self.clock_mask):
-            return frame_2d
-        return np.where(self.clock_mask, 0, frame_2d)
+        return _mask_clock_to_bg(frame_2d, self.clock_mask)
 
     def hash_nope(self, frame_2d: np.ndarray) -> str:
         """Computes the deterministic Blake2b state digest in `H_nope`."""
         return _blake2b_grid(self.project_nope(frame_2d))
+
+    def extract_fsa_latch_signature(self, frame_2d: np.ndarray) -> str:
+        """
+        Extracts the deterministic discrete FSA latch signature `s_fsa` from `H_clock^latch`
+        (`hud_latch_mask`).
+        """
+        arr = _frame_to_2d_numpy(frame_2d)
+        if self.hud_latch_mask is not None and self.hud_latch_mask.shape == arr.shape and np.any(self.hud_latch_mask):
+            vals = arr[self.hud_latch_mask].astype(np.int8)
+            return hashlib.blake2b(vals.tobytes(), digest_size=8).hexdigest()
+        return "latch_default"
 
 
 _DEFAULT_ROPE2D_MEDOID_POOLER = RoPE2DMedoidPooler(
@@ -1507,7 +1710,7 @@ def compute_topological_symmetry_potential(
     """
     arr = _frame_to_2d_numpy(frame_2d)
     if clock_mask is not None and clock_mask.shape == arr.shape and np.any(clock_mask):
-        arr = np.where(clock_mask, 0, arr)
+        arr = _mask_clock_to_bg(arr, clock_mask)
 
     cache_key = _blake2b_grid(arr)
     cached_val = _TOPO_POTENTIAL_CACHE.get(cache_key)
@@ -1561,6 +1764,7 @@ def compute_marginal_wasserstein1_distance(
     frame_2d: np.ndarray,
     initial_frame_2d: Optional[np.ndarray] = None,
     clock_mask: Optional[np.ndarray] = None,
+    precomputed_comps: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Computes the closed-form O(HW) 1D Marginal Wasserstein-1 (Earth Mover's) Distance
@@ -1582,26 +1786,30 @@ def compute_marginal_wasserstein1_distance(
     arr = _frame_to_2d_numpy(frame_2d)
     H, W = arr.shape
     if clock_mask is not None and clock_mask.shape == arr.shape and np.any(clock_mask):
-        arr = np.where(clock_mask, 0, arr)
+        arr = _mask_clock_to_bg(arr, clock_mask)
 
     init_arr: Optional[np.ndarray] = None
     if initial_frame_2d is not None:
         init_arr = _frame_to_2d_numpy(initial_frame_2d)
         if clock_mask is not None and clock_mask.shape == init_arr.shape and np.any(clock_mask):
-            init_arr = np.where(clock_mask, 0, init_arr)
+            init_arr = _mask_clock_to_bg(init_arr, clock_mask)
 
-    vals, counts = np.unique(arr, return_counts=True)
-    bg_mode = int(vals[int(np.argmax(counts))])
-    fg_comps = _connected_components_2d(arr, connectivity=4, same_color=True, ignore_val=bg_mode)
+    if precomputed_comps is not None:
+        fg_comps = precomputed_comps
+    else:
+        vals, counts = np.unique(arr, return_counts=True)
+        bg_mode = int(vals[int(np.argmax(counts))])
+        fg_comps = _connected_components_2d(arr, connectivity=4, same_color=True, ignore_val=bg_mode)
+
+    def _cdf_1d(idx_a: np.ndarray, length: int) -> np.ndarray:
+        ha = np.bincount(np.clip(idx_a, 0, length - 1), minlength=length).astype(np.float64)
+        ha /= max(1.0, float(ha.sum()))
+        return np.cumsum(ha)
 
     def _cdf_w1_1d(idx_a: np.ndarray, idx_b: np.ndarray, length: int) -> float:
         if idx_a.size == 0 or idx_b.size == 0 or length <= 1:
             return 0.0
-        ha = np.bincount(np.clip(idx_a, 0, length - 1), minlength=length).astype(np.float64)
-        hb = np.bincount(np.clip(idx_b, 0, length - 1), minlength=length).astype(np.float64)
-        ha /= max(1.0, float(ha.sum()))
-        hb /= max(1.0, float(hb.sum()))
-        return float(np.sum(np.abs(np.cumsum(ha) - np.cumsum(hb)))) / float(length)
+        return float(np.sum(np.abs(_cdf_1d(idx_a, length) - _cdf_1d(idx_b, length)))) / float(length)
 
     by_color: Dict[int, List[Dict[str, Any]]] = {}
     for c in fg_comps:
@@ -1685,15 +1893,22 @@ def compute_marginal_wasserstein1_distance(
                 ]
                 if stat_comps:
                     best_w1 = 1.0
+                    cdf_mrs = _cdf_1d(mrs, H)
+                    cdf_mcs = _cdf_1d(mcs, W)
+                    m_cx = float(mcs.mean())
+                    m_cy = float(mrs.mean())
                     for sc in stat_comps:
-                        dx = abs(float(mcs.mean()) - float(sc["centroid_x"]))
-                        dy = abs(float(mrs.mean()) - float(sc["centroid_y"]))
+                        dx = abs(m_cx - float(sc["centroid_x"]))
+                        dy = abs(m_cy - float(sc["centroid_y"]))
                         if dx <= adj_band and dy >= 1.0:
-                            w1 = _cdf_w1_1d(mrs, sc["rows"], H)
+                            w1 = float(np.sum(np.abs(cdf_mrs - _cdf_1d(sc["rows"], H)))) / float(H)
                         elif dy <= adj_band and dx >= 1.0:
-                            w1 = _cdf_w1_1d(mcs, sc["cols"], W)
+                            w1 = float(np.sum(np.abs(cdf_mcs - _cdf_1d(sc["cols"], W)))) / float(W)
                         else:
-                            w1 = min(_cdf_w1_1d(mcs, sc["cols"], W), _cdf_w1_1d(mrs, sc["rows"], H))
+                            w1 = min(
+                                float(np.sum(np.abs(cdf_mcs - _cdf_1d(sc["cols"], W)))) / float(W),
+                                float(np.sum(np.abs(cdf_mrs - _cdf_1d(sc["rows"], H)))) / float(H),
+                            )
                         if w1 < best_w1:
                             best_w1 = w1
                     color_w1_list.append(best_w1)
@@ -1800,7 +2015,7 @@ def compute_canvas_target_alignment(
     arr = _frame_to_2d_numpy(frame_2d)
     H, W = arr.shape
     if clock_mask is not None and clock_mask.shape == arr.shape and np.any(clock_mask):
-        arr = np.where(clock_mask, 0, arr)
+        arr = _mask_clock_to_bg(arr, clock_mask)
 
     eff_w = potential_weights if potential_weights is not None else distilled_weights
     align_cache_key: Optional[Tuple[Any, ...]] = None
@@ -1809,7 +2024,7 @@ def compute_canvas_target_alignment(
         if initial_frame_2d is not None:
             init_tmp = _frame_to_2d_numpy(initial_frame_2d)
             if clock_mask is not None and clock_mask.shape == init_tmp.shape and np.any(clock_mask):
-                init_tmp = np.where(clock_mask, 0, init_tmp)
+                init_tmp = _mask_clock_to_bg(init_tmp, clock_mask)
             init_hash_k = _blake2b_grid(init_tmp)
         align_cache_key = (
             _blake2b_grid(arr),
@@ -1958,7 +2173,7 @@ def compute_canvas_target_alignment(
 
     # 2. Marginal Wasserstein-1 & Bracketed Slot Alignment Energy `E_marginal` (Phi_2)
     w1_info = compute_marginal_wasserstein1_distance(
-        arr, initial_frame_2d=initial_frame_2d, clock_mask=None
+        arr, initial_frame_2d=initial_frame_2d, clock_mask=None, precomputed_comps=fg_comps
     )
     e_marginal = float(w1_info["wasserstein1_distance"])
 
@@ -1978,7 +2193,7 @@ def compute_canvas_target_alignment(
     if initial_frame_2d is not None:
         init_arr = _frame_to_2d_numpy(initial_frame_2d)
         if clock_mask is not None and clock_mask.shape == init_arr.shape and np.any(clock_mask):
-            init_arr = np.where(clock_mask, 0, init_arr)
+            init_arr = _mask_clock_to_bg(init_arr, clock_mask)
         init_cnts = np.bincount(init_arr.reshape(-1), minlength=16)
         cur_cnts = np.bincount(arr.reshape(-1), minlength=16)
         mdl_ratios: List[float] = []
@@ -2241,8 +2456,8 @@ class CrossLevelGoalInvariantDistiller:
             s0 = _frame_to_2d_numpy(initial_frame_2d)
             s_win = _frame_to_2d_numpy(win_frame_2d)
         if clock_mask is not None and clock_mask.shape == s0.shape and np.any(clock_mask):
-            s0 = np.where(clock_mask, 0, s0)
-            s_win = np.where(clock_mask, 0, s_win)
+            s0 = _mask_clock_to_bg(s0, clock_mask)
+            s_win = _mask_clock_to_bg(s_win, clock_mask)
 
         # Detect minority foreground colors that were cleared/annihilated (>= 50% reduction)
         vals, cnts = np.unique(s0, return_counts=True)
@@ -2362,6 +2577,8 @@ class ContactEdge:
     is_enclosed: bool = False  # Container nesting
     container_id: Optional[int] = None
     content_id: Optional[int] = None
+    conductance: float = 0.0  # Dynamic tropical conductance G_e(s_fsa) in [0, 1]
+    required_latch: Optional[str] = None
 
     def restriction_map_u(
         self,
@@ -2431,7 +2648,7 @@ class ContactGraphSheaf:
     """
     Kinematic Contact-Chain Sheaf G_contact(F_t) modeling:
       - Rigid components as vertex stalks in se(2)
-      - Contact edges with outward normals n_ij
+      - Contact edges with outward normals n_ij and state-dependent conductance G_e(s_fsa)
       - Sheaf restriction maps enforcing unilateral non-penetration:
         (delta v)(e) = rho_{v_j -> e}(v_j) - rho_{v_i -> e}(v_i) >= 0
       - Topological force & displacement propagation for:
@@ -2450,6 +2667,7 @@ class ContactGraphSheaf:
         bg_mode: int,
         ego_node_id: Optional[int] = None,
         comp_grid: Optional[np.ndarray] = None,
+        unlocked_colors: Optional[Set[int]] = None,
     ) -> None:
         self.nodes: Dict[int, ContactNode] = _ContactNodeMap(nodes)
         self.edges = edges
@@ -2457,10 +2675,32 @@ class ContactGraphSheaf:
         self.bg_mode = bg_mode
         self.ego_node_id = ego_node_id
         self.comp_grid = comp_grid
+        self.unlocked_colors: Set[int] = set(unlocked_colors) if unlocked_colors is not None else set()
         self.adj: Dict[int, List[ContactEdge]] = {nid: [] for nid in self.nodes.keys()}
         for edge in edges:
             self.adj[edge.u].append(edge)
             self.adj[edge.v].append(edge)
+
+    def update_conductance(
+        self,
+        u: int,
+        v: int,
+        conductance: float,
+        required_latch: Optional[str] = None,
+    ) -> None:
+        """Updates the state-dependent conductance `G_e(s_fsa)` on contact edge `(u, v)`."""
+        for edge in self.edges:
+            if (edge.u == u and edge.v == v) or (edge.u == v and edge.v == u):
+                edge.conductance = float(conductance)
+                if required_latch is not None:
+                    edge.required_latch = str(required_latch)
+                if conductance >= 1.0:
+                    if u in self.nodes and not self.nodes[u].is_ego:
+                        self.nodes[u].is_wall = False
+                        self.unlocked_colors.add(int(self.nodes[u].color))
+                    if v in self.nodes and not self.nodes[v].is_ego:
+                        self.nodes[v].is_wall = False
+                        self.unlocked_colors.add(int(self.nodes[v].color))
 
     @classmethod
     def from_board(
@@ -2472,6 +2712,8 @@ class ContactGraphSheaf:
         wall_colors: Optional[Set[int]] = None,
         ego_comp: Optional[Dict[str, Any]] = None,
         bg_color: Optional[int] = None,
+        unlocked_colors: Optional[Set[int]] = None,
+        latch_state: Optional[str] = None,
     ) -> ContactGraphSheaf:
         if bg_color is not None:
             bg_mode = int(bg_color)
@@ -2479,20 +2721,20 @@ class ContactGraphSheaf:
         ego_colors = ego_colors or set()
         pushable_colors = pushable_colors or set()
         wall_colors = wall_colors or set()
+        unlocked_colors = unlocked_colors or set()
 
         comps = _connected_components_2d(board, connectivity=4, same_color=True, ignore_val=bg_mode)
         nodes: Dict[int, ContactNode] = {}
         comp_grid = np.full((H, W), -1, dtype=np.int32)
         ego_id: Optional[int] = None
 
-        ego_target_rs: Optional[Set[Tuple[int, int]]] = None
-        if ego_comp is not None:
-            ego_target_rs = set(zip(ego_comp["rows"].tolist(), ego_comp["cols"].tolist()))
+        ego_target_pt: Optional[Tuple[int, int]] = None
+        if ego_comp is not None and len(ego_comp["rows"]) > 0:
+            ego_target_pt = (int(ego_comp["rows"][0]), int(ego_comp["cols"][0]))
 
         for idx, cp in enumerate(comps):
             rs = cp["rows"]
             cs = cp["cols"]
-            comp_grid[rs, cs] = idx
             col = int(cp["color"])
             area = int(cp["area"])
             h, w = int(cp["h"]), int(cp["w"])
@@ -2501,16 +2743,42 @@ class ContactGraphSheaf:
 
             # Check if ego
             is_ego = False
-            if ego_target_rs is not None:
-                if any((int(r), int(c)) in ego_target_rs for r, c in zip(rs, cs)):
+            if ego_target_pt is not None:
+                er_t, ec_t = ego_target_pt
+                if (
+                    r0 <= er_t < r1
+                    and c0 <= ec_t < c1
+                    and col == int(board[er_t, ec_t])
+                    and bool(np.any((rs == er_t) & (cs == ec_t)))
+                ):
                     is_ego = True
-            elif col in ego_colors and (area <= 64 and max(h, w) <= 16):
+            elif col in ego_colors and (area <= 256 and max(h, w) <= 28):
                 is_ego = True
 
+            # Dual-background / Playfield Cavity Floor Guard:
+            # When a bordered canvas has outer HUD/frame background `bg_mode` and an interior
+            # solid playfield floor substrate of color `col != bg_mode` (`area > 256`, `min(h, w) >= 16`,
+            # `fill_ratio >= 0.85`, with zero `bg_mode` holes inside its interior and enclosing
+            # interior sprites), treat the floor as background (`-1`) rather than a solid wall node.
+            if (
+                not is_ego
+                and col not in wall_colors
+                and area > 256
+                and min(h, w) >= 16
+                and float(cp["fill_ratio"]) >= 0.85
+            ):
+                sub_in = board[r0 + 1 : r1 - 1, c0 + 1 : c1 - 1]
+                if not np.any(sub_in == bg_mode) and np.any(sub_in != col):
+                    continue
+
+            comp_grid[rs, cs] = idx
             if is_ego and ego_id is None:
                 ego_id = idx
 
-            is_wall = (col in wall_colors) or (area > 256 and max(h, w) > 32)
+            is_compact_gate = area <= 32 and max(h, w) <= 8
+            is_wall = (col in wall_colors and not (is_compact_gate and col in unlocked_colors)) or (
+                area > 256 and max(h, w) > 32
+            )
             is_pushable = (col in pushable_colors) and not is_wall
 
             # Check hollow frame / cavity
@@ -2628,6 +2896,17 @@ class ContactGraphSheaf:
                     nx = dx_c / d_len
                 else:
                     ny, nx = 0.0, 1.0
+            u_unlocked_gate = (
+                nodes[u_id].color in unlocked_colors
+                and nodes[u_id].area <= 32
+                and max(nodes[u_id].h, nodes[u_id].w) <= 8
+            )
+            v_unlocked_gate = (
+                nodes[v_id].color in unlocked_colors
+                and nodes[v_id].area <= 32
+                and max(nodes[v_id].h, nodes[v_id].w) <= 8
+            )
+            cond_val = 1.0 if (u_unlocked_gate or v_unlocked_gate) else 0.0
             edge = ContactEdge(
                 u=u_id,
                 v=v_id,
@@ -2635,6 +2914,8 @@ class ContactGraphSheaf:
                 contact_points_u=pts_u,
                 contact_points_v=pts_v,
                 is_enclosed=False,
+                conductance=cond_val,
+                required_latch=latch_state if cond_val >= 1.0 else None,
             )
             edges.append(edge)
 
@@ -2645,6 +2926,7 @@ class ContactGraphSheaf:
             bg_mode=bg_mode,
             ego_node_id=ego_id,
             comp_grid=comp_grid,
+            unlocked_colors=unlocked_colors,
         )
 
     def compute_non_penetration_coboundary(
@@ -2720,6 +3002,9 @@ class ContactGraphSheaf:
         moving_nodes: Dict[int, Tuple[int, int]] = {root_id: (dy_val, dx_val)}
         queue: List[int] = [root_id]
         visited: Set[int] = {root_id}
+        permeable_nodes: Set[int] = {
+            nid for nid, nd in self.nodes.items() if not nd.is_ego and nd.color in self.unlocked_colors
+        }
 
         while queue:
             curr_id = queue.pop(0)
@@ -2757,6 +3042,9 @@ class ContactGraphSheaf:
                 ny, nx = edge.normal if edge.u == curr_id else (-edge.normal[0], -edge.normal[1])
                 dot_prod = ny * float(curr_disp[0]) + nx * float(curr_disp[1])
                 if dot_prod > 0.05:  # Pushing into other_id
+                    if edge.conductance >= 1.0:
+                        permeable_nodes.add(other_id)
+                        continue
                     other_node = self.nodes[other_id]
                     if other_node.is_wall:
                         return _finish(False, {}, "wall_lock")
@@ -2777,7 +3065,7 @@ class ContactGraphSheaf:
             if self.comp_grid is not None:
                 for nr, nc in zip(n_r, n_c):
                     other_id = int(self.comp_grid[nr, nc])
-                    if other_id != -1 and other_id != curr_id:
+                    if other_id != -1 and other_id != curr_id and other_id not in permeable_nodes:
                         other_node = self.nodes[other_id]
                         if other_node.is_wall:
                             return _finish(False, {}, "wall_collision")
@@ -2817,7 +3105,7 @@ class ContactGraphSheaf:
             for nr, nc in all_new_coords:
                 if (nr, nc) not in old_moving_coords:
                     other_id = int(self.comp_grid[nr, nc])
-                    if other_id != -1 and other_id not in moving_nodes:
+                    if other_id != -1 and other_id not in moving_nodes and other_id not in permeable_nodes:
                         return _finish(False, {}, "collision_with_stationary")
 
         return _finish(True, moving_nodes, "success")
@@ -2860,6 +3148,302 @@ class ContactGraphSheaf:
         return False
 
 
+@dataclass
+class TropicalTransitionRule:
+    """Induced tropical min-plus transition rule over `(state_hash, latch_state)`."""
+
+    source_node: Tuple[str, str]
+    target_node: Tuple[str, str]
+    action_key: ActionKey
+    cost: float = 1.0
+    observations: int = 1
+    eta_nonlocal: float = 0.0
+    trigger_colors: Tuple[int, ...] = ()
+    toggled_colors: Tuple[int, ...] = ()
+
+
+class TropicalStateLatchSheaf:
+    """
+    Tropical Min-Plus State-Latch Sheaf over the joint state space `V = H_nope x S_FSA`.
+
+    Maintains a directed tropical cost matrix `W in T^{|V| x |V|}` over the tropical semiring
+    `T = (R u {+inf}, oplus = min, otimes = +)` and computes exact multi-hop geodesic
+    shortest paths `D^* = bigoplus_{k=0}^{|V|-1} W^{otimes k}` and first-hop witness routing
+    via `tropical_kleene_closure` from `oatse.engine`, while recording non-local contact
+    conductance toggles (`eta_nonlocal >= 0.50` or discrete latch transitions `q_u -> q_v`).
+    """
+
+    def __init__(self, inf_val: float = 1e12) -> None:
+        self.inf_val = float(inf_val)
+        self.reset(clear_all=True)
+
+    def reset(self, clear_all: bool = False) -> None:
+        self.node_to_idx: Dict[Tuple[str, str], int] = {}
+        self.idx_to_node: List[Tuple[str, str]] = []
+        self.rules: Dict[Tuple[Tuple[str, str], Tuple[str, str]], TropicalTransitionRule] = {}
+        self.action_edges: Dict[Tuple[Tuple[str, str], ActionKey], Tuple[str, str]] = {}
+        if clear_all or not hasattr(self, "latch_states"):
+            self.latch_states: Set[str] = set()
+            self.trigger_colors: Set[int] = set()
+            self.unlocked_colors_by_latch: Dict[str, Set[int]] = {}
+            self.edge_conductance_table: Dict[Tuple[str, int], float] = {}
+        self._dirty: bool = True
+        self._closure_dist: Optional[np.ndarray] = None
+        self._closure_routing: Optional[np.ndarray] = None
+
+    @property
+    def num_rules_induced(self) -> int:
+        return len(self.rules)
+
+    @property
+    def num_latch_states(self) -> int:
+        return len(self.latch_states)
+
+    def _register_node(self, node: Tuple[str, str]) -> int:
+        idx = self.node_to_idx.get(node)
+        if idx is None:
+            idx = len(self.idx_to_node)
+            self.node_to_idx[node] = idx
+            self.idx_to_node.append(node)
+            self._dirty = True
+        return idx
+
+    def get_unlocked_colors(self, latch_state: Optional[str] = None) -> Set[int]:
+        """Returns the set of barrier/door colors unlocked in `latch_state`."""
+        if latch_state is None:
+            out: Set[int] = set()
+            for cols in self.unlocked_colors_by_latch.values():
+                out.update(cols)
+            return out
+        return set(self.unlocked_colors_by_latch.get(str(latch_state), set()))
+
+    def apply_to_contact_sheaf(
+        self,
+        sheaf: ContactGraphSheaf,
+        latch_state: Optional[str] = None,
+    ) -> None:
+        """Applies learned tropical edge-conductance toggles for `latch_state` to `sheaf`."""
+        unlocked = self.get_unlocked_colors(latch_state)
+        if not unlocked:
+            return
+        for edge in sheaf.edges:
+            if edge.is_enclosed:
+                continue
+            u_node = sheaf.nodes.get(edge.u)
+            v_node = sheaf.nodes.get(edge.v)
+            if (u_node is not None and u_node.color in unlocked) or (
+                v_node is not None and v_node.color in unlocked
+            ):
+                sheaf.update_conductance(edge.u, edge.v, 1.0, required_latch=latch_state)
+
+    def observe_transition(
+        self,
+        prev_hash: Any,
+        next_hash: Any,
+        action_key: ActionKey,
+        sh_prev: Optional[str] = None,
+        sh_next: Optional[str] = None,
+        prev_latch: Any = "latch_default",
+        next_latch: Any = "latch_default",
+        latch_prev: Any = None,
+        latch_next: Any = None,
+        cost: float = 1.0,
+        is_game_over: bool = False,
+        is_self_loop: bool = False,
+    ) -> Optional[TropicalTransitionRule]:
+        arr_prev = prev_hash if isinstance(prev_hash, np.ndarray) else None
+        arr_next = next_hash if isinstance(next_hash, np.ndarray) else None
+
+        if sh_prev is not None:
+            u_hash = str(sh_prev)
+        elif arr_prev is not None:
+            u_hash = _blake2b_grid(arr_prev)
+        else:
+            u_hash = str(prev_hash)
+
+        if sh_next is not None:
+            v_hash = str(sh_next)
+        elif arr_next is not None:
+            v_hash = _blake2b_grid(arr_next)
+        else:
+            v_hash = str(next_hash)
+
+        eff_l_prev = str(latch_prev if latch_prev is not None else prev_latch)
+        eff_l_next = str(latch_next if latch_next is not None else next_latch)
+        self.latch_states.add(eff_l_prev)
+        self.latch_states.add(eff_l_next)
+
+        u = (u_hash, eff_l_prev)
+        v = (v_hash, eff_l_next)
+        self._register_node(u)
+        self._register_node(v)
+        if is_game_over or is_self_loop or u == v:
+            return None
+
+        eta_nl = 0.0
+        trig_cols: Tuple[int, ...] = ()
+        toggled_cols: Tuple[int, ...] = ()
+        if arr_prev is not None and arr_next is not None and arr_prev.shape == arr_next.shape:
+            diff_mask = arr_prev != arr_next
+            diff_rs, diff_cs = np.nonzero(diff_mask)
+            if diff_rs.size > 0:
+                vals_bg, cnts_bg = np.unique(arr_prev, return_counts=True)
+                bg_m = int(vals_bg[int(np.argmax(cnts_bg))])
+                if isinstance(action_key, tuple) and len(action_key) == 3 and action_key[0] == 6:
+                    cx, cy = int(action_key[1]), int(action_key[2])
+                    far_m = np.maximum(np.abs(diff_cs - cx), np.abs(diff_rs - cy)) > 4
+                    eta_nl = float(np.sum(far_m)) / float(diff_rs.size)
+                    if np.any(far_m):
+                        rem_cols = set(int(c) for c in np.unique(arr_prev[diff_rs[far_m], diff_cs[far_m]])) | set(
+                            int(c) for c in np.unique(arr_next[diff_rs[far_m], diff_cs[far_m]])
+                        )
+                        rem_cols.discard(bg_m)
+                        toggled_cols = tuple(sorted(rem_cols))
+                else:
+                    if eff_l_prev != eff_l_next:
+                        clusters = _connected_components_2d(
+                            diff_mask.astype(np.int32), connectivity=8, same_color=True, ignore_val=0
+                        )
+                        if len(clusters) >= 2:
+                            clusters.sort(key=lambda c: int(c["area"]), reverse=True)
+                            c_main = clusters[0]
+                            c_rem_area = sum(int(c["area"]) for c in clusters[1:])
+                            dist_rem = max(
+                                abs(float(clusters[1]["centroid_y"]) - float(c_main["centroid_y"])),
+                                abs(float(clusters[1]["centroid_x"]) - float(c_main["centroid_x"])),
+                            )
+                            if dist_rem > 4.0:
+                                eta_nl = max(float(c_rem_area) / float(diff_rs.size), 0.55)
+                                rem_c_set: Set[int] = set()
+                                for c_r in clusters[1:]:
+                                    rem_c_set.update(int(x) for x in np.unique(arr_prev[c_r["rows"], c_r["cols"]]))
+                                    rem_c_set.update(int(x) for x in np.unique(arr_next[c_r["rows"], c_r["cols"]]))
+                                rem_c_set.discard(bg_m)
+                                toggled_cols = tuple(sorted(rem_c_set))
+                        else:
+                            eta_nl = 0.50
+                    all_ch_cols = set(int(x) for x in np.unique(arr_prev[diff_mask]))
+                    all_ch_cols.discard(bg_m)
+                    trig_cols = tuple(sorted(all_ch_cols))
+
+                if eff_l_prev != eff_l_next and toggled_cols:
+                    self.trigger_colors.update(trig_cols)
+                    unl = self.unlocked_colors_by_latch.setdefault(eff_l_next, set())
+                    for tc in toggled_cols:
+                        unl.add(int(tc))
+                        self.edge_conductance_table[(eff_l_next, int(tc))] = 1.0
+
+        eff_cost = max(0.01, float(cost))
+        self.action_edges[(u, action_key)] = v
+        existing = self.rules.get((u, v))
+        if existing is None or eff_cost < existing.cost:
+            self.rules[(u, v)] = TropicalTransitionRule(
+                source_node=u,
+                target_node=v,
+                action_key=action_key,
+                cost=eff_cost,
+                observations=1 if existing is None else existing.observations + 1,
+                eta_nonlocal=eta_nl,
+                trigger_colors=trig_cols,
+                toggled_colors=toggled_cols,
+            )
+            self._dirty = True
+        else:
+            existing.observations += 1
+        return self.rules.get((u, v))
+
+    def compute_all_pairs_shortest_paths(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Computes exact tropical Kleene closure `(D_star, routing)` over `V`."""
+        n = len(self.idx_to_node)
+        if n == 0:
+            empty_d = np.zeros((0, 0), dtype=np.float64)
+            empty_r = np.zeros((0, 0), dtype=np.int64)
+            return empty_d, empty_r
+        if not self._dirty and self._closure_dist is not None and self._closure_routing is not None:
+            return self._closure_dist, self._closure_routing
+        W = np.full((n, n), self.inf_val, dtype=np.float64)
+        np.fill_diagonal(W, 0.0)
+        for (u, v), rule in self.rules.items():
+            iu = self.node_to_idx[u]
+            iv = self.node_to_idx[v]
+            if rule.cost < W[iu, iv]:
+                W[iu, iv] = rule.cost
+        D_star, routing = tropical_kleene_closure(
+            W, max_steps=max(1, n - 1), return_routing=True, inf_threshold=self.inf_val
+        )
+        self._closure_dist = np.asarray(D_star, dtype=np.float64)
+        self._closure_routing = np.asarray(routing, dtype=np.int64)
+        self._dirty = False
+        return self._closure_dist, self._closure_routing
+
+
+    def shortest_action_sequence(
+        self,
+        source_node: Tuple[str, str],
+        target_node: Tuple[str, str],
+    ) -> Optional[List[ActionKey]]:
+        """Reconstructs the optimal min-plus action sequence from `source_node` to `target_node`."""
+        if source_node not in self.node_to_idx or target_node not in self.node_to_idx:
+            return None
+        if source_node == target_node:
+            return []
+        D_star, routing = self.compute_all_pairs_shortest_paths()
+        iu = self.node_to_idx[source_node]
+        iv = self.node_to_idx[target_node]
+        if D_star[iu, iv] >= self.inf_val * 0.5:
+            return None
+        actions: List[ActionKey] = []
+        cur = iu
+        visited: Set[int] = {cur}
+        for _ in range(len(self.idx_to_node)):
+            if cur == iv:
+                return actions
+            nxt = int(routing[cur, iv])
+            if nxt < 0 or nxt in visited:
+                return None
+            u_node = self.idx_to_node[cur]
+            v_node = self.idx_to_node[nxt]
+            rule = self.rules.get((u_node, v_node))
+            if rule is None:
+                return None
+            actions.append(rule.action_key)
+            visited.add(nxt)
+            cur = nxt
+        return actions if cur == iv else None
+
+    def shortest_tropical_path(
+        self,
+        start_hash: str,
+        frontier_scores: Mapping[str, float],
+    ) -> Optional[Tuple[str, List[ActionKey]]]:
+        """
+        Finds the highest-utility reachable frontier state `s^*` from `start_hash` over
+        the tropical Kleene closure `D^* = bigoplus_{k=0}^{|V|-1} W^{otimes k}`.
+        """
+        if not frontier_scores or not self.idx_to_node:
+            return None
+        start_nodes = [node for node in self.idx_to_node if node[0] == str(start_hash)]
+        if not start_nodes:
+            return None
+        target_nodes = [node for node in self.idx_to_node if node[0] in frontier_scores]
+        if not target_nodes:
+            return None
+
+        best_val = -1e18
+        best_res: Optional[Tuple[str, List[ActionKey]]] = None
+        for u in start_nodes:
+            for v in target_nodes:
+                if u[0] == v[0]:
+                    continue
+                seq = self.shortest_action_sequence(u, v)
+                if seq:
+                    val = float(frontier_scores[v[0]]) - 0.15 * float(len(seq))
+                    if val > best_val:
+                        best_val = val
+                        best_res = (v[0], seq)
+        return best_res
+
+
 class RelationalOperatorDreamer:
     """
     Pillar 1: Object-Relational & Ego-Kinematic Forward World Model
@@ -2868,14 +3452,15 @@ class RelationalOperatorDreamer:
     Grounded in Contingency-Aware Exploration (Choi et al., arXiv:1811.01483),
     Independently Controllable Factors (Thomas et al., arXiv:1708.01289), and
     Contrastive Structured World Models (Kipf et al., arXiv:1911.12247):
-      1. Discovers controllable ego-fibers `C_ego` and their kinematic translation
+      1. Discovers controllable ego-fibers `C_ego` (including multi-scale shapes up to
+         `area <= 256` and composite oriented assemblies) and their kinematic translation
          generators `(dy_a, dx_a, is_sliding)` under `ACTION1..4` from a single step per direction.
       2. Learns the Ordered Pairwise Relational Interaction Kernel `K_int`:
          `"wall"`, `"pushable"`, `"hazard"`, and `"contact_highlight"`.
       3. Models rigid components via `ContactGraphSheaf` in se(2) with outward normals n_ij
          and restriction maps enforcing unilateral non-penetration (delta v)(e) >= 0.
-      4. Executes forward prediction `predict_step(frame_2d, action_key, ...)`
-         supporting multi-body push chains, tool use, container nesting, and peg-in-hole docking.
+      4. Executes forward prediction `predict_step(frame_2d, action_key, ...)` and joint
+         semidirect product `SE(2) |x FSA` trajectory planning `solve_se2_fsa_plan(...)`.
     """
 
     def __init__(self) -> None:
@@ -2885,6 +3470,7 @@ class RelationalOperatorDreamer:
         self,
         clear_cross_level: bool = False,
         preserve_kinematics: bool = False,
+        is_level_reset: bool = True,
     ) -> None:
         self.active_contact_highlight_states: Set[str] = set()
         self.contact_adjacent_state_hashes: Set[str] = set()
@@ -2892,14 +3478,33 @@ class RelationalOperatorDreamer:
         self.contact_sheaf: Optional[ContactGraphSheaf] = None
         self.tool_interactions: Set[Tuple[int, int, int]] = set()
         self.container_nesting_pairs: Set[Tuple[int, int]] = set()
+        self.fsa_latch_states: Set[str] = set()
+        self.last_latch_signature: str = "latch_default"
+        self.unlocked_colors: Set[int] = set()
+        if is_level_reset or clear_cross_level or not hasattr(self, "_pp_slot_history"):
+            self._pp_slot_history: Set[Tuple[int, int]] = set()
+            self._pp_transfer_history: Set[Tuple[int, int]] = set()
+            self._pp_init_final_slots: Set[Tuple[int, int]] = set()
+            self._monoid_hom_state: Optional[Dict[str, Any]] = None
+            self._locus_cover_plan_by_center: Optional[Dict[Tuple[int, int], List[int]]] = None
+            self._locus_cover_done_centers: Set[Tuple[int, int]] = set()
+            self._locus_cover_switches: int = 0
+            self._pin_polyomino_state: Optional[Dict[str, Any]] = None
+            self._skewer_rail_plan: Optional[deque] = None
         if not preserve_kinematics or clear_cross_level or not hasattr(self, "kinematic_generators"):
             self.kinematic_generators: Dict[int, Tuple[int, int, bool]] = {}
             self.ego_colors: Set[int] = set()
+            self.ego_accent_colors: Set[int] = set()
             self.ego_signatures: Set[Tuple[int, int, int, int]] = set()  # (color, h, w, area_bucket)
             self.wall_colors: Set[int] = set()
             self.pushable_colors: Set[int] = set()
+            self.floor_colors: Set[int] = set()
+            self.highlight_rest_colors: Set[int] = set()
+            self.highlight_active_colors: Set[int] = set()
             self.action5_is_contact_operator: bool = False
             self.click_signature_luts: Dict[Tuple[int, int, int], Dict[int, int]] = {}
+            self._pp_roles: Optional[Dict[str, Any]] = None
+            self._multisprite_roles: Optional[Dict[str, int]] = None
         if (not preserve_kinematics and clear_cross_level) or not hasattr(self, "hazard_signatures"):
             self.hazard_signatures: Set[Tuple[str, int, int, int, int]] = set()
             self.hazard_colors: Set[int] = set()
@@ -2919,7 +3524,7 @@ class RelationalOperatorDreamer:
             col = int(c["color"])
             area = int(c["area"])
             bh, bw = int(c["h"]), int(c["w"])
-            if area > 64 or max(bh, bw) > 16:
+            if area > 256 or max(bh, bw) > 28:
                 continue
             ab = int(round(math.log2(max(1, area))))
             sig = (col, bh, bw, ab)
@@ -2953,6 +3558,7 @@ class RelationalOperatorDreamer:
         candidate_info: Optional[Dict[str, Any]] = None,
         subframes: Optional[Sequence[np.ndarray]] = None,
         state_hash_next: Optional[str] = None,
+        latch_signature: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Updates ego-kinematic generators and pairwise relational kernel from an observed step."""
         self.last_transition_highlighted = False
@@ -2962,6 +3568,9 @@ class RelationalOperatorDreamer:
             sh_next = str(state_hash_next)
         if nope_d is None:
             nope_d = int(np.sum(nope_prev != nope_next))
+        if latch_signature is not None:
+            self.fsa_latch_states.add(str(latch_signature))
+            self.last_latch_signature = str(latch_signature)
 
         H, W = nope_prev.shape
         vals, cnts = np.unique(nope_prev, return_counts=True)
@@ -2988,8 +3597,13 @@ class RelationalOperatorDreamer:
                         n_cs = np.clip(ego_c["cols"] + dx, 0, W - 1)
                         target_vals = nope_prev[n_rs, n_cs]
                         for tv in np.unique(target_vals):
-                            if int(tv) != bg_mode and int(tv) != int(ego_c["color"]):
-                                self.hazard_colors.add(int(tv))
+                            tv_i = int(tv)
+                            if (
+                                tv_i != bg_mode
+                                and tv_i != int(ego_c["color"])
+                                and tv_i not in self.floor_colors
+                            ):
+                                self.hazard_colors.add(tv_i)
             return {"ego_moved": False, "contact_highlight": False}
 
         # Directional actions ACTION1..4: discover ego component, kinematics, walls, pushables, contact highlights
@@ -3008,18 +3622,52 @@ class RelationalOperatorDreamer:
                         adj_vals = nope_prev[n_rs[in_b], n_cs[in_b]]
                         for av in np.unique(adj_vals):
                             av_i = int(av)
-                            if av_i != bg_mode and av_i != int(ego_c["color"]):
+                            if (
+                                av_i != bg_mode
+                                and av_i != int(ego_c["color"])
+                                and av_i not in self.floor_colors
+                            ):
                                 self.wall_colors.add(av_i)
+                                self.unlocked_colors.discard(av_i)
                                 self.interaction_kernel[(int(ego_c["color"]), av_i, step_y, step_x)] = "wall"
                 return {"ego_moved": False, "contact_highlight": False}
 
             comps_prev = _connected_components_2d(nope_prev, connectivity=4, same_color=True, ignore_val=bg_mode)
+            for cp_fl in comps_prev:
+                if (
+                    int(cp_fl["area"]) > 256
+                    and min(int(cp_fl["h"]), int(cp_fl["w"])) >= 16
+                    and float(cp_fl["fill_ratio"]) >= 0.90
+                ):
+                    r0_f, r1_f = int(cp_fl["r0"]), int(cp_fl["r1"])
+                    c0_f, c1_f = int(cp_fl["c0"]), int(cp_fl["c1"])
+                    col_f = int(cp_fl["color"])
+                    sub_in = nope_prev[r0_f + 1 : r1_f - 1, c0_f + 1 : c1_f - 1]
+                    if (
+                        sub_in.size > 0
+                        and not np.any(sub_in == bg_mode)
+                        and np.any(sub_in != col_f)
+                        and all(
+                            int(cp2["area"]) <= 24 and max(int(cp2["h"]), int(cp2["w"])) <= 6
+                            for cp2 in comps_prev
+                            if cp2 is not cp_fl
+                            and int(cp2["r0"]) >= r0_f
+                            and int(cp2["r1"]) <= r1_f
+                            and int(cp2["c0"]) >= c0_f
+                            and int(cp2["c1"]) <= c1_f
+                        )
+                    ):
+                        self.floor_colors.add(col_f)
+                        self.wall_colors.discard(col_f)
             comps_next = _connected_components_2d(nope_next, connectivity=4, same_color=True, ignore_val=bg_mode)
             diff_mask = nope_prev != nope_next
 
+            unit_cnt_by_col = Counter(int(c["color"]) for c in comps_prev if int(c["area"]) == 1)
             moved_pairs: List[Tuple[Dict[str, Any], Dict[str, Any], int, int]] = []
             for cp in comps_prev:
-                if int(cp["area"]) > 64 or max(int(cp["h"]), int(cp["w"])) > 16:
+                if int(cp["area"]) > 256 or max(int(cp["h"]), int(cp["w"])) > 28:
+                    continue
+                if int(cp["area"]) == 1 and unit_cnt_by_col[int(cp["color"])] >= 4:
                     continue
                 if not np.any(diff_mask[cp["rows"], cp["cols"]]):
                     continue
@@ -3076,7 +3724,16 @@ class RelationalOperatorDreamer:
                 self.ego_colors.add(col_e)
                 self.ego_signatures.add((col_e, int(cp_ego["h"]), int(cp_ego["w"]), ab_e))
                 self.wall_colors.discard(col_e)
-                is_sliding = max(abs(dy_e), abs(dx_e)) > max(int(cp_ego["h"]), int(cp_ego["w"]))
+                same_disp_comps = [
+                    cp_m for cp_m, _, dy_m, dx_m in moved_pairs if dy_m == dy_e and dx_m == dx_e
+                ]
+                asm_max_dim = max(
+                    max(int(c["h"]), int(c["w"])) for c in same_disp_comps
+                )
+                is_sliding = (
+                    max(abs(dy_e), abs(dx_e)) >= 4
+                    and max(abs(dy_e), abs(dx_e)) > asm_max_dim
+                )
                 if action_key not in self.kinematic_generators or not is_sliding:
                     self.kinematic_generators[action_key] = (dy_e, dx_e, is_sliding)
 
@@ -3090,14 +3747,16 @@ class RelationalOperatorDreamer:
                     ego_comp=cp_ego,
                 )
                 self.contact_sheaf = sheaf
-                for cp_other, _, dy_o, dx_o in moved_pairs[1:]:
-                    if np.sign(dy_o) == np.sign(dy_e) and np.sign(dx_o) == np.sign(dx_e):
-                        col_o = int(cp_other["color"])
-                        self.pushable_colors.add(col_o)
-                        self.wall_colors.discard(col_o)
-                        self.interaction_kernel[
-                            (col_e, col_o, int(np.sign(dy_e)), int(np.sign(dx_e)))
-                        ] = "pushable"
+                if len(moved_pairs) <= 6:
+                    for cp_other, _, dy_o, dx_o in moved_pairs[1:]:
+                        if np.sign(dy_o) == np.sign(dy_e) and np.sign(dx_o) == np.sign(dx_e):
+                            col_o = int(cp_other["color"])
+                            if col_o != col_e or len(moved_pairs) <= 3:
+                                self.pushable_colors.add(col_o)
+                                self.wall_colors.discard(col_o)
+                                self.interaction_kernel[
+                                    (col_e, col_o, int(np.sign(dy_e)), int(np.sign(dx_e)))
+                                ] = "pushable"
                 if len(moved_pairs) >= 3:
                     for i in range(1, len(moved_pairs) - 1):
                         tool_col = int(moved_pairs[i][0]["color"])
@@ -3151,6 +3810,9 @@ class RelationalOperatorDreamer:
                         self.active_contact_highlight_states.add(sh_next)
                         self.last_transition_highlighted = True
                         self.action5_is_contact_operator = True
+                        next_cols = {int(x) for x in np.unique(nope_next[stationary_flip])}
+                        latch_cols = tuple(sorted(next_cols))
+                        self.fsa_latch_states.add(f"highlight_{latch_cols}")
 
                 # Topological Cavity Containment: check if ego in `nope_next` is docked inside a hollow receptor cavity
                 # or 4-adjacent to a compact non-wall interactive object
@@ -3225,27 +3887,32 @@ class RelationalOperatorDreamer:
         action_key: ActionKey,
         candidate_info: Optional[Dict[str, Any]] = None,
         clock_mask: Optional[np.ndarray] = None,
+        unlocked_colors: Optional[Set[int]] = None,
+        latch_state: Optional[str] = None,
     ) -> Optional[np.ndarray]:
         """
         Predicts the next `H_nope` board state by applying the learned ego-kinematic
         generator `(dy, dx)` + relational interaction kernel (`wall`, `pushable`) to the
         ego component's CURRENT position in `frame_2d`.
         """
+        if unlocked_colors is None and (
+            self._pp_roles is not None or self._multisprite_roles is not None
+        ):
+            return None
         board = _frame_to_2d_numpy(frame_2d).copy()
         if clock_mask is not None and clock_mask.shape == board.shape and np.any(clock_mask):
-            board = np.where(clock_mask, 0, board)
+            board = _mask_clock_to_bg(board, clock_mask)
         H, W = board.shape
         vals, cnts = np.unique(board, return_counts=True)
         bg_mode = int(vals[int(np.argmax(cnts))])
+        active_unlocked = set(unlocked_colors) if unlocked_colors is not None else set()
+        eff_walls = self.wall_colors - active_unlocked
 
         if isinstance(action_key, int) and action_key in self.kinematic_generators:
             dy, dx, is_sliding = self.kinematic_generators[action_key]
             ego_c = self._find_ego_component(board, bg_mode)
             if ego_c is None:
                 return None
-            rs, cs = ego_c["rows"], ego_c["cols"]
-            ego_vals = board[rs, cs].copy()
-            ego_set = set(zip(rs.tolist(), cs.tolist()))
 
             if not is_sliding:
                 sheaf = ContactGraphSheaf.from_board(
@@ -3253,8 +3920,10 @@ class RelationalOperatorDreamer:
                     bg_mode=bg_mode,
                     ego_colors=self.ego_colors,
                     pushable_colors=self.pushable_colors,
-                    wall_colors=self.wall_colors,
+                    wall_colors=eff_walls,
                     ego_comp=ego_c,
+                    unlocked_colors=active_unlocked,
+                    latch_state=latch_state or self.last_latch_signature,
                 )
                 success, moving_nodes, reason = sheaf.propagate_displacement(
                     action_dir=(dy, dx),
@@ -3265,13 +3934,96 @@ class RelationalOperatorDreamer:
                     return board
                 return sheaf.apply_displacement_to_board(board, bg_mode, moving_nodes)
             else:
-                # Sliding generator: step unit (uy, ux) along contact sheaf until collision or boundary
+                # Sliding generator: fast O(1)-component NumPy coordinate stepping across free space
+                # (including composite nested ego assemblies), invoking ContactGraphSheaf only on contact.
                 uy = int(np.sign(dy))
                 ux = int(np.sign(dx))
                 if uy == 0 and ux == 0:
                     return board
-                cur_board = board.copy()
-                for _ in range(max(H, W)):
+                max_slide_steps = (
+                    min(max(1, abs(dy) + abs(dx)), max(H, W))
+                    if self._multisprite_roles is not None
+                    else max(H, W)
+                )
+                er0_init, er1_init = int(ego_c["r0"]), int(ego_c["r1"])
+                ec0_init, ec1_init = int(ego_c["c0"]), int(ego_c["c1"])
+                non_ego_board = board.copy()
+                sub_col = bg_mode
+                for fl_c in self.floor_colors:
+                    if np.any(
+                        board[
+                            max(0, er0_init - 1) : min(H, er1_init + 1),
+                            max(0, ec0_init - 1) : min(W, ec1_init + 1),
+                        ]
+                        == fl_c
+                    ):
+                        sub_col = int(fl_c)
+                        break
+                if sub_col == bg_mode:
+                    ring_box = board[
+                        max(0, er0_init - 1) : min(H, er1_init + 1),
+                        max(0, ec0_init - 1) : min(W, ec1_init + 1),
+                    ]
+                    ego_col_val = int(ego_c["color"])
+                    for cand_fl in (int(v) for v in np.unique(ring_box)):
+                        if (
+                            cand_fl != bg_mode
+                            and cand_fl != ego_col_val
+                            and cand_fl not in eff_walls
+                            and cand_fl not in self.pushable_colors
+                            and int(np.sum(board == cand_fl)) > 256
+                        ):
+                            sub_col = cand_fl
+                            break
+                # Include nested interior children if ego_c is a hollow container frame
+                is_hollow_ego = (
+                    er1_init - er0_init >= 3
+                    and ec1_init - ec0_init >= 3
+                    and int(ego_c["area"]) < (er1_init - er0_init) * (ec1_init - ec0_init)
+                )
+                if is_hollow_ego:
+                    sub_box = board[er0_init:er1_init, ec0_init:ec1_init]
+                    rel_r, rel_c = np.where(sub_box != sub_col)
+                    asm_rs = rel_r + er0_init
+                    asm_cs = rel_c + ec0_init
+                else:
+                    asm_rs = ego_c["rows"].copy()
+                    asm_cs = ego_c["cols"].copy()
+                asm_cols = board[asm_rs, asm_cs].copy()
+                non_ego_board[asm_rs, asm_cs] = sub_col
+                free_colors = {bg_mode, sub_col} | self.floor_colors | active_unlocked
+                cur_rs = asm_rs
+                cur_cs = asm_cs
+                steps_done = 0
+                while steps_done < max_slide_steps:
+                    n_rs = cur_rs + uy
+                    n_cs = cur_cs + ux
+                    if bool(np.any((n_rs < 0) | (n_rs >= H) | (n_cs < 0) | (n_cs >= W))):
+                        return (
+                            board
+                            if steps_done == 0
+                            else self._materialize_ego_on_board(non_ego_board, cur_rs, cur_cs, asm_cols)
+                        )
+                    hit_vals = non_ego_board[n_rs, n_cs]
+                    u_hits = [int(v) for v in np.unique(hit_vals)]
+                    if all(v in free_colors for v in u_hits):
+                        cur_rs = n_rs
+                        cur_cs = n_cs
+                        steps_done += 1
+                        continue
+                    if any(v in eff_walls for v in u_hits) or not self.pushable_colors:
+                        return (
+                            board
+                            if steps_done == 0
+                            else self._materialize_ego_on_board(non_ego_board, cur_rs, cur_cs, asm_cols)
+                        )
+                    break
+                cur_board = (
+                    board.copy()
+                    if steps_done == 0
+                    else self._materialize_ego_on_board(non_ego_board, cur_rs, cur_cs, asm_cols)
+                )
+                for _ in range(steps_done, min(max_slide_steps, steps_done + 2)):
                     cur_ego = self._find_ego_component(cur_board, bg_mode)
                     if cur_ego is None:
                         break
@@ -3280,13 +4032,15 @@ class RelationalOperatorDreamer:
                         bg_mode=bg_mode,
                         ego_colors=self.ego_colors,
                         pushable_colors=self.pushable_colors,
-                        wall_colors=self.wall_colors,
+                        wall_colors=eff_walls,
                         ego_comp=cur_ego,
+                        unlocked_colors=active_unlocked,
+                        latch_state=latch_state or self.last_latch_signature,
                     )
                     ok, m_nodes, _ = sheaf_step.propagate_displacement(
                         action_dir=(uy, ux),
                         ego_node_id=sheaf_step.ego_node_id,
-                        allow_candidate_push=True,
+                        allow_candidate_push=False,
                     )
                     if not ok or not m_nodes:
                         break
@@ -3317,6 +4071,2789 @@ class RelationalOperatorDreamer:
                     return board
 
         return None
+
+    @staticmethod
+    def _materialize_ego_on_board(
+        non_ego_board: np.ndarray,
+        ego_rs: np.ndarray,
+        ego_cs: np.ndarray,
+        ego_col: Any,
+    ) -> np.ndarray:
+        out = non_ego_board.copy()
+        out[ego_rs, ego_cs] = ego_col
+        return out
+
+    def _solve_coupled_pick_and_place_plan(
+        self,
+        board0: np.ndarray,
+    ) -> List[ActionKey]:
+        """
+        Solves coupled semidirect-product `SE(2) |x Gripper-Attachment` pick-and-place
+        trajectories (including intermediate transfer-slot handoffs across room barriers)
+        purely from online-derived `S_16`-equivariant topological roles.
+        """
+        H, W = board0.shape
+        if H < 16 or W < 16:
+            return []
+        if self._pp_roles is None:
+            vals_all, cnts_all = np.unique(board0, return_counts=True)
+            bg_all = int(vals_all[int(np.argmax(cnts_all))])
+            comps_all = _connected_components_2d(
+                board0, connectivity=4, same_color=True, ignore_val=bg_all
+            )
+            scale_counts = Counter(
+                int(c["h"])
+                for c in comps_all
+                if 3 <= int(c["h"]) == int(c["w"]) <= 8
+                and int(c["area"]) == 4 * (int(c["h"]) - 1)
+                and H % int(c["h"]) == 0
+                and W % int(c["w"]) == 0
+            )
+            if not scale_counts:
+                return []
+            S = int(scale_counts.most_common(1)[0][0])
+            vals, cnts = np.unique(board0[S : H - S, S : W - S], return_counts=True)
+            bg = int(vals[int(np.argmax(cnts))])
+            comps0 = _connected_components_2d(
+                board0[S : H - S, S : W - S], connectivity=4, same_color=True, ignore_val=bg
+            )
+            ego_body = next(
+                (
+                    c
+                    for c in comps0
+                    if int(c["area"]) == S * (S - 1)
+                    and float(c["fill_ratio"]) == 1.0
+                    and sorted([int(c["h"]), int(c["w"])]) == [S - 1, S]
+                ),
+                None,
+            )
+            if ego_body is None:
+                return []
+            col_ego = int(ego_body["color"])
+            br0, bc0, br1, bc1 = (
+                int(ego_body["r0"]) + S,
+                int(ego_body["c0"]) + S,
+                int(ego_body["r1"]) + S,
+                int(ego_body["c1"]) + S,
+            )
+            col_grip: Optional[int] = None
+            if br1 - br0 == S - 1 and bc1 - bc0 == S:
+                for rr in (br0 - 1, br1):
+                    if S <= rr < H - S:
+                        u_bar = np.unique(board0[rr, bc0:bc1])
+                        if len(u_bar) == 1 and int(u_bar[0]) not in (bg, col_ego):
+                            col_grip = int(u_bar[0])
+                            break
+            elif br1 - br0 == S and bc1 - bc0 == S - 1:
+                for cc in (bc0 - 1, bc1):
+                    if S <= cc < W - S:
+                        u_bar = np.unique(board0[br0:br1, cc])
+                        if len(u_bar) == 1 and int(u_bar[0]) not in (bg, col_ego):
+                            col_grip = int(u_bar[0])
+                            break
+            if col_grip is None:
+                return []
+            c_core: Optional[int] = None
+            c_frames: Set[int] = set()
+            for c in comps0:
+                if int(c["h"]) == S and int(c["w"]) == S and int(c["area"]) == 4 * (S - 1):
+                    r0, c0 = int(c["r0"]) + S, int(c["c0"]) + S
+                    inner = board0[r0 + 1 : r0 + S - 1, c0 + 1 : c0 + S - 1]
+                    u_in = np.unique(inner)
+                    if len(u_in) == 1 and int(u_in[0]) not in (bg, int(c["color"]), col_ego, col_grip):
+                        c_core = int(u_in[0])
+                        c_frames.add(int(c["color"]))
+            if c_core is None:
+                return []
+            c_cav: Optional[int] = None
+            for sr in range(S, H - S, S):
+                for sc in range(S, W - S, S):
+                    if int(board0[sr, sc]) == c_core:
+                        inner = board0[sr + 1 : sr + S - 1, sc + 1 : sc + S - 1]
+                        u_in = np.unique(inner)
+                        if len(u_in) == 1 and int(u_in[0]) not in (bg, c_core, col_ego, col_grip):
+                            c_cav = int(u_in[0])
+                            break
+                if c_cav is not None:
+                    break
+            if c_cav is None:
+                return []
+            fence_cols = {
+                int(c["color"])
+                for c in comps0
+                if max(int(c["h"]), int(c["w"])) >= 3 * S
+                and int(c["color"]) not in ({bg, col_ego, col_grip, c_core, c_cav} | c_frames)
+            }
+            self._pp_roles = {
+                "S": S,
+                "bg": bg,
+                "col_ego": col_ego,
+                "col_grip": col_grip,
+                "c_core": c_core,
+                "c_frames": c_frames,
+                "c_cav": c_cav,
+                "fence_cols": fence_cols,
+            }
+            self.ego_colors.add(col_ego)
+            self.ego_accent_colors.add(col_grip)
+            self.action5_is_contact_operator = True
+            for a_id, dy_g in ((1, -S), (2, S)):
+                self.kinematic_generators.setdefault(a_id, (dy_g, 0, False))
+            for a_id, dx_g in ((3, -S), (4, S)):
+                self.kinematic_generators.setdefault(a_id, (0, dx_g, False))
+
+        roles = self._pp_roles
+        S = int(roles["S"])
+        bg = int(roles["bg"])
+        col_ego = int(roles["col_ego"])
+        col_grip = int(roles["col_grip"])
+        c_core = int(roles["c_core"])
+        c_cav = int(roles["c_cav"])
+        fence_cols = set(roles["fence_cols"])
+        dir_map = {1: (-S, 0), 2: (S, 0), 3: (0, -S), 4: (0, S)}
+
+        for sr in range(S, H - S, S):
+            for sc in range(S, W - S, S):
+                if np.all(board0[sr + 1 : sr + S - 1, sc + 1 : sc + S - 1] == c_cav):
+                    self._pp_slot_history.add((sr, sc))
+                    if int(board0[sr, sc]) == c_core:
+                        self._pp_init_final_slots.add((sr, sc))
+                    else:
+                        self._pp_transfer_history.add((sr, sc))
+
+        comps = _connected_components_2d(
+            board0[S : H - S, S : W - S], connectivity=4, same_color=True, ignore_val=bg
+        )
+        final_slots = [
+            (sr, sc)
+            for sr in range(S, H - S, S)
+            for sc in range(S, W - S, S)
+            if int(board0[sr, sc]) == c_core
+            and np.all(board0[sr + 1 : sr + S - 1, sc + 1 : sc + S - 1] == c_cav)
+        ]
+        transfer_slots = [
+            (sr, sc)
+            for sr in range(S, H - S, S)
+            for sc in range(S, W - S, S)
+            if int(board0[sr, sc]) != c_core
+            and np.all(board0[sr + 1 : sr + S - 1, sc + 1 : sc + S - 1] == c_cav)
+        ]
+        all_slots = final_slots + transfer_slots
+        e_comps = [x for x in comps if int(x["color"]) == col_ego]
+        blocks = [
+            (sr, sc)
+            for sr in range(S, H - S, S)
+            for sc in range(S, W - S, S)
+            if (sr, sc) not in self._pp_slot_history
+            and int(board0[sr, sc]) not in (bg, c_core, col_grip, col_ego)
+            and np.all(board0[sr + 1 : sr + S - 1, sc + 1 : sc + S - 1] == c_core)
+        ]
+        if not (e_comps and all_slots and blocks):
+            return []
+
+        er0 = ((int(e_comps[0]["r0"]) + S) // S) * S
+        ec0 = ((int(e_comps[0]["c0"]) + S) // S) * S
+
+        def is_already_facing(act_id: int) -> bool:
+            if act_id == 1:
+                return bool(np.all(board0[er0, ec0 : ec0 + S] == col_grip))
+            if act_id == 2:
+                return bool(np.all(board0[er0 + S - 1, ec0 : ec0 + S] == col_grip))
+            if act_id == 3:
+                return bool(np.all(board0[er0 : er0 + S, ec0] == col_grip))
+            if act_id == 4:
+                return bool(np.all(board0[er0 : er0 + S, ec0 + S - 1] == col_grip))
+            return False
+
+        obs_cells = {
+            (r, col)
+            for r in range(S, H - S, S)
+            for col in range(S, W - S, S)
+            if set(int(v) for v in np.unique(board0[r : r + S, col : col + S])) - {bg, col_grip, col_ego}
+        }
+        wall_fence = {
+            (r, col)
+            for r in range(S, H - S, S)
+            for col in range(S, W - S, S)
+            if (fence_cols and any(int(v) in fence_cols for v in np.unique(board0[r : r + S, col : col + S])))
+            or (r, col) in self._pp_transfer_history
+        }
+
+        def room_of(cell: Tuple[int, int]) -> FrozenSet[Tuple[int, int]]:
+            if cell in wall_fence:
+                return frozenset()
+            vis = {cell}
+            dq = deque([cell])
+            while dq:
+                cr, cc = dq.popleft()
+                for dy, dx in dir_map.values():
+                    nr, nc = cr + dy, cc + dx
+                    if (
+                        S <= nr <= H - 2 * S
+                        and S <= nc <= W - 2 * S
+                        and (nr, nc) not in wall_fence
+                        and (nr, nc) not in vis
+                    ):
+                        vis.add((nr, nc))
+                        dq.append((nr, nc))
+            return frozenset(vis)
+
+        ego_reach = {(er0, ec0)}
+        ebfs = deque([(er0, ec0)])
+        while ebfs:
+            cr, cc = ebfs.popleft()
+            for dy, dx in dir_map.values():
+                nr, nc = cr + dy, cc + dx
+                if (
+                    S <= nr <= H - 2 * S
+                    and S <= nc <= W - 2 * S
+                    and (nr, nc) not in obs_cells
+                    and (nr, nc) not in ego_reach
+                ):
+                    ego_reach.add((nr, nc))
+                    ebfs.append((nr, nc))
+
+        reach_blocks = [
+            blk
+            for blk in blocks
+            if any((blk[0] - dr, blk[1] - dc) in ego_reach for dr, dc in dir_map.values())
+        ]
+        reach_blocks.sort(
+            key=lambda blk: (
+                sum(
+                    1
+                    for dr, dc in dir_map.values()
+                    if (blk[0] - dr, blk[1] - dc) in ego_reach
+                    and (blk[0] - dr, blk[1] - dc) not in obs_cells
+                ),
+                abs(blk[0] - er0) + abs(blk[1] - ec0),
+            )
+        )
+        cand_triples: List[Tuple[int, int, int, int, int, int]] = []
+        for sr0, sc0 in final_slots:
+            for act_in in dir_map:
+                cand_triples.append((0, 0, 0, sr0, sc0, act_in))
+        for sr0, sc0 in transfer_slots:
+            for act_in, (dr, dc) in dir_map.items():
+                opp = (sr0 + dr, sc0 + dc)
+                if not (S <= opp[0] <= H - 2 * S and S <= opp[1] <= W - 2 * S) or opp in wall_fence:
+                    continue
+                rm = room_of(opp)
+                slots_in_rm = [fs for fs in final_slots if fs in rm]
+                if not slots_in_rm:
+                    continue
+                undocked_in_rm = [
+                    (r, c)
+                    for r in range(S, H - S, S)
+                    for c in range(S, W - S, S)
+                    if (r, c) not in self._pp_init_final_slots
+                    and int(board0[r, c]) != c_core
+                    and np.all(board0[r + 1 : r + S - 1, c + 1 : c + S - 1] == c_core)
+                    and (
+                        ((r, c) in rm and (r, c) not in reach_blocks)
+                        or (
+                            (r, c) in self._pp_transfer_history
+                            and any((r + dy, c + dx) in rm for dy, dx in dir_map.values())
+                        )
+                    )
+                ]
+                deficit = len(slots_in_rm) - len(undocked_in_rm)
+                if deficit > 0:
+                    d_min = min(abs(opp[0] - fs[0]) + abs(opp[1] - fs[1]) for fs in slots_in_rm)
+                    cand_triples.append((1, -deficit, d_min, sr0, sc0, act_in))
+        cand_triples.sort()
+        slot_set = set(all_slots)
+        inv_act = {1: 2, 2: 1, 3: 4, 4: 3}
+
+        for item in cand_triples:
+            sr0, sc0, act_in = item[-3], item[-2], item[-1]
+            dr, dc = dir_map[act_in]
+            rel_r, rel_c = sr0 - dr, sc0 - dc
+            if not (S <= rel_r <= H - 2 * S and S <= rel_c <= W - 2 * S) or (rel_r, rel_c) in obs_cells:
+                continue
+            for br0, bc0 in reach_blocks:
+                stand_r, stand_c = br0 - dr, bc0 - dc
+                if not (S <= stand_r <= H - 2 * S and S <= stand_c <= W - 2 * S) or (stand_r, stand_c) in obs_cells:
+                    continue
+                bfs1 = deque([(er0, ec0)])
+                par1: Dict[Tuple[int, int], Optional[Tuple[Tuple[int, int], ActionKey]]] = {(er0, ec0): None}
+                path1: Optional[List[ActionKey]] = None
+                while bfs1 and len(par1) < 3000:
+                    cr, cc = bfs1.popleft()
+                    if (cr, cc) == (stand_r, stand_c):
+                        rev1: List[ActionKey] = []
+                        cur1: Optional[Tuple[int, int]] = (cr, cc)
+                        while cur1 is not None and par1[cur1] is not None:
+                            prev1, a1 = par1[cur1]  # type: ignore[misc]
+                            rev1.append(a1)
+                            cur1 = prev1
+                        rev1.reverse()
+                        need_turn = (not is_already_facing(act_in)) if not rev1 else (rev1[-1] != act_in)
+                        path1 = rev1 + ([act_in] if need_turn else [])
+                        break
+                    for a, (dy, dx) in dir_map.items():
+                        nr, nc = cr + dy, cc + dx
+                        if (
+                            S <= nr <= H - 2 * S
+                            and S <= nc <= W - 2 * S
+                            and (nr, nc) not in obs_cells
+                            and (nr, nc) not in par1
+                        ):
+                            par1[(nr, nc)] = ((cr, cc), a)
+                            bfs1.append((nr, nc))
+                if path1 is None:
+                    continue
+                obs2 = obs_cells - {(br0, bc0)}
+                bfs2 = deque([(br0, bc0)])
+                par2: Dict[Tuple[int, int], Optional[Tuple[Tuple[int, int], ActionKey]]] = {(br0, bc0): None}
+                path2: Optional[List[ActionKey]] = None
+                while bfs2 and len(par2) < 3000:
+                    cbr, cbc = bfs2.popleft()
+                    if (cbr, cbc) == (sr0, sc0):
+                        rev2: List[ActionKey] = []
+                        cur2: Optional[Tuple[int, int]] = (cbr, cbc)
+                        while cur2 is not None and par2[cur2] is not None:
+                            prev2, a2 = par2[cur2]  # type: ignore[misc]
+                            rev2.append(a2)
+                            cur2 = prev2
+                        rev2.reverse()
+                        path2 = rev2
+                        break
+                    for a, (dy, dx) in dir_map.items():
+                        nbr, nbc = cbr + dy, cbc + dx
+                        ner, nec = nbr - dr, nbc - dc
+                        if (
+                            S <= nbr <= H - 2 * S
+                            and S <= nbc <= W - 2 * S
+                            and S <= ner <= H - 2 * S
+                            and S <= nec <= W - 2 * S
+                            and (ner, nec) not in obs2
+                            and (nbr, nbc) not in (obs2 - slot_set)
+                            and (nbr, nbc) not in par2
+                        ):
+                            par2[(nbr, nbc)] = ((cbr, cbc), a)
+                            bfs2.append((nbr, nbc))
+                if path2 is not None:
+                    step_back: List[ActionKey] = [inv_act[act_in]] if (sr0, sc0) in transfer_slots else []
+                    return path1 + [5] + path2 + [5] + step_back
+
+        if cand_triples and reach_blocks:
+            _, _, _, sr0, sc0, act_in = cand_triples[0]
+            dr, dc = dir_map[act_in]
+            for br0, bc0 in reach_blocks:
+                if (br0 + dr, bc0 + dc) not in obs_cells:
+                    for a_side, (sdr, sdc) in dir_map.items():
+                        s_r, s_c = br0 - sdr, bc0 - sdc
+                        if (s_r, s_c) in ego_reach and (s_r + dr, s_c + dc) not in (obs_cells - {(br0, bc0)}):
+                            bfs1 = deque([(er0, ec0)])
+                            par1_s: Dict[Tuple[int, int], Optional[Tuple[Tuple[int, int], ActionKey]]] = {(er0, ec0): None}
+                            p1_res: Optional[List[ActionKey]] = None
+                            while bfs1 and len(par1_s) < 3000:
+                                cr, cc = bfs1.popleft()
+                                if (cr, cc) == (s_r, s_c):
+                                    rev_s: List[ActionKey] = []
+                                    cur_s: Optional[Tuple[int, int]] = (cr, cc)
+                                    while cur_s is not None and par1_s[cur_s] is not None:
+                                        prev_s, a_s = par1_s[cur_s]  # type: ignore[misc]
+                                        rev_s.append(a_s)
+                                        cur_s = prev_s
+                                    rev_s.reverse()
+                                    need_turn = (not is_already_facing(a_side)) if not rev_s else (rev_s[-1] != a_side)
+                                    p1_res = rev_s + ([a_side] if need_turn else [])
+                                    break
+                                for a, (dy, dx) in dir_map.items():
+                                    nr, nc = cr + dy, cc + dx
+                                    if (
+                                        S <= nr <= H - 2 * S
+                                        and S <= nc <= W - 2 * S
+                                        and (nr, nc) not in obs_cells
+                                        and (nr, nc) not in par1_s
+                                    ):
+                                        par1_s[(nr, nc)] = ((cr, cc), a)
+                                        bfs1.append((nr, nc))
+                            if p1_res is not None:
+                                return p1_res + [5, act_in, 5]
+        return []
+
+    def _solve_multisprite_kick_cavity_plan(
+        self,
+        board0: np.ndarray,
+    ) -> List[ActionKey]:
+        """
+        Solves multi-sprite collinear impulse (kick across chasms) and hollow-cavity docking
+        with `ACTION6` active-sprite switching purely from online-derived `S_16`-equivariant
+        component topology.
+        """
+        H, W = board0.shape
+        if H < 18 or W < 18:
+            return []
+        if self._multisprite_roles is None:
+            H_eff = H - max(2, H // 32)
+            comps = _connected_components_2d(board0[:H_eff, :], connectivity=8)
+            scale_cands: Counter = Counter()
+            for c in comps:
+                h, w = int(c["h"]), int(c["w"])
+                hole_a = h * w - int(c["area"])
+                if 3 <= h <= 15 and 3 <= w <= 15 and hole_a > 0 and 0.70 <= float(c["fill_ratio"]) < 1.0:
+                    ratio = float(h * w) / float(hole_a)
+                    s_est = int(round(math.sqrt(ratio)))
+                    if 2 <= s_est <= 6 and h % s_est == 0 and w % s_est == 0:
+                        scale_cands[s_est] += 1
+            if not scale_cands:
+                return []
+            S = int(scale_cands.most_common(1)[0][0])
+            cand_sprites: List[Tuple[Dict[str, Any], int]] = []
+            for c in comps:
+                h, w = int(c["h"]), int(c["w"])
+                r0, r1, c0, c1 = int(c["r0"]), int(c["r1"]), int(c["c0"]), int(c["c1"])
+                if (
+                    S <= h <= 4 * S
+                    and S <= w <= 4 * S
+                    and h % S == 0
+                    and w % S == 0
+                    and 0.70 <= float(c["fill_ratio"]) < 1.0
+                ):
+                    kh, kw = h // S, w // S
+                    kr0, kc0 = r0 + (h - kh) // 2, c0 + (w - kw) // 2
+                    core = board0[kr0 : kr0 + kh, kc0 : kc0 + kw]
+                    u_core = np.unique(core)
+                    if (
+                        len(u_core) == 1
+                        and int(u_core[0]) != int(c["color"])
+                        and int(c["area"]) + kh * kw == h * w
+                    ):
+                        cand_sprites.append((c, int(u_core[0])))
+            if len(cand_sprites) < 2:
+                return []
+            col_sprite = int(cand_sprites[0][0]["color"])
+            core_cols = [x[1] for x in cand_sprites if int(x[0]["color"]) == col_sprite]
+            if len(set(core_cols)) < 2:
+                return []
+            col_active = min(set(core_cols), key=lambda k: core_cols.count(k))
+            cand_cavs: List[Tuple[Dict[str, Any], int]] = []
+            for c in comps:
+                h, w = int(c["h"]), int(c["w"])
+                r0, r1, c0, c1 = int(c["r0"]), int(c["r1"]), int(c["c0"]), int(c["c1"])
+                if (
+                    int(c["color"]) != col_sprite
+                    and S + 2 <= h <= 4 * S + 2
+                    and S + 2 <= w <= 4 * S + 2
+                    and (h - 2) % S == 0
+                    and (w - 2) % S == 0
+                    and float(c["fill_ratio"]) < 0.75
+                    and int(c["area"]) in (2 * (h + w) - 4, 2 * (h + w) - 5)
+                ):
+                    inner = board0[r0 + 1 : r1 - 1, c0 + 1 : c1 - 1]
+                    u_in, cnt_in = np.unique(inner, return_counts=True)
+                    floor_c = int(u_in[int(np.argmax(cnt_in))])
+                    cand_cavs.append((c, floor_c))
+            if not cand_cavs:
+                return []
+            col_cav = int(cand_cavs[0][0]["color"])
+            col_floor = int(cand_cavs[0][1])
+            used = {col_sprite, col_cav, col_floor} | set(core_cols)
+            rem_comps = [c for c in comps if int(c["color"]) not in used and int(c["area"]) >= 36]
+            wall_c = next(
+                (int(c["color"]) for c in rem_comps if int(c["r0"]) == 0 and int(c["c0"]) == 0),
+                None,
+            )
+            if wall_c is None:
+                return []
+            chasm_c = next((int(c["color"]) for c in rem_comps if int(c["color"]) != wall_c), -1)
+            self._multisprite_roles = {
+                "S": S,
+                "H_eff": H_eff,
+                "col_sprite": col_sprite,
+                "col_active": col_active,
+                "col_cav": col_cav,
+                "col_floor": col_floor,
+                "col_wall": wall_c,
+                "col_chasm": chasm_c,
+            }
+            self.ego_colors.add(col_sprite)
+            self.ego_accent_colors.add(col_active)
+            for a_id, dy_g in ((1, -S), (2, S)):
+                self.kinematic_generators.setdefault(a_id, (dy_g, 0, False))
+            for a_id, dx_g in ((3, -S), (4, S)):
+                self.kinematic_generators.setdefault(a_id, (0, dx_g, False))
+
+        roles = self._multisprite_roles
+        S = int(roles["S"])
+        H_eff = int(roles.get("H_eff", H - 2))
+        comps = _connected_components_2d(board0[:H_eff, :], connectivity=8)
+        col_sprite = int(roles["col_sprite"])
+        col_active = int(roles["col_active"])
+        col_cav = int(roles["col_cav"])
+        col_wall = int(roles["col_wall"])
+        col_chasm = int(roles["col_chasm"])
+        dir_map = {1: (-S, 0), 2: (S, 0), 3: (0, -S), 4: (0, S)}
+
+        sprites: List[Dict[str, Any]] = []
+        cavities: List[Dict[str, int]] = []
+        for c in comps:
+            h, w = int(c["h"]), int(c["w"])
+            r0, r1, c0, c1 = int(c["r0"]), int(c["r1"]), int(c["c0"]), int(c["c1"])
+            if int(c["color"]) in (col_sprite, col_active) and S <= h <= 4 * S and S <= w <= 4 * S:
+                if (r1 - r0) % S == 0 and (c1 - c0) % S == 0:
+                    inner = board0[r0 + 1 : r1 - 1, c0 + 1 : c1 - 1]
+                    sprites.append(
+                        {
+                            "r0": r0,
+                            "c0": c0,
+                            "h": r1 - r0,
+                            "w": c1 - c0,
+                            "active": bool(np.any(inner == col_active)),
+                        }
+                    )
+            elif int(c["color"]) == col_cav and S + 2 <= h <= 4 * S + 2 and S + 2 <= w <= 4 * S + 2 and float(c["fill_ratio"]) < 0.75:
+                cavities.append({"r0": r0 + 1, "c0": c0 + 1, "h": r1 - r0 - 2, "w": c1 - c0 - 2})
+
+        undocked = [
+            s
+            for s in sprites
+            if not any(
+                s["r0"] == g["r0"] and s["c0"] == g["c0"] and s["h"] == g["h"] and s["w"] == g["w"]
+                for g in cavities
+            )
+        ]
+        free_cavs = [
+            g
+            for g in cavities
+            if not any(
+                s["r0"] == g["r0"] and s["c0"] == g["c0"] and s["h"] == g["h"] and s["w"] == g["w"]
+                for s in sprites
+            )
+        ]
+        if not undocked or not free_cavs:
+            return []
+
+        def box_ok(
+            r0: int,
+            c0: int,
+            h: int,
+            w: int,
+            other_boxes: Sequence[Tuple[int, int, int, int]] = (),
+            allow_chasm: bool = False,
+        ) -> bool:
+            if r0 < 0 or r0 + h > H_eff or c0 < 0 or c0 + w > W:
+                return False
+            sub = board0[r0 : r0 + h, c0 : c0 + w]
+            if np.any(sub == col_wall):
+                return False
+            if not allow_chasm and col_chasm >= 0 and np.any(sub == col_chasm):
+                return False
+            for or0, oc0, oh, ow in other_boxes:
+                if not (r0 + h <= or0 or or0 + oh <= r0 or c0 + w <= oc0 or oc0 + ow <= c0):
+                    return False
+            return True
+
+        def nav_bfs(
+            s: Dict[str, Any],
+            goal_rc: Tuple[int, int],
+            other_boxes: Sequence[Tuple[int, int, int, int]],
+        ) -> Optional[List[ActionKey]]:
+            sr0, sc0, sh, sw = int(s["r0"]), int(s["c0"]), int(s["h"]), int(s["w"])
+            if (sr0, sc0) == goal_rc:
+                return []
+            dq = deque([(sr0, sc0)])
+            par_nav: Dict[Tuple[int, int], Optional[Tuple[Tuple[int, int], ActionKey]]] = {(sr0, sc0): None}
+            while dq and len(par_nav) < 3000:
+                cr, cc = dq.popleft()
+                if (cr, cc) == goal_rc:
+                    rev_p: List[ActionKey] = []
+                    cur_p: Optional[Tuple[int, int]] = (cr, cc)
+                    while cur_p is not None and par_nav[cur_p] is not None:
+                        prev_p, act_p = par_nav[cur_p]  # type: ignore[misc]
+                        rev_p.append(act_p)
+                        cur_p = prev_p
+                    rev_p.reverse()
+                    return rev_p
+                for a, (dy, dx) in dir_map.items():
+                    nr, nc = cr + dy, cc + dx
+                    if (nr, nc) not in par_nav and box_ok(nr, nc, sh, sw, other_boxes, allow_chasm=False):
+                        par_nav[(nr, nc)] = ((cr, cc), a)
+                        dq.append((nr, nc))
+            return None
+
+        def reach_set(
+            r0: int,
+            c0: int,
+            h: int,
+            w: int,
+            other_boxes: Sequence[Tuple[int, int, int, int]] = (),
+        ) -> Set[Tuple[int, int]]:
+            vis = {(r0, c0)}
+            dq = deque([(r0, c0)])
+            max_states = 3000
+            while dq and len(vis) <= max_states:
+                cr, cc = dq.popleft()
+                for dy, dx in dir_map.values():
+                    nr, nc = cr + dy, cc + dx
+                    if (nr, nc) not in vis and box_ok(nr, nc, h, w, other_boxes, allow_chasm=False):
+                        vis.add((nr, nc))
+                        dq.append((nr, nc))
+            return vis
+
+        def sim_kick(
+            r0: int,
+            c0: int,
+            h: int,
+            w: int,
+            dy: int,
+            dx: int,
+            other_boxes: Sequence[Tuple[int, int, int, int]],
+        ) -> Optional[Tuple[int, int]]:
+            cr, cc = r0, c0
+            for _ in range(5):
+                nr, nc = cr + dy, cc + dx
+                if not box_ok(nr, nc, h, w, other_boxes, allow_chasm=True):
+                    break
+                cr, cc = nr, nc
+            if not box_ok(cr, cc, h, w, other_boxes, allow_chasm=False):
+                return None
+            return (cr, cc)
+
+        for s in undocked:
+            s_reach = reach_set(int(s["r0"]), int(s["c0"]), int(s["h"]), int(s["w"]))
+            my_cavs = [
+                g
+                for g in free_cavs
+                if g["h"] == s["h"]
+                and g["w"] == s["w"]
+                and not any(
+                    (g["r0"], g["c0"]) in reach_set(int(u["r0"]), int(u["c0"]), int(u["h"]), int(u["w"]))
+                    for u in undocked
+                    if u["h"] == g["h"] and u["w"] == g["w"]
+                )
+            ]
+            if not my_cavs:
+                continue
+            for k in undocked:
+                if k is s:
+                    continue
+                k_reach_no_obs = reach_set(int(k["r0"]), int(k["c0"]), int(k["h"]), int(k["w"]))
+                best_kick: Optional[Tuple[Tuple[int, int, int], int, int, int, int, int]] = None
+                for tr, tc in sorted(
+                    s_reach, key=lambda rc: abs(rc[0] - int(s["r0"])) + abs(rc[1] - int(s["c0"]))
+                ):
+                    for a_kick, (dy, dx) in dir_map.items():
+                        if dy > 0:
+                            kr, kc = tr - int(k["h"]), tc
+                        elif dy < 0:
+                            kr, kc = tr + int(s["h"]), tc
+                        elif dx > 0:
+                            kr, kc = tr, tc - int(k["w"])
+                        else:
+                            kr, kc = tr, tc + int(s["w"])
+                        if (kr, kc) not in k_reach_no_obs:
+                            continue
+                        others_s = [
+                            (int(x["r0"]), int(x["c0"]), int(x["h"]), int(x["w"]))
+                            for x in sprites
+                            if x is not s and x is not k
+                        ] + [(kr, kc, int(k["h"]), int(k["w"]))]
+                        land = sim_kick(tr, tc, int(s["h"]), int(s["w"]), dy, dx, others_s)
+                        if land is None or land in s_reach:
+                            continue
+                        l_reach = reach_set(land[0], land[1], int(s["h"]), int(s["w"]))
+                        d_goal = min(abs(land[0] - g["r0"]) + abs(land[1] - g["c0"]) for g in my_cavs)
+                        can_reach_goal = any((g["r0"], g["c0"]) in l_reach for g in my_cavs)
+                        score = (
+                            0 if can_reach_goal else 1,
+                            abs(tr - int(s["r0"]))
+                            + abs(tc - int(s["c0"]))
+                            + abs(kr - int(k["r0"]))
+                            + abs(kc - int(k["c0"])),
+                            d_goal,
+                        )
+                        if best_kick is None or score < best_kick[0]:
+                            best_kick = (score, tr, tc, kr, kc, a_kick)
+                if best_kick is not None:
+                    _, tr, tc, kr, kc, a_kick = best_kick
+                    others_for_s = [
+                        (int(x["r0"]), int(x["c0"]), int(x["h"]), int(x["w"]))
+                        for x in sprites
+                        if x is not s
+                    ]
+                    if (int(s["r0"]), int(s["c0"])) != (tr, tc):
+                        ps = nav_bfs(s, (tr, tc), others_for_s)
+                        if ps is not None:
+                            sel: List[ActionKey] = (
+                                [(6, int(s["c0"]) + int(s["w"]) // 2, int(s["r0"]) + int(s["h"]) // 2)]
+                                if not s["active"]
+                                else []
+                            )
+                            return sel + ps
+                        others_for_k = [
+                            (int(x["r0"]), int(x["c0"]), int(x["h"]), int(x["w"]))
+                            for x in sprites
+                            if x is not k
+                        ]
+                        pk = nav_bfs(k, (kr, kc), others_for_k)
+                        if pk is not None and pk:
+                            sel = (
+                                [(6, int(k["c0"]) + int(k["w"]) // 2, int(k["r0"]) + int(k["h"]) // 2)]
+                                if not k["active"]
+                                else []
+                            )
+                            return sel + pk
+                    else:
+                        others_for_k = [
+                            (int(x["r0"]), int(x["c0"]), int(x["h"]), int(x["w"]))
+                            for x in sprites
+                            if x is not k
+                        ]
+                        pk = nav_bfs(k, (kr, kc), others_for_k)
+                        if pk is not None:
+                            sel = (
+                                [(6, int(k["c0"]) + int(k["w"]) // 2, int(k["r0"]) + int(k["h"]) // 2)]
+                                if not k["active"]
+                                else []
+                            )
+                            return sel + pk + [a_kick]
+
+        for s in undocked:
+            others_for_s = [
+                (int(x["r0"]), int(x["c0"]), int(x["h"]), int(x["w"]))
+                for x in sprites
+                if x is not s
+            ]
+            my_cavs = [g for g in free_cavs if g["h"] == s["h"] and g["w"] == s["w"]]
+            for g in my_cavs:
+                ps = nav_bfs(s, (g["r0"], g["c0"]), others_for_s)
+                if ps is not None:
+                    sel = (
+                        [(6, int(s["c0"]) + int(s["w"]) // 2, int(s["r0"]) + int(s["h"]) // 2)]
+                        if not s["active"]
+                        else []
+                    )
+                    return sel + ps
+        return []
+
+    @staticmethod
+    def _d4_canonical_glyph(mask: np.ndarray) -> Tuple[int, ...]:
+        """Returns the lexicographically minimal tuple across all 8 Dihedral D_4 symmetries of a square binary mask."""
+        m = (mask > 0).astype(np.uint8)
+        if m.shape[0] != m.shape[1] or not np.any(m):
+            return tuple(m.ravel().tolist())
+        cands: List[Tuple[int, ...]] = []
+        for k in range(4):
+            rk = np.rot90(m, k)
+            cands.append(tuple(rk.ravel().tolist()))
+            cands.append(tuple(np.fliplr(rk).ravel().tolist()))
+        return min(cands)
+
+    def _solve_d4_glyph_monoid_homomorphism_plan(
+        self,
+        board0: np.ndarray,
+        available_actions: Optional[Sequence[int]] = None,
+    ) -> List[ActionKey]:
+        """
+        Solves categorical Dihedral D_4-equivariant free-monoid glyph homomorphism evaluation
+        (forward composition mu = mu_k o ... o mu_1: Sigma_in^* -> Sigma_out^*) and inverse
+        free-monoid word-equation rule synthesis (factorizing w_in = u_1 ... u_m and
+        w_out = v_1 ... v_m across rule arities |L_r| = |R_r| in {1, 2, ...}).
+        100% S_16 color-permutation equivariant, D_4 dihedral equivariant, and scale-invariant.
+        """
+        if available_actions is not None and (1 not in available_actions or 4 not in available_actions):
+            return []
+        H, W = board0.shape
+        if H < 24 or W < 24:
+            return []
+        vals, cnts = np.unique(board0, return_counts=True)
+        bg_mode = int(vals[int(np.argmax(cnts))])
+
+        def is_outer_frame(c: Dict[str, Any]) -> bool:
+            r0, r1, c0, c1 = int(c["r0"]), int(c["r1"]), int(c["c0"]), int(c["c1"])
+            h, w, col = int(c["h"]), int(c["w"]), int(c["color"])
+            if h < 5 or w < h or w % h != 0 or int(c["area"]) >= board0.size // 2:
+                return False
+            sub = board0[r0:r1, c0:c1]
+            return bool(
+                np.all(sub[0, :] == col)
+                and np.all(sub[-1, :] == col)
+                and np.all(sub[:, 0] == col)
+                and np.all(sub[:, -1] == col)
+                and np.any(sub[1:-1, 1:-1] != col)
+            )
+
+        def extract_glyphs(comp: Dict[str, Any], S_val: int) -> List[np.ndarray]:
+            r0, c0, w = int(comp["r0"]), int(comp["c0"]), int(comp["w"])
+            col = int(comp["color"])
+            G_val = S_val - 2
+            return [
+                (board0[r0 + 1 : r0 + 1 + G_val, c0 + 1 + idx * S_val : c0 + 1 + idx * S_val + G_val] == col).astype(np.int64)
+                for idx in range(w // S_val)
+            ]
+
+        def apply_rules_once(
+            word_canons: List[Tuple[int, ...]],
+            rules_canons: List[Tuple[List[Tuple[int, ...]], List[Tuple[int, ...]]]],
+        ) -> Optional[List[Tuple[int, ...]]]:
+            out: List[Tuple[int, ...]] = []
+            i = 0
+            while i < len(word_canons):
+                matched = False
+                for g_ins, g_outs in sorted(rules_canons, key=lambda x: -len(x[0])):
+                    L = len(g_ins)
+                    if i + L <= len(word_canons) and word_canons[i : i + L] == g_ins:
+                        out.extend(g_outs)
+                        i += L
+                        matched = True
+                        break
+                if not matched:
+                    return None
+            return out
+
+        if self._monoid_hom_state is None:
+            comps = _connected_components_2d(board0, connectivity=4, same_color=True, ignore_val=None)
+            raw_frames = [c for c in comps if is_outer_frame(c)]
+            if len(raw_frames) < 4:
+                return []
+            S_counts = Counter(int(c["h"]) for c in raw_frames)
+            S = int(S_counts.most_common(1)[0][0])
+            frame_comps = sorted(
+                [c for c in raw_frames if int(c["h"]) == S],
+                key=lambda x: (int(x["r0"]), int(x["c0"])),
+            )
+            if len(frame_comps) < 4:
+                return []
+            row_groups: Dict[int, List[Dict[str, Any]]] = {}
+            for c in frame_comps:
+                row_groups.setdefault(int(c["r0"]), []).append(c)
+            rule_pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+            rule_boxes: List[Dict[str, Any]] = []
+            rule_rows_meta: List[List[Tuple[int, List[Tuple[int, ...]], int]]] = []
+            for r, cs in sorted(row_groups.items()):
+                cs_sorted = sorted(cs, key=lambda x: int(x["c0"]))
+                if len(cs_sorted) >= 2 and len(cs_sorted) % 2 == 0:
+                    rule_boxes.extend(cs_sorted)
+                    rule_rows_meta.append(
+                        [
+                            (
+                                int(b["w"]) // S,
+                                [self._d4_canonical_glyph(g) for g in extract_glyphs(b, S)],
+                                int(b["color"]),
+                            )
+                            for b in cs_sorted
+                        ]
+                    )
+                    for p in range(0, len(cs_sorted), 2):
+                        rule_pairs.append((cs_sorted[p], cs_sorted[p + 1]))
+            strip_rows = sorted(
+                [(r, cs[0]) for r, cs in row_groups.items() if len(cs) == 1],
+                key=lambda x: x[0],
+            )
+            if len(strip_rows) < 2 or not rule_pairs:
+                return []
+            in_strip_comp = strip_rows[-2][1]
+            out_strip_comp = strip_rows[-1][1]
+            c_start = int(in_strip_comp["color"])
+            c_end = int(out_strip_comp["color"])
+            in_w = [self._d4_canonical_glyph(g) for g in extract_glyphs(in_strip_comp, S)]
+            out_w = [self._d4_canonical_glyph(g) for g in extract_glyphs(out_strip_comp, S)]
+
+            # Check if cursor bracket cap is above rule_boxes[0] (Inverse Rule Synthesis) or above out_strip_comp (Forward Evaluation)
+            b0 = rule_boxes[0]
+            br0, bc0 = int(b0["r0"]), int(b0["c0"])
+            cursor_on_rules = bool(
+                br0 >= 3
+                and int(board0[br0 - 3, bc0 + 1]) != int(board0[br0 - 3, bc0])
+                and np.all(board0[br0 - 3, bc0 + 1 : bc0 + S - 1] == board0[br0 - 3, bc0 + 1])
+            )
+            if not cursor_on_rules:
+                morphisms: Dict[Tuple[int, int], List[Tuple[List[Tuple[int, ...]], List[Tuple[int, ...]]]]] = {}
+                for c_in, c_out in rule_pairs:
+                    col_i, col_o = int(c_in["color"]), int(c_out["color"])
+                    g_ins = [self._d4_canonical_glyph(g) for g in extract_glyphs(c_in, S)]
+                    g_outs = [self._d4_canonical_glyph(g) for g in extract_glyphs(c_out, S)]
+                    morphisms.setdefault((col_i, col_o), []).append((g_ins, g_outs))
+                q: deque = deque([(c_start, in_w, (c_start,))])
+                target_out_canons: Optional[List[Tuple[int, ...]]] = None
+                states_exp = 0
+                max_states = 3000
+                while q and states_exp < max_states:
+                    cur_c, cur_w, visited_cols = q.popleft()
+                    states_exp += 1
+                    if cur_c == c_end and len(visited_cols) > 1:
+                        target_out_canons = cur_w
+                        break
+                    for (ci, co), rules_list in morphisms.items():
+                        if ci == cur_c and co not in visited_cols:
+                            nxt_w = apply_rules_once(cur_w, rules_list)
+                            if nxt_w is not None:
+                                q.append((co, nxt_w, visited_cols + (co,)))
+                if target_out_canons is None:
+                    return []
+                self._monoid_hom_state = {
+                    "mode": "strip",
+                    "S": S,
+                    "comp": out_strip_comp,
+                    "targets": [[t] for t in target_out_canons],
+                    "idx": 0,
+                    "tries": 0,
+                }
+            else:
+                def matches_eq_kernel(
+                    u_word: List[Tuple[int, ...]],
+                    w0_word: List[Tuple[int, ...]],
+                ) -> bool:
+                    if len(u_word) != len(w0_word):
+                        return False
+                    for i_k in range(len(u_word)):
+                        for j_k in range(i_k + 1, len(u_word)):
+                            if (u_word[i_k] == u_word[j_k]) != (w0_word[i_k] == w0_word[j_k]):
+                                return False
+                    return True
+
+                flat_meta_pairs: List[Tuple[Tuple[int, List[Tuple[int, ...]], int], Tuple[int, List[Tuple[int, ...]], int]]] = []
+                for r_row in rule_rows_meta:
+                    for p in range(0, len(r_row), 2):
+                        flat_meta_pairs.append((r_row[p], r_row[p + 1]))
+
+                pair_color_sigs = {(p[0][2], p[1][2]) for p in flat_meta_pairs}
+                synthesized_targets: Optional[List[List[Tuple[int, ...]]]] = None
+
+                if pair_color_sigs == {(c_start, c_end)}:
+                    R_rules = len(flat_meta_pairs)
+                    best_cost_1 = 10**9
+                    nodes_1stage = 0
+                    max_nodes_1stage = 3000
+
+                    def backtrack_1stage(
+                        i_pos: int,
+                        j_pos: int,
+                        assigned_rules: Dict[int, Tuple[List[Tuple[int, ...]], List[Tuple[int, ...]]]],
+                    ) -> None:
+                        nonlocal best_cost_1, synthesized_targets, nodes_1stage
+                        if nodes_1stage >= max_nodes_1stage:
+                            return
+                        nodes_1stage += 1
+                        if i_pos == len(in_w) and j_pos == len(out_w):
+                            if len(assigned_rules) != R_rules:
+                                return
+                            rules_seq = [assigned_rules[r_i] for r_i in range(R_rules)]
+                            if apply_rules_once(in_w, rules_seq) != out_w:
+                                return
+                            cost_val = 0
+                            cand_targets: List[List[Tuple[int, ...]]] = []
+                            for r_i in range(R_rules):
+                                u_r, v_r = assigned_rules[r_i]
+                                w0_in, w0_out = flat_meta_pairs[r_i][0][1], flat_meta_pairs[r_i][1][1]
+                                if u_r != w0_in:
+                                    cost_val += 1
+                                if v_r != w0_out:
+                                    cost_val += 1
+                                cand_targets.extend([u_r, v_r])
+                            if cost_val < best_cost_1:
+                                best_cost_1 = cost_val
+                                synthesized_targets = cand_targets
+                            return
+
+                        used_lhs = {tuple(u_val) for u_val, _ in assigned_rules.values()}
+                        for r_i in range(R_rules):
+                            m_in, w0_in, _ = flat_meta_pairs[r_i][0]
+                            m_out, w0_out, _ = flat_meta_pairs[r_i][1]
+                            if i_pos + m_in <= len(in_w) and j_pos + m_out <= len(out_w):
+                                u_seg = in_w[i_pos : i_pos + m_in]
+                                v_seg = out_w[j_pos : j_pos + m_out]
+                                if not (matches_eq_kernel(u_seg, w0_in) and matches_eq_kernel(v_seg, w0_out)):
+                                    continue
+                                if r_i in assigned_rules:
+                                    if assigned_rules[r_i] == (u_seg, v_seg):
+                                        backtrack_1stage(i_pos + m_in, j_pos + m_out, assigned_rules)
+                                elif tuple(u_seg) not in used_lhs:
+                                    assigned_rules[r_i] = (u_seg, v_seg)
+                                    backtrack_1stage(i_pos + m_in, j_pos + m_out, assigned_rules)
+                                    del assigned_rules[r_i]
+
+                    backtrack_1stage(0, 0, {})
+                elif all(len(r_row) == 4 for r_row in rule_rows_meta):
+                    from itertools import product
+
+                    R_rows = len(rule_rows_meta)
+                    sigma_mid: List[Tuple[int, ...]] = []
+                    for r_row in rule_rows_meta:
+                        for b_idx in (1, 2):
+                            for g_sym in r_row[b_idx][1]:
+                                if g_sym not in sigma_mid:
+                                    sigma_mid.append(g_sym)
+
+                    rhs1_cands: List[Tuple[List[List[Tuple[int, ...]]], Set[Tuple[Tuple[int, ...], ...]]]] = []
+                    for r_i in range(R_rows):
+                        m1, w0_1, _ = rule_rows_meta[r_i][1]
+                        rev_others = [
+                            list(reversed(rule_rows_meta[rp][1][1]))
+                            for rp in range(R_rows)
+                            if rp != r_i
+                            and len(rule_rows_meta[rp][1][1]) == m1
+                            and matches_eq_kernel(list(reversed(rule_rows_meta[rp][1][1])), w0_1)
+                        ]
+                        cands_r: List[List[Tuple[int, ...]]] = [w0_1]
+                        for w_rev in rev_others:
+                            if w_rev not in cands_r:
+                                cands_r.append(w_rev)
+                        for tup in product(sigma_mid, repeat=m1):
+                            w_cand = list(tup)
+                            if matches_eq_kernel(w_cand, w0_1) and w_cand not in cands_r:
+                                cands_r.append(w_cand)
+                        rhs1_cands.append((cands_r, {tuple(w_rev) for w_rev in rev_others}))
+
+                    best_cost_2 = 10**9
+                    nodes_2stage = 0
+                    max_nodes_2stage = 3000
+
+                    def backtrack_stage1(
+                        i_pos: int,
+                        assigned1: Dict[int, Tuple[List[Tuple[int, ...]], List[Tuple[int, ...]]]],
+                    ) -> None:
+                        nonlocal best_cost_2, synthesized_targets, nodes_2stage
+                        if nodes_2stage >= max_nodes_2stage:
+                            return
+                        nodes_2stage += 1
+                        if i_pos == len(in_w):
+                            if len(assigned1) != R_rows:
+                                return
+                            rules1 = [assigned1[r_i] for r_i in range(R_rows)]
+                            w_mid = apply_rules_once(in_w, rules1)
+                            if w_mid is None:
+                                return
+
+                            def backtrack_stage2(
+                                im_pos: int,
+                                jo_pos: int,
+                                assigned2: Dict[int, Tuple[List[Tuple[int, ...]], List[Tuple[int, ...]]]],
+                            ) -> None:
+                                nonlocal best_cost_2, synthesized_targets, nodes_2stage
+                                if nodes_2stage >= max_nodes_2stage:
+                                    return
+                                nodes_2stage += 1
+                                if im_pos == len(w_mid) and jo_pos == len(out_w):
+                                    if len(assigned2) != R_rows:
+                                        return
+                                    rules2 = [assigned2[r_i] for r_i in range(R_rows)]
+                                    if apply_rules_once(w_mid, rules2) != out_w:
+                                        return
+                                    cost_val = 0
+                                    cand_targets: List[List[Tuple[int, ...]]] = []
+                                    for r_i in range(R_rows):
+                                        u1, v1 = assigned1[r_i]
+                                        u2, v2 = assigned2[r_i]
+                                        w0_1 = rule_rows_meta[r_i][1][1]
+                                        rev_set = rhs1_cands[r_i][1]
+                                        if v1 != w0_1:
+                                            cost_val += 4 if tuple(v1) in rev_set else 20
+                                        if u1 != rule_rows_meta[r_i][0][1]:
+                                            cost_val += 1
+                                        if u2 != v1[: len(u2)]:
+                                            cost_val += 2
+                                        if u2 != rule_rows_meta[r_i][2][1]:
+                                            cost_val += 1
+                                        if v2 != rule_rows_meta[r_i][3][1]:
+                                            cost_val += 1
+                                        cand_targets.extend([u1, v1, u2, v2])
+                                    if cost_val < best_cost_2:
+                                        best_cost_2 = cost_val
+                                        synthesized_targets = cand_targets
+                                    return
+
+                                used_lhs2 = {tuple(u_val) for u_val, _ in assigned2.values()}
+                                for r_i in range(R_rows):
+                                    m2, w0_2, _ = rule_rows_meta[r_i][2]
+                                    m3, w0_3, _ = rule_rows_meta[r_i][3]
+                                    if im_pos + m2 <= len(w_mid) and jo_pos + m3 <= len(out_w):
+                                        u2_seg = w_mid[im_pos : im_pos + m2]
+                                        v2_seg = out_w[jo_pos : jo_pos + m3]
+                                        if not (matches_eq_kernel(u2_seg, w0_2) and matches_eq_kernel(v2_seg, w0_3)):
+                                            continue
+                                        if r_i in assigned2:
+                                            if assigned2[r_i] == (u2_seg, v2_seg):
+                                                backtrack_stage2(im_pos + m2, jo_pos + m3, assigned2)
+                                        elif tuple(u2_seg) not in used_lhs2:
+                                            assigned2[r_i] = (u2_seg, v2_seg)
+                                            backtrack_stage2(im_pos + m2, jo_pos + m3, assigned2)
+                                            del assigned2[r_i]
+
+                            backtrack_stage2(0, 0, {})
+                            return
+
+                        used_lhs1 = {tuple(u_val) for u_val, _ in assigned1.values()}
+                        for r_i in range(R_rows):
+                            m0, w0_0, _ = rule_rows_meta[r_i][0]
+                            if i_pos + m0 <= len(in_w):
+                                u1_seg = in_w[i_pos : i_pos + m0]
+                                if not matches_eq_kernel(u1_seg, w0_0):
+                                    continue
+                                if r_i in assigned1:
+                                    if assigned1[r_i][0] == u1_seg:
+                                        backtrack_stage1(i_pos + m0, assigned1)
+                                elif tuple(u1_seg) not in used_lhs1:
+                                    for v1_cand in rhs1_cands[r_i][0]:
+                                        assigned1[r_i] = (u1_seg, v1_cand)
+                                        backtrack_stage1(i_pos + m0, assigned1)
+                                        del assigned1[r_i]
+
+                    backtrack_stage1(0, {})
+
+                if synthesized_targets is None:
+                    return []
+                self._monoid_hom_state = {
+                    "mode": "boxes",
+                    "S": S,
+                    "boxes": rule_boxes,
+                    "targets": synthesized_targets,
+                    "idx": 0,
+                    "tries": 0,
+                }
+
+        st = self._monoid_hom_state
+        idx = int(st["idx"])
+        targets_list = st["targets"]
+        if idx >= len(targets_list):
+            return []
+        S_st = int(st["S"])
+        if st["mode"] == "strip":
+            cur_canons = [self._d4_canonical_glyph(extract_glyphs(st["comp"], S_st)[idx])]
+        else:
+            cur_canons = [self._d4_canonical_glyph(g) for g in extract_glyphs(st["boxes"][idx], S_st)]
+        if cur_canons == targets_list[idx] or int(st["tries"]) >= 16:
+            st["idx"] = idx + 1
+            st["tries"] = 0
+            return [4]
+        st["tries"] = int(st["tries"]) + 1
+        return [1]
+
+    def _solve_d4_locus_minkowski_cover_plan(
+        self,
+        board0: np.ndarray,
+        available_actions: Optional[Sequence[int]] = None,
+    ) -> List[ActionKey]:
+        """
+        Solves D_4-symmetric 1px geometric locus translation, palette recoloring, and
+        Minkowski-difference intersection set cover over hollow 3x3 target receptors
+        under ACTION1..4 translations and ACTION5 active-shape cycling.
+        100% S_16 color-permutation equivariant, D_4 dihedral equivariant, and scale-invariant.
+        """
+        if available_actions is not None and not {1, 2, 3, 4, 5}.issubset(set(int(a) for a in available_actions)):
+            return []
+        H, W = board0.shape
+        if H < 32 or W < 32:
+            return []
+        H_play = min(63, H - 1) if H >= 64 else H
+        play = board0[:H_play, :]
+        vals, cnts = np.unique(play, return_counts=True)
+        bg = int(vals[int(np.argmax(cnts))])
+        col_totals = {int(v): int(cnt) for v, cnt in zip(vals, cnts)}
+        active_pos: Optional[Tuple[int, int]] = None
+        active_marker_col: Optional[int] = None
+        for col, cnt in col_totals.items():
+            if cnt == 1 and col != bg:
+                rs, cs = np.where(play == col)
+                active_pos = (int(rs[0]), int(cs[0]))
+                active_marker_col = col
+                break
+        if active_pos is None:
+            return []
+
+        if self._locus_cover_plan_by_center is None:
+            comps = _connected_components_2d(play, connectivity=4, same_color=True, ignore_val=bg)
+            palette_boxes: Dict[int, Tuple[int, int, int, int]] = {}
+            palette_pixels: Set[Tuple[int, int]] = set()
+            palette_border_cols: Set[int] = set()
+            for c in comps:
+                if int(c["h"]) == 6 and int(c["w"]) == 6 and int(c["area"]) == 20:
+                    r0, c0, bcol = int(c["r0"]), int(c["c0"]), int(c["color"])
+                    sub = play[r0 : r0 + 6, c0 : c0 + 6]
+                    in_vals = np.unique(sub[1:5, 1:5])
+                    if len(in_vals) == 1 and int(in_vals[0]) not in (bg, bcol):
+                        pcol = int(in_vals[0])
+                        palette_boxes[pcol] = (r0 + 1, r0 + 5, c0 + 1, c0 + 5)
+                        palette_border_cols.add(bcol)
+                        for dr in range(6):
+                            for dc in range(6):
+                                palette_pixels.add((r0 + dr, c0 + dc))
+            frame_cols = {
+                int(c["color"])
+                for c in comps
+                if int(c["h"]) == 3 and int(c["w"]) == 3 and int(c["area"]) == 8
+            }
+            if not frame_cols:
+                self._locus_cover_plan_by_center = {}
+                return []
+            all_targets: List[Tuple[int, int, Optional[int]]] = []
+            all_target_pixels: Set[Tuple[int, int]] = set()
+            for fcol in frame_cols:
+                for r0 in range(H_play - 2):
+                    for c0 in range(W - 2):
+                        if (r0, c0) in palette_pixels:
+                            continue
+                        sub = play[r0 : r0 + 3, c0 : c0 + 3]
+                        inner_col = int(sub[1, 1])
+                        if inner_col in (bg, fcol, active_marker_col) or inner_col in palette_border_cols:
+                            continue
+                        perim = [
+                            int(sub[0, 0]), int(sub[0, 1]), int(sub[0, 2]),
+                            int(sub[1, 0]),                 int(sub[1, 2]),
+                            int(sub[2, 0]), int(sub[2, 1]), int(sub[2, 2]),
+                        ]
+                        n_fcol = sum(1 for v in perim if v == fcol)
+                        if n_fcol >= 4 and all(v in (fcol, inner_col) for v in perim):
+                            tcol_eff = inner_col if (n_fcol == 8 or not palette_boxes) else None
+                            all_targets.append((r0 + 1, c0 + 1, tcol_eff))
+                            all_target_pixels.add((r0 + 1, c0 + 1))
+            if not all_targets:
+                self._locus_cover_plan_by_center = {}
+                return []
+
+            def detect_all_shapes_fast(
+                pts: Set[Tuple[int, int]],
+            ) -> List[Tuple[str, int, int, Set[Tuple[int, int]]]]:
+                pts_aug = set(pts)
+                if active_pos is not None:
+                    pts_aug.add(active_pos)
+                found: List[Tuple[str, int, int, Set[Tuple[int, int]]]] = []
+                row_cnts = Counter(r for r, _ in pts_aug)
+                col_cnts = Counter(c for _, c in pts_aug)
+                d1_cnts = Counter(r - c for r, c in pts_aug)
+                d2_cnts = Counter(r + c for r, c in pts_aug)
+                used_rows: Set[int] = set()
+                used_cols: Set[int] = set()
+                for r0, rc in row_cnts.items():
+                    if rc < 15:
+                        continue
+                    for c0, cc in col_cnts.items():
+                        if cc < 15:
+                            continue
+                        if all(
+                            sum(1 for k in range(1, 7) if (r0 + k * dr, c0 + k * dc) in pts_aug) >= 4
+                            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1))
+                        ):
+                            r_up = max((k for k in range(1, H_play) if (r0 - k, c0) in pts_aug), default=0)
+                            r_dn = max((k for k in range(1, H_play) if (r0 + k, c0) in pts_aug), default=0)
+                            c_lt = max((k for k in range(1, W) if (r0, c0 - k) in pts_aug), default=0)
+                            c_rt = max((k for k in range(1, W) if (r0, c0 + k) in pts_aug), default=0)
+                            R_v, R_h = max(r_up, r_dn), max(c_lt, c_rt)
+                            rel = {(dr, 0) for dr in range(-R_v, R_v + 1)} | {(0, dc) for dc in range(-R_h, R_h + 1)}
+                            found.append(("card", r0, c0, rel))
+                            used_rows.add(r0)
+                            used_cols.add(c0)
+                r_peaks = [r for r, cnt in row_cnts.items() if cnt >= 11 and r not in used_rows]
+                c_peaks = [c for c, cnt in col_cnts.items() if cnt >= 11 and c not in used_cols]
+                seen_linf: Set[Tuple[int, int]] = set()
+                for i, ra in enumerate(r_peaks):
+                    for rb in r_peaks[i + 1 :]:
+                        R = abs(rb - ra) // 2
+                        if R < 5 or abs(rb - ra) % 2 != 0:
+                            continue
+                        r0 = (ra + rb) // 2
+                        for j, ca in enumerate(c_peaks):
+                            for cb in c_peaks[j + 1 :]:
+                                if abs(cb - ca) != 2 * R:
+                                    continue
+                                c0 = (ca + cb) // 2
+                                if (r0, c0) in seen_linf:
+                                    continue
+                                ring = list(
+                                    {
+                                        (r0 + dr, c0 + dc)
+                                        for dr in range(-R, R + 1)
+                                        for dc in range(-R, R + 1)
+                                        if max(abs(dr), abs(dc)) == R
+                                        and 0 <= r0 + dr < H_play
+                                        and 0 <= c0 + dc < W
+                                    }
+                                )
+                                if len(ring) >= 20 and sum(1 for p in ring if p in pts_aug) >= 0.75 * len(ring):
+                                    seen_linf.add((r0, c0))
+                                    used_rows.add(ra)
+                                    used_rows.add(rb)
+                                    used_cols.add(ca)
+                                    used_cols.add(cb)
+                                    rel = {
+                                        (dr, dc)
+                                        for dr in range(-R, R + 1)
+                                        for dc in range(-R, R + 1)
+                                        if max(abs(dr), abs(dc)) == R
+                                    }
+                                    found.append(("linf", r0, c0, rel))
+                for r0, rc in row_cnts.items():
+                    if rc >= 15 and r0 not in used_rows:
+                        cs_r = sorted(
+                            c for r, c in pts_aug if r == r0 and ((r0, c - 1) in pts_aug or (r0, c + 1) in pts_aug)
+                        )
+                        if len(cs_r) >= 15:
+                            c0 = (cs_r[0] + cs_r[-1]) // 2
+                            R_h = (cs_r[-1] - cs_r[0]) // 2
+                            found.append(("horiz", r0, c0, {(0, dc) for dc in range(-R_h, R_h + 1)}))
+                for c0, cc in col_cnts.items():
+                    if cc >= 15 and c0 not in used_cols:
+                        rs_c = sorted(
+                            r for r, c in pts_aug if c == c0 and ((r - 1, c0) in pts_aug or (r + 1, c0) in pts_aug)
+                        )
+                        if len(rs_c) >= 15:
+                            r0 = (rs_c[0] + rs_c[-1]) // 2
+                            R_v = (rs_c[-1] - rs_c[0]) // 2
+                            found.append(("vert", r0, c0, {(dr, 0) for dr in range(-R_v, R_v + 1)}))
+                used_d1: Set[int] = set()
+                used_d2: Set[int] = set()
+                for d1, cnt1 in d1_cnts.items():
+                    if cnt1 < 15:
+                        continue
+                    for d2, cnt2 in d2_cnts.items():
+                        if cnt2 < 15 or (d1 + d2) % 2 != 0:
+                            continue
+                        r0, c0 = (d1 + d2) // 2, (d2 - d1) // 2
+                        if not (0 <= r0 < H_play and 0 <= c0 < W):
+                            continue
+                        if all(
+                            sum(1 for k in range(1, 7) if (r0 + k * dr, c0 + k * dc) in pts_aug) >= 4
+                            for dr, dc in ((-1, -1), (-1, 1), (1, -1), (1, 1))
+                        ):
+                            R_d = max(
+                                max((k for k in range(1, H_play) if (r0 + k * dr, c0 + k * dc) in pts_aug), default=0)
+                                for dr, dc in ((-1, -1), (-1, 1), (1, -1), (1, 1))
+                            )
+                            found.append(
+                                (
+                                    "diag",
+                                    r0,
+                                    c0,
+                                    {(k * dr, k * dc) for k in range(0, R_d + 1) for dr, dc in ((-1, -1), (-1, 1), (1, -1), (1, 1))},
+                                )
+                            )
+                            used_d1.add(d1)
+                            used_d2.add(d2)
+                d1_peaks = [d for d, cnt in d1_cnts.items() if cnt >= 7 and d not in used_d1]
+                d2_peaks = [d for d, cnt in d2_cnts.items() if cnt >= 7 and d not in used_d2]
+                seen_l1: Set[Tuple[int, int]] = set()
+                for i, d1a in enumerate(d1_peaks):
+                    for d1b in d1_peaks[i + 1 :]:
+                        R = abs(d1b - d1a) // 2
+                        if R < 6 or abs(d1b - d1a) % 2 != 0:
+                            continue
+                        d1_mid = (d1a + d1b) // 2
+                        for j, d2a in enumerate(d2_peaks):
+                            for d2b in d2_peaks[j + 1 :]:
+                                if abs(d2b - d2a) != 2 * R:
+                                    continue
+                                d2_mid = (d2a + d2b) // 2
+                                if (d1_mid + d2_mid) % 2 != 0:
+                                    continue
+                                r0, c0 = (d1_mid + d2_mid) // 2, (d2_mid - d1_mid) // 2
+                                if not (0 <= r0 < H_play and 0 <= c0 < W) or (r0, c0) in seen_l1:
+                                    continue
+                                ring = list(
+                                    {
+                                        (r0 + dr, c0 + dc)
+                                        for dr in range(-R, R + 1)
+                                        for dc in (-(R - abs(dr)), R - abs(dr))
+                                        if 0 <= r0 + dr < H_play and 0 <= c0 + dc < W
+                                    }
+                                )
+                                if len(ring) >= 16 and sum(1 for p in ring if p in pts_aug) >= 0.70 * len(ring):
+                                    seen_l1.add((r0, c0))
+                                    found.append(
+                                        (
+                                            "l1",
+                                            r0,
+                                            c0,
+                                            {(dr, dc) for dr in range(-R, R + 1) for dc in (-(R - abs(dr)), R - abs(dr))},
+                                        )
+                                    )
+                return found
+
+            shape_cols = [
+                col
+                for col, cnt in col_totals.items()
+                if col not in (bg, active_marker_col)
+                and col not in frame_cols
+                and col not in palette_border_cols
+                and cnt >= 10
+            ]
+            all_shapes: List[Tuple[int, str, int, int, Set[Tuple[int, int]]]] = []
+            for scol in shape_cols:
+                rs, cs = np.where(play == scol)
+                pts = {
+                    (int(r), int(c))
+                    for r, c in zip(rs, cs)
+                    if (int(r), int(c)) not in all_target_pixels and (int(r), int(c)) not in palette_pixels
+                }
+                if not pts:
+                    continue
+                for fam, r_init, c_init, rel in detect_all_shapes_fast(pts):
+                    all_shapes.append((scol, fam, r_init, c_init, rel))
+            if not all_shapes:
+                self._locus_cover_plan_by_center = {}
+                return []
+
+            target_colors = sorted({t[2] for t in all_targets if t[2] is not None})
+            cand_assigns: List[List[Tuple[Tuple[int, int, int], Set[Tuple[int, int]]]]] = []
+            min_cov_req = 1 if len(all_targets) == 1 else 2
+            for scol, fam, r_init, c_init, rel in all_shapes:
+                cands: List[Tuple[Tuple[int, int, int], Set[Tuple[int, int]]]] = []
+                allowed_tcols = (
+                    [scol]
+                    if not palette_boxes
+                    else [tc for tc in target_colors if tc == scol or tc in palette_boxes]
+                )
+                for tcol in allowed_tcols:
+                    for cr in range(r_init % 3, H_play, 3):
+                        for cc in range(c_init % 3, W, 3):
+                            cov = {
+                                (tr, tc)
+                                for (tr, tc, tc_col) in all_targets
+                                if (tc_col == tcol or tc_col is None) and (tr - cr, tc - cc) in rel
+                            }
+                            if len(cov) >= min_cov_req:
+                                cands.append(((cr, cc, tcol), cov))
+                cand_assigns.append(cands)
+
+            for idx_c, (_, _, r_init, c_init, _) in enumerate(all_shapes):
+                cand_assigns[idx_c].sort(
+                    key=lambda item: (-len(item[1]), abs(item[0][0] - r_init) + abs(item[0][1] - c_init))
+                )
+            rem_max_cov = [0] * (len(all_shapes) + 1)
+            for idx_c in range(len(all_shapes) - 1, -1, -1):
+                rem_max_cov[idx_c] = rem_max_cov[idx_c + 1] + max(
+                    (len(cov) for _, cov in cand_assigns[idx_c]), default=0
+                )
+
+            best_state: List[Any] = [None, -1, 10**9]
+            dfs_nodes = 0
+            max_dfs_nodes = 3000
+
+            def dfs(
+                idx: int,
+                cur_assign: List[Tuple[int, int, int]],
+                cur_cov: Set[Tuple[int, int]],
+                cur_dist: int,
+            ) -> None:
+                nonlocal dfs_nodes
+                if dfs_nodes >= max_dfs_nodes:
+                    return
+                if len(cur_cov) + rem_max_cov[idx] < len(all_target_pixels):
+                    return
+                if best_state[1] == len(all_target_pixels) and cur_dist >= best_state[2]:
+                    return
+                dfs_nodes += 1
+                if idx == len(all_shapes):
+                    if (len(cur_cov), -cur_dist) > (best_state[1], -best_state[2]):
+                        best_state[1] = len(cur_cov)
+                        best_state[2] = cur_dist
+                        best_state[0] = list(cur_assign)
+                    return
+                _, _, r_init, c_init, _ = all_shapes[idx]
+                for (cr, cc, tcol), cov in cand_assigns[idx]:
+                    dfs(
+                        idx + 1,
+                        cur_assign + [(cr, cc, tcol)],
+                        cur_cov | cov,
+                        cur_dist + abs(cr - r_init) + abs(cc - c_init),
+                    )
+
+            dfs(0, [], set(), 0)
+            if not best_state[0] or int(best_state[1]) < len(all_target_pixels):
+                self._locus_cover_plan_by_center = {}
+                return []
+
+            def bfs_moves_between(
+                r0: int,
+                c0: int,
+                r1: int,
+                c1: int,
+                forbidden_pixels: Set[Tuple[int, int]],
+            ) -> List[int]:
+                if (r0, c0) == (r1, c1):
+                    return []
+                q: deque = deque([(r0, c0)])
+                parent: Dict[Tuple[int, int], Optional[Tuple[Tuple[int, int], int]]] = {(r0, c0): None}
+                max_states = 3000
+                found_goal = False
+                while q and len(parent) < max_states:
+                    cr, cc = q.popleft()
+                    if (cr, cc) == (r1, c1):
+                        found_goal = True
+                        break
+                    for aid, (dr, dc) in ((1, (-3, 0)), (2, (3, 0)), (3, (0, -3)), (4, (0, 3))):
+                        nr, nc = cr + dr, cc + dc
+                        if (
+                            0 <= nr < H_play
+                            and 0 <= nc < W
+                            and (nr, nc) not in parent
+                            and (nr, nc) not in forbidden_pixels
+                        ):
+                            parent[(nr, nc)] = ((cr, cc), aid)
+                            if (nr, nc) == (r1, c1):
+                                found_goal = True
+                                break
+                            q.append((nr, nc))
+                    if found_goal:
+                        break
+                if not found_goal:
+                    return []
+                path: List[int] = []
+                cur_pt: Optional[Tuple[int, int]] = (r1, c1)
+                while cur_pt is not None and parent.get(cur_pt) is not None:
+                    prev_pt, aid = parent[cur_pt]  # type: ignore[misc]
+                    path.append(aid)
+                    cur_pt = prev_pt
+                path.reverse()
+                return path
+
+            plan_by_center: Dict[Tuple[int, int], List[int]] = {}
+            for (scol, _, r_init, c_init, rel), (cr, cc, tcol) in zip(all_shapes, best_state[0]):
+                seq: List[int] = []
+                cur_r, cur_c = r_init, c_init
+                forbidden: Set[Tuple[int, int]] = set()
+                for pcol2, (pr0_2, pr1_2, pc0_2, pc1_2) in palette_boxes.items():
+                    if pcol2 != tcol:
+                        for rr in range(pr0_2 - 1, pr1_2 + 1):
+                            for cc2 in range(pc0_2 - 1, pc1_2 + 1):
+                                forbidden.add((rr, cc2))
+                forbidden_minkowski: Set[Tuple[int, int]] = set(forbidden)
+                if forbidden:
+                    for rr, cc2 in forbidden:
+                        for dr, dc in rel:
+                            mr, mc = rr - dr, cc2 - dc
+                            if 0 <= mr < H_play and 0 <= mc < W:
+                                forbidden_minkowski.add((mr, mc))
+                if tcol != scol and tcol in palette_boxes:
+                    pr0, pr1, pc0, pc1 = palette_boxes[tcol]
+                    pts_box = [
+                        (pr, pc)
+                        for pr in range(pr0, pr1)
+                        for pc in range(pc0, pc1)
+                        if (pr - cur_r) % 3 == 0 and (pc - cur_c) % 3 == 0
+                    ]
+                    if pts_box:
+                        pr, pc = min(
+                            pts_box,
+                            key=lambda p: abs(p[0] - cur_r)
+                            + abs(p[1] - cur_c)
+                            + abs(cr - p[0])
+                            + abs(cc - p[1]),
+                        )
+                        seq.extend(bfs_moves_between(cur_r, cur_c, pr, pc, forbidden))
+                        cur_r, cur_c = pr, pc
+                forb_second = forbidden_minkowski - {(cur_r, cur_c), (cr, cc)}
+                leg2 = bfs_moves_between(cur_r, cur_c, cr, cc, forb_second)
+                if not leg2 and (cur_r, cur_c) != (cr, cc):
+                    leg2 = bfs_moves_between(cur_r, cur_c, cr, cc, forbidden - {(cur_r, cur_c), (cr, cc)})
+                seq.extend(leg2)
+                plan_by_center[(r_init, c_init)] = seq
+            self._locus_cover_plan_by_center = plan_by_center
+
+        if not self._locus_cover_plan_by_center:
+            return []
+        if active_pos in self._locus_cover_plan_by_center and active_pos not in self._locus_cover_done_centers:
+            self._locus_cover_done_centers.add(active_pos)
+            seq_acts: List[ActionKey] = list(self._locus_cover_plan_by_center[active_pos])
+            if len(self._locus_cover_done_centers) < len(self._locus_cover_plan_by_center):
+                seq_acts.append(5)
+            return seq_acts
+        if (
+            len(self._locus_cover_done_centers) < len(self._locus_cover_plan_by_center)
+            and self._locus_cover_switches <= len(self._locus_cover_plan_by_center) + 2
+        ):
+            self._locus_cover_switches += 1
+            return [5]
+        return []
+
+    def _solve_se2_pin_matching_polyomino_plan(
+        self,
+        board0: np.ndarray,
+        available_actions: Optional[Sequence[int]] = None,
+    ) -> List[ActionKey]:
+        """
+        Solves SE(2) rigid-body polyomino pin-matching assembly with fog-of-war piece reveal
+        (ACTION6) and telescopic port spine extrusion (ACTION5).
+        100% S_16 color-permutation equivariant, D_4 dihedral equivariant, and scale-invariant.
+        """
+        if available_actions is not None and not {1, 2, 3, 4, 5, 6}.issubset(
+            set(int(a) for a in available_actions)
+        ):
+            return []
+        H, W = board0.shape
+        if H < 24 or W < 24:
+            return []
+
+        if self._pin_polyomino_state is not None and "grid_info" in self._pin_polyomino_state:
+            s_tile, y_off, x_off, R_g, C_g = self._pin_polyomino_state["grid_info"]
+            sub_play = board0[y_off : y_off + R_g * s_tile, x_off : x_off + C_g * s_tile]
+            blocks = sub_play.reshape(R_g, s_tile, C_g, s_tile)
+            if not bool(np.all(blocks == blocks[:, 0:1, :, 0:1])):
+                return []
+            g = blocks[:, 0, :, 0].copy()
+        else:
+            grid_info: Optional[Tuple[int, int, int, int, int]] = None
+            max_s = max(8, min(H, W) // 8)
+            for s_cand in range(max_s, 1, -1):
+                for yo in range(s_cand + 2):
+                    for xo in range(s_cand + 2):
+                        rg = (H - 2 * yo) // s_cand
+                        cg = (W - 2 * xo) // s_cand
+                        if rg < 8 or cg < 8 or rg > 32 or cg > 32:
+                            continue
+                        sub = board0[yo : yo + rg * s_cand, xo : xo + cg * s_cand]
+                        blks = sub.reshape(rg, s_cand, cg, s_cand)
+                        if bool(np.all(blks == blks[:, 0:1, :, 0:1])):
+                            g_cand = blks[:, 0, :, 0]
+                            if len(np.unique(g_cand)) >= 3:
+                                grid_info = (s_cand, yo, xo, rg, cg)
+                                break
+                    if grid_info is not None:
+                        break
+                if grid_info is not None:
+                    break
+            if grid_info is None:
+                return []
+            s_tile, y_off, x_off, R_g, C_g = grid_info
+            g = board0[y_off : y_off + R_g * s_tile : s_tile, x_off : x_off + C_g * s_tile : s_tile].copy()
+
+        def rot_cw(pts: Sequence[Tuple[int, int]], k: int) -> List[Tuple[int, int]]:
+            cur = list(pts)
+            for _ in range(k % 4):
+                ys = [p[0] for p in cur]
+                xs = [p[1] for p in cur]
+                y0, y1 = min(ys), max(ys)
+                x0, _ = min(xs), max(xs)
+                h_box = y1 - y0 + 1
+                cur = [(y0 + (x - x0), x0 + (h_box - 1) - (y - y0)) for y, x in cur]
+            return cur
+
+        def solve_pieces_to_actions(
+            pieces: List[Dict[str, Any]],
+            cur_selected_idx: Optional[int],
+        ) -> List[ActionKey]:
+            M = len(pieces)
+            if M < 2:
+                return []
+            rot_pieces: List[List[Tuple[Set[Tuple[int, int]], List[Tuple[int, int]]]]] = []
+            for i in range(M):
+                b_len = len(pieces[i]["body"])
+                if b_len == 0 or not pieces[i]["pins"]:
+                    return []
+                rots: List[Tuple[Set[Tuple[int, int]], List[Tuple[int, int]]]] = []
+                max_r = 1 if bool(pieces[i].get("telescopic", False)) else 4
+                for r_idx in range(max_r):
+                    rk = rot_cw(pieces[i]["all"], r_idx)
+                    rots.append((set(rk[:b_len]), list(rk[b_len:])))
+                rot_pieces.append(rots)
+
+            best_sol: Optional[Dict[int, Tuple[int, int, int]]] = None
+            best_cost = 10**9
+            nodes_visited = 0
+            max_nodes = 2500
+
+            def search(
+                placed_rot: Dict[int, int],
+                placed_shift: Dict[int, Tuple[int, int]],
+                used_bodies: Set[Tuple[int, int]],
+                pin_counts: Dict[Tuple[int, int], int],
+            ) -> None:
+                nonlocal best_sol, best_cost, nodes_visited
+                if nodes_visited >= max_nodes:
+                    return
+                nodes_visited += 1
+                unmatched = [p for p, cnt in pin_counts.items() if cnt == 1]
+                if len(placed_rot) == M:
+                    if not unmatched:
+                        all_pts = set(used_bodies) | set(pin_counts.keys())
+                        min_y = min(y for y, _ in all_pts)
+                        max_y = max(y for y, _ in all_pts)
+                        min_x = min(x for _, x in all_pts)
+                        max_x = max(x for _, x in all_pts)
+                        if max_y - min_y >= R_g or max_x - min_x >= C_g:
+                            return
+                        for dy in range(-min_y, R_g - max_y):
+                            for dx in range(-min_x, C_g - max_x):
+                                cost = 0
+                                shifts: Dict[int, Tuple[int, int, int]] = {}
+                                for idx_p in range(M):
+                                    sy = placed_shift[idx_p][0] + dy
+                                    sx = placed_shift[idx_p][1] + dx
+                                    r_val = placed_rot[idx_p]
+                                    if r_val != 0 or sy != 0 or sx != 0:
+                                        cost += 1 + r_val + abs(sy) + abs(sx)
+                                    shifts[idx_p] = (r_val, sy, sx)
+                                if cost < best_cost:
+                                    best_cost = cost
+                                    best_sol = shifts
+                    return
+                if not unmatched:
+                    return
+                target_p = unmatched[0]
+                for j in range(M):
+                    if j in placed_rot:
+                        continue
+                    for rj in range(len(rot_pieces[j])):
+                        bj, pnj = rot_pieces[j][rj]
+                        for pj in pnj:
+                            sy = target_p[0] - pj[0]
+                            sx = target_p[1] - pj[1]
+                            bj_s = {(y + sy, x + sx) for y, x in bj}
+                            if bj_s & used_bodies or bj_s & set(pin_counts.keys()):
+                                continue
+                            pnj_s = [(y + sy, x + sx) for y, x in pnj]
+                            if any(p in used_bodies for p in pnj_s):
+                                continue
+                            new_pin_counts = dict(pin_counts)
+                            ok = True
+                            for p in pnj_s:
+                                new_pin_counts[p] = new_pin_counts.get(p, 0) + 1
+                                if new_pin_counts[p] > 2:
+                                    ok = False
+                                    break
+                            if not ok:
+                                continue
+                            placed_rot[j] = rj
+                            placed_shift[j] = (sy, sx)
+                            search(placed_rot, placed_shift, used_bodies | bj_s, new_pin_counts)
+                            del placed_rot[j]
+                            del placed_shift[j]
+
+            for r0 in range(len(rot_pieces[0])):
+                b0, pn0 = rot_pieces[0][r0]
+                search({0: r0}, {0: (0, 0)}, set(b0), {p: 1 for p in pn0})
+
+            if best_sol is None:
+                return []
+
+            occupied_final: Set[Tuple[int, int]] = set()
+            for i in range(M):
+                r_i, sy_i, sx_i = best_sol[i]
+                if r_i == 0 and sy_i == 0 and sx_i == 0:
+                    bi, pni = rot_pieces[i][0]
+                    occupied_final |= bi | set(pni)
+
+            order = [i for i in range(M) if best_sol[i] != (0, 0, 0)]
+            if cur_selected_idx is not None and cur_selected_idx in order:
+                order = [cur_selected_idx] + [i for i in order if i != cur_selected_idx]
+
+            plan_acts: List[ActionKey] = []
+            sel_now = cur_selected_idx
+            for i in order:
+                r_i, sy_i, sx_i = best_sol[i]
+                cand_tiles = [pt for pt in pieces[i]["body"] if pt not in occupied_final] or pieces[i]["body"]
+                by, bx = cand_tiles[0]
+                px = x_off + s_tile * bx + s_tile // 2
+                py = y_off + s_tile * by + s_tile // 2
+                if sel_now != i:
+                    plan_acts.append((6, int(px), int(py)))
+                    sel_now = i
+                for _ in range(r_i):
+                    plan_acts.append(5)
+                if sy_i < 0:
+                    plan_acts.extend([1] * (-sy_i))
+                elif sy_i > 0:
+                    plan_acts.extend([2] * sy_i)
+                if sx_i < 0:
+                    plan_acts.extend([3] * (-sx_i))
+                elif sx_i > 0:
+                    plan_acts.extend([4] * sx_i)
+                bi, pni = rot_pieces[i][r_i]
+                occupied_final |= {(y + sy_i, x + sx_i) for y, x in bi} | {(y + sy_i, x + sx_i) for y, x in pni}
+            return plan_acts
+
+        if self._pin_polyomino_state is None:
+            vals, cnts = np.unique(g, return_counts=True)
+            bg = int(vals[int(np.argmax(cnts))])
+            comps = _connected_components_2d(g, connectivity=4, same_color=False, ignore_val=bg)
+            if not (2 <= len(comps) <= 6):
+                return []
+            if any(int(c["area"]) < 3 for c in comps):
+                return []
+            same_comps = _connected_components_2d(g, connectivity=4, same_color=True, ignore_val=bg)
+            unit_counts = Counter(int(sc["color"]) for sc in same_comps if int(sc["area"]) == 1)
+            if not unit_counts:
+                return []
+            pin_col, max_u = max(unit_counts.items(), key=lambda kv: kv[1])
+            if max_u < 2:
+                return []
+
+            comp_pts_list: List[List[Tuple[int, int]]] = []
+            for c in comps:
+                pts_c = list(zip(c["rows"].tolist(), c["cols"].tolist()))
+                comp_pts_list.append(pts_c)
+
+            has_dimmed = any(
+                pin_col not in {int(g[y, x]) for y, x in pts_c} for pts_c in comp_pts_list
+            )
+            if not has_dimmed:
+                pieces_vis: List[Dict[str, Any]] = []
+                for pts_c in comp_pts_list:
+                    body = [(y, x) for y, x in pts_c if int(g[y, x]) != pin_col]
+                    pins = [(y, x) for y, x in pts_c if int(g[y, x]) == pin_col]
+                    pieces_vis.append(
+                        {"body": body, "pins": pins, "all": body + pins, "telescopic": False}
+                    )
+                plan_vis = solve_pieces_to_actions(pieces_vis, cur_selected_idx=0)
+                if not plan_vis:
+                    return []
+                self._pin_polyomino_state = {
+                    "grid_info": (s_tile, y_off, x_off, R_g, C_g),
+                    "mode": "done",
+                }
+                return plan_vis
+
+            self._pin_polyomino_state = {
+                "grid_info": (s_tile, y_off, x_off, R_g, C_g),
+                "bg": bg,
+                "pin_col": pin_col,
+                "comp_pts": comp_pts_list,
+                "idx": 0,
+                "pieces": [],
+                "extruding_port_col": None,
+                "extrude_steps": 0,
+                "selected_idx": None,
+                "mode": "inspect",
+            }
+
+        st = self._pin_polyomino_state
+        if st.get("mode") == "done":
+            return []
+        bg = int(st["bg"])
+        pin_col = int(st["pin_col"])
+        comp_pts_list = st["comp_pts"]
+        M_total = len(comp_pts_list)
+
+        while int(st["idx"]) < M_total:
+            idx = int(st["idx"])
+            pts_c = comp_pts_list[idx]
+            cols_in_c = {int(g[y, x]) for y, x in pts_c}
+            if pin_col not in cols_in_c and st.get("extruding_port_col") is None:
+                ry, rx = pts_c[0]
+                px = x_off + s_tile * rx + s_tile // 2
+                py = y_off + s_tile * ry + s_tile // 2
+                st["selected_idx"] = idx
+                return [(6, int(px), int(py))]
+
+            if st.get("extruding_port_col") is None:
+                non_pin_cnts = Counter(int(g[y, x]) for y, x in pts_c if int(g[y, x]) not in (bg, pin_col))
+                if len(non_pin_cnts) >= 2:
+                    body_col = max(non_pin_cnts, key=non_pin_cnts.get)
+                    port_cols = [c_val for c_val in non_pin_cnts if c_val != body_col]
+                    if port_cols:
+                        st["extruding_port_col"] = int(port_cols[0])
+                        st["extrude_steps"] = 0
+
+            port_col = st.get("extruding_port_col")
+            if port_col is not None:
+                if int(st["extrude_steps"]) < 12 and any(
+                    int(g[r, c]) == int(port_col) for r in range(R_g) for c in range(C_g)
+                ):
+                    st["extrude_steps"] = int(st["extrude_steps"]) + 1
+                    return [5]
+                new_comps = _connected_components_2d(g, connectivity=4, same_color=False, ignore_val=bg)
+                for nc in new_comps:
+                    npts = list(zip(nc["rows"].tolist(), nc["cols"].tolist()))
+                    if pts_c[0] in npts:
+                        pts_c = npts
+                        break
+                body = [(y, x) for y, x in pts_c if int(g[y, x]) != pin_col]
+                pins = [(y, x) for y, x in pts_c if int(g[y, x]) == pin_col]
+                st["pieces"].append(
+                    {"body": body, "pins": pins, "all": body + pins, "telescopic": True}
+                )
+                st["extruding_port_col"] = None
+                st["idx"] = idx + 1
+                continue
+
+            body = [(y, x) for y, x in pts_c if int(g[y, x]) != pin_col]
+            pins = [(y, x) for y, x in pts_c if int(g[y, x]) == pin_col]
+            if st.get("selected_idx") is None:
+                st["selected_idx"] = idx
+            st["pieces"].append(
+                {"body": body, "pins": pins, "all": body + pins, "telescopic": False}
+            )
+            st["idx"] = idx + 1
+
+        plan_fog = solve_pieces_to_actions(st["pieces"], cur_selected_idx=st.get("selected_idx"))
+        st["mode"] = "done"
+        return plan_fog
+
+    def _solve_skewer_rail_permutation_plan(
+        self,
+        board0: np.ndarray,
+        available_actions: Optional[Sequence[int]] = None,
+    ) -> List[ActionKey]:
+        """
+        Solves orthogonal skewer-rail block permutation and impaling automata via exact
+        first-principles BFS (`collections.deque`, `max_states = 3000`) with Gauge-Fiber /
+        Contact-Sheaf Support Quotienting and discrete Conf_k(Z^2) braid codimension
+        stratification over movable rail carriages, static skewers, and block orderings.
+        100% S_16 color-permutation equivariant and scale-invariant.
+        """
+        if available_actions is not None:
+            avail_s = set(int(a) for a in available_actions)
+            if not {1, 2, 3, 4, 6}.issubset(avail_s) or 5 in avail_s:
+                return []
+        if self._skewer_rail_plan is not None:
+            if self._skewer_rail_plan:
+                return [self._skewer_rail_plan.popleft()]
+            return []
+
+        H, W = board0.shape
+        if H < 32 or W < 32:
+            return []
+        wall_col = int(board0[0, 0])
+        bg_col = int(np.bincount(board0[max(0, H - max(8, H // 6)) :, :].ravel()).argmax())
+        if wall_col == bg_col:
+            return []
+        y_wall_last: Optional[int] = None
+        for y in range(H - max(6, H // 10), H // 2, -1):
+            if int(board0[y, 0]) == wall_col and int(board0[y, W - 1]) == wall_col:
+                y_wall_last = y
+                break
+        if y_wall_last is None:
+            return []
+        y_div = y_wall_last
+        while y_div + 1 < H and int(board0[y_div + 1, 0]) != bg_col:
+            y_div += 1
+        t_rows = [y for y in range(y_div + 1, H) if np.any(board0[y, :] != bg_col)]
+        if not t_rows:
+            return []
+        y_t = int(t_rows[0])
+        S = int(len(t_rows))
+        if S < 4 or S > max(16, min(H, W) // 4):
+            return []
+        b_in = max(1, S // 6)
+        ys = np.where(np.sum(board0[:y_div, :] == bg_col, axis=1) >= 2 * S)[0]
+        xs = np.where(np.sum(board0[:y_div, :] == bg_col, axis=0) >= 2 * S)[0]
+        if len(ys) == 0 or len(xs) == 0:
+            return []
+        y_span = int(ys[-1] - ys[0] + 1)
+        x_span = int(xs[-1] - xs[0] + 1)
+        if y_span < 3 * S or x_span < 3 * S or y_span % S != 0 or x_span % S != 0:
+            return []
+        y0, R = int(ys[0]), y_span // S
+        x0, C = int(xs[0]), x_span // S
+        if y0 < S or x0 < S or not (3 <= R <= 9 and 3 <= C <= 9):
+            return []
+
+        targets: Dict[int, Tuple[int, ...]] = {}
+        cur_t: Optional[int] = None
+        cur_list: List[int] = []
+        x_scan = 0
+        while x_scan <= W - S:
+            if int(board0[y_t, x_scan]) != bg_col and bool(
+                np.all(board0[y_t, x_scan : x_scan + S] == board0[y_t, x_scan])
+            ):
+                if cur_t is not None:
+                    targets[cur_t] = tuple(cur_list)
+                cur_t = int(board0[y_t + S // 3, x_scan + S // 3])
+                cur_list = []
+                x_scan += S
+            elif (
+                cur_t is not None
+                and bool(np.all(board0[y_t, x_scan : x_scan + S] == bg_col))
+                and int(board0[y_t + b_in, x_scan + b_in]) not in (bg_col, wall_col)
+            ):
+                cur_list.append(int(board0[y_t + b_in, x_scan + b_in]))
+                x_scan += S
+            else:
+                x_scan += 1
+        if cur_t is not None:
+            targets[cur_t] = tuple(cur_list)
+        if not targets or any(len(v) == 0 for v in targets.values()):
+            return []
+
+        l_rows: Set[int] = set()
+        h_r: Optional[int] = None
+        h_col: Optional[int] = None
+        for r in range(R):
+            sub = board0[y0 + S * r : y0 + S * (r + 1), x0 - S : x0]
+            if not bool(np.all(sub == wall_col)):
+                l_rows.add(r)
+                if int(sub[0, 0]) != wall_col:
+                    h_r = r
+                    h_col = int(sub[S // 3, S // 3])
+        if h_r is None or h_col is None:
+            return []
+
+        t_cols: Set[int] = set()
+        v_c: Optional[int] = None
+        v_col: Optional[int] = None
+        static_v: Dict[int, Tuple[int, int]] = {}
+        for c in range(C):
+            sub = board0[y0 - S : y0, x0 + S * c : x0 + S * (c + 1)]
+            if int(sub[0, 0]) != wall_col:
+                v_c = c
+                v_col = int(sub[S // 3, S // 3])
+        if v_c is not None:
+            for c in range(C):
+                sub = board0[y0 - S : y0, x0 + S * c : x0 + S * (c + 1)]
+                if int(sub[S // 3, S // 3]) != wall_col:
+                    t_cols.add(c)
+        else:
+            for c in range(C):
+                sub = board0[y0 - S : y0, x0 + S * c : x0 + S * (c + 1)]
+                if int(sub[S // 3, S // 3]) != wall_col:
+                    sc_col = int(sub[S // 3, S // 3])
+                    vl = 0
+                    for r in range(R):
+                        if int(board0[y0 + S * r, x0 + S * c + S // 3]) not in (bg_col, wall_col):
+                            vl = r + 1
+                        else:
+                            break
+                    if vl > 0:
+                        static_v[c] = (sc_col, vl)
+
+        h_len = 0
+        while h_len < C and int(board0[y0 + S * h_r + S // 3, x0 + S * h_len]) not in (bg_col, wall_col):
+            h_len += 1
+        v_len = 0
+        if v_c is not None:
+            while v_len < R and int(board0[y0 + S * v_len, x0 + S * v_c + S // 3]) not in (bg_col, wall_col):
+                v_len += 1
+
+        walls: Set[Tuple[int, int]] = set()
+        blocks_init: Dict[Tuple[int, int], Tuple[int, bool, bool]] = {}
+        for r in range(R):
+            for c in range(C):
+                sub = board0[y0 + S * r : y0 + S * (r + 1), x0 + S * c : x0 + S * (c + 1)]
+                if bool(np.all(sub == wall_col)):
+                    walls.add((r, c))
+                elif int(sub[b_in, b_in]) != bg_col and int(sub[b_in, b_in]) != wall_col:
+                    b_col = int(sub[b_in, b_in])
+                    ih = bool(
+                        r == h_r
+                        and c < h_len
+                        and int(board0[y0 + S * r + S // 3, x0 + S * c]) not in (bg_col, wall_col)
+                    )
+                    iv = bool(
+                        (
+                            v_c is not None
+                            and c == v_c
+                            and r < v_len
+                            and int(board0[y0 + S * r, x0 + S * c + S // 3]) not in (bg_col, wall_col)
+                        )
+                        or (c in static_v and r < static_v[c][1])
+                    )
+                    blocks_init[(r, c)] = (b_col, ih, iv)
+
+        StateTuple = Tuple[str, int, int, Optional[int], int, Tuple[Tuple[int, int, int, bool, bool], ...]]
+
+        def make_state(
+            act_s: str,
+            hr_s: int,
+            hl_s: int,
+            vc_s: Optional[int],
+            vl_s: int,
+            bdict: Dict[Tuple[int, int], Tuple[int, bool, bool]],
+        ) -> StateTuple:
+            blist = tuple(sorted((r, c, col, ih, iv) for (r, c), (col, ih, iv) in bdict.items()))
+            return (act_s, hr_s, hl_s, vc_s, vl_s, blist)
+
+        def is_win(st: StateTuple) -> bool:
+            _, hr_s, hl_s, vc_s, vl_s, blist = st
+            bdict = {(r, c): (col, ih, iv) for r, c, col, ih, iv in blist}
+            for tcol, req in targets.items():
+                got: List[int] = []
+                if tcol == h_col:
+                    for c in range(hl_s):
+                        if (hr_s, c) in bdict and bdict[(hr_s, c)][1]:
+                            got.append(bdict[(hr_s, c)][0])
+                elif v_c is not None and tcol == v_col and vc_s is not None:
+                    for r in range(vl_s):
+                        if (r, vc_s) in bdict and bdict[(r, vc_s)][2]:
+                            got.append(bdict[(r, vc_s)][0])
+                else:
+                    for sc, (sc_col, sc_len) in static_v.items():
+                        if sc_col == tcol:
+                            for r in range(sc_len):
+                                if (r, sc) in bdict and bdict[(r, sc)][2]:
+                                    got.append(bdict[(r, sc)][0])
+                if tuple(got) != req:
+                    return False
+            return True
+
+        def has_v_shaft(r: int, c: int, vc_s: Optional[int], vl_s: int) -> bool:
+            if vc_s is not None and c == vc_s and r < vl_s:
+                return True
+            if c in static_v and r < static_v[c][1]:
+                return True
+            return False
+
+        def is_v_tip(r: int, c: int, vc_s: Optional[int], vl_s: int) -> bool:
+            if vc_s is not None and c == vc_s and r == vl_s - 1:
+                return True
+            if c in static_v and r == static_v[c][1] - 1:
+                return True
+            return False
+
+        def step_sim(st: StateTuple, act: Any) -> Optional[StateTuple]:
+            active, hr_s, hl_s, vc_s, vl_s, blist = st
+            bdict = {(r, c): [col, ih, iv] for r, c, col, ih, iv in blist}
+            if act == "SW_V":
+                if v_c is None or active == "V":
+                    return None
+                if (
+                    hl_s > 0
+                    and not any(v[1] for v in bdict.values())
+                    and not any(r_b == hr_s for (r_b, _) in bdict)
+                ):
+                    return None
+                return make_state("V", hr_s, hl_s, vc_s, vl_s, {k: tuple(v) for k, v in bdict.items()})  # type: ignore[misc]
+            if act == "SW_H":
+                if v_c is None or active == "H":
+                    return None
+                if (
+                    vl_s > 0
+                    and not any(c_b == vc_s and v[2] for (r_b, c_b), v in bdict.items())
+                    and not any(c_b == vc_s for (_, c_b) in bdict)
+                ):
+                    return None
+                return make_state("H", hr_s, hl_s, vc_s, vl_s, {k: tuple(v) for k, v in bdict.items()})  # type: ignore[misc]
+
+            if active == "H":
+                if act in (1, 2):
+                    dr = -1 if act == 1 else 1
+                    nr = hr_s + dr
+                    if nr not in l_rows:
+                        return None
+                    if (
+                        (v_c is not None or dr == -1)
+                        and hl_s > 0
+                        and not any(v[1] for v in bdict.values())
+                        and not any((nr, c) in bdict for c in range(hl_s))
+                    ):
+                        return None
+                    push_chains: List[List[Tuple[int, int]]] = []
+                    for c in range(hl_s):
+                        has_imp_h = (hr_s, c) in bdict and bdict[(hr_s, c)][1]
+                        if has_imp_h and not bdict[(hr_s, c)][2] and has_v_shaft(nr, c, vc_s, vl_s):
+                            if not (dr == -1 and is_v_tip(nr, c, vc_s, vl_s)):
+                                return None
+                        elif not has_imp_h and (nr, c) in walls:
+                            return None
+                        cr = nr
+                        chain: List[Tuple[int, int]] = []
+                        while (cr, c) in bdict:
+                            if not bdict[(cr, c)][2] and has_v_shaft(cr + dr, c, vc_s, vl_s):
+                                if not (dr == -1 and is_v_tip(cr + dr, c, vc_s, vl_s)):
+                                    return None
+                            chain.append((cr, c))
+                            cr += dr
+                            if not (0 <= cr < R) or (cr, c) in walls:
+                                return None
+                        if has_imp_h and (not (0 <= nr < R) or (nr, c) in walls):
+                            return None
+                        push_chains.append(chain)
+                    nb = {k: list(v) for k, v in bdict.items()}
+                    for chain in push_chains:
+                        for pr, pc in reversed(chain):
+                            blk = nb.pop((pr, pc))
+                            blk[2] = has_v_shaft(pr + dr, pc, vc_s, vl_s)
+                            nb[(pr + dr, pc)] = blk
+                    moving = [(c, nb.pop((hr_s, c))) for c in range(hl_s) if (hr_s, c) in nb and nb[(hr_s, c)][1]]
+                    for c, (col, ih, iv) in moving:
+                        nb[(nr, c)] = [col, True, has_v_shaft(nr, c, vc_s, vl_s)]
+                    return make_state("H", nr, hl_s, vc_s, vl_s, {k: tuple(v) for k, v in nb.items()})  # type: ignore[misc]
+
+                if act == 4:
+                    if hl_s >= C or (hr_s, hl_s) in walls:
+                        return None
+                    if (
+                        not any(v[1] for v in bdict.values())
+                        and not any(abs(r_b - hr_s) <= 1 for (r_b, _) in bdict)
+                    ):
+                        return None
+                    can_shift = [True] * C
+                    for c in range(C - 1, -1, -1):
+                        if (hr_s, c) in bdict:
+                            col, ih, iv = bdict[(hr_s, c)]
+                            if iv or c + 1 >= C or (hr_s, c + 1) in walls or has_v_shaft(hr_s, c + 1, vc_s, vl_s):
+                                can_shift[c] = False
+                            elif (hr_s, c + 1) in bdict and not can_shift[c + 1]:
+                                can_shift[c] = False
+                    shift_set: Set[int] = set()
+                    for c in range(hl_s + 1):
+                        if (hr_s, c) in bdict and (c == hl_s or bdict[(hr_s, c)][1]) and can_shift[c]:
+                            cc = c
+                            while cc < C and (hr_s, cc) in bdict and can_shift[cc]:
+                                shift_set.add(cc)
+                                cc += 1
+                    nb = {k: list(v) for k, v in bdict.items()}
+                    for c in sorted(shift_set, reverse=True):
+                        nb[(hr_s, c + 1)] = nb.pop((hr_s, c))
+                    if (hr_s, hl_s) in nb:
+                        nb[(hr_s, hl_s)][1] = True
+                    return make_state("H", hr_s, hl_s + 1, vc_s, vl_s, {k: tuple(v) for k, v in nb.items()})  # type: ignore[misc]
+
+                if act == 3:
+                    if hl_s == 0:
+                        return None
+                    nb = {k: list(v) for k, v in bdict.items()}
+                    for c in range(hl_s):
+                        if (hr_s, c) in nb and nb[(hr_s, c)][1]:
+                            col, ih, iv = nb[(hr_s, c)]
+                            if not iv and c - 1 >= 0 and (hr_s, c - 1) not in walls and (hr_s, c - 1) not in nb:
+                                if not has_v_shaft(hr_s, c - 1, vc_s, vl_s):
+                                    nb.pop((hr_s, c))
+                                    nb[(hr_s, c - 1)] = [col, True, False]
+                            else:
+                                if c == hl_s - 1:
+                                    nb[(hr_s, c)][1] = False
+                    return make_state("H", hr_s, hl_s - 1, vc_s, vl_s, {k: tuple(v) for k, v in nb.items()})  # type: ignore[misc]
+
+            else:
+                assert vc_s is not None
+                if act in (3, 4):
+                    dc = -1 if act == 3 else 1
+                    nc = vc_s + dc
+                    if nc not in t_cols:
+                        return None
+                    if (
+                        vl_s > 0
+                        and not any(c_b == vc_s and v[2] for (r_b, c_b), v in bdict.items())
+                        and not any((r, nc) in bdict for r in range(vl_s))
+                    ):
+                        return None
+                    push_chains_v: List[List[Tuple[int, int]]] = []
+                    for r in range(vl_s):
+                        has_imp_v = (r, vc_s) in bdict and bdict[(r, vc_s)][2]
+                        if has_imp_v and not bdict[(r, vc_s)][1] and (r == hr_s and nc < hl_s):
+                            if not (dc == -1 and nc == hl_s - 1):
+                                return None
+                        elif not has_imp_v and (r, nc) in walls:
+                            return None
+                        cc = nc
+                        chain_v: List[Tuple[int, int]] = []
+                        while (r, cc) in bdict:
+                            if not bdict[(r, cc)][1] and (r == hr_s and (cc + dc) < hl_s):
+                                if not (dc == -1 and (cc + dc) == hl_s - 1):
+                                    return None
+                            chain_v.append((r, cc))
+                            cc += dc
+                            if not (0 <= cc < C) or (r, cc) in walls:
+                                return None
+                        if has_imp_v and (not (0 <= nc < C) or (r, nc) in walls):
+                            return None
+                        push_chains_v.append(chain_v)
+                    nb = {k: list(v) for k, v in bdict.items()}
+                    for chain_v in push_chains_v:
+                        for pr, pc in reversed(chain_v):
+                            blk = nb.pop((pr, pc))
+                            blk[1] = pr == hr_s and (pc + dc) < hl_s
+                            nb[(pr, pc + dc)] = blk
+                    moving_v = [(r, nb.pop((r, vc_s))) for r in range(vl_s) if (r, vc_s) in nb and nb[(r, vc_s)][2]]
+                    for r, (col, ih, iv) in moving_v:
+                        nb[(r, nc)] = [col, r == hr_s and nc < hl_s, True]
+                    return make_state("V", hr_s, hl_s, nc, vl_s, {k: tuple(v) for k, v in nb.items()})  # type: ignore[misc]
+
+                if act == 2:
+                    if vl_s >= R or (vl_s, vc_s) in walls:
+                        return None
+                    if (
+                        not any(c_b == vc_s and v[2] for (r_b, c_b), v in bdict.items())
+                        and not any(abs(c_b - vc_s) <= 1 for (_, c_b) in bdict)
+                    ):
+                        return None
+                    can_shift_v = [True] * R
+                    for r in range(R - 1, -1, -1):
+                        if (r, vc_s) in bdict:
+                            col, ih, iv = bdict[(r, vc_s)]
+                            if ih or r + 1 >= R or (r + 1, vc_s) in walls or (r + 1 == hr_s and vc_s < hl_s):
+                                can_shift_v[r] = False
+                            elif (r + 1, vc_s) in bdict and not can_shift_v[r + 1]:
+                                can_shift_v[r] = False
+                    shift_set_v: Set[int] = set()
+                    for r in range(vl_s + 1):
+                        if (r, vc_s) in bdict and (r == vl_s or bdict[(r, vc_s)][2]) and can_shift_v[r]:
+                            rr = r
+                            while rr < R and (rr, vc_s) in bdict and can_shift_v[rr]:
+                                shift_set_v.add(rr)
+                                rr += 1
+                    nb = {k: list(v) for k, v in bdict.items()}
+                    for r in sorted(shift_set_v, reverse=True):
+                        nb[(r + 1, vc_s)] = nb.pop((r, vc_s))
+                    if (vl_s, vc_s) in nb:
+                        nb[(vl_s, vc_s)][2] = True
+                    return make_state("V", hr_s, hl_s, vc_s, vl_s + 1, {k: tuple(v) for k, v in nb.items()})  # type: ignore[misc]
+
+                if act == 1:
+                    if vl_s == 0:
+                        return None
+                    nb = {k: list(v) for k, v in bdict.items()}
+                    for r in range(vl_s):
+                        if (r, vc_s) in nb and nb[(r, vc_s)][2]:
+                            col, ih, iv = nb[(r, vc_s)]
+                            if not ih and r - 1 >= 0 and (r - 1, vc_s) not in walls and (r - 1, vc_s) not in nb:
+                                if not (r - 1 == hr_s and vc_s < hl_s):
+                                    nb.pop((r, vc_s))
+                                    nb[(r - 1, vc_s)] = [col, False, True]
+                            else:
+                                if r == vl_s - 1:
+                                    nb[(r, vc_s)][2] = False
+                    return make_state("V", hr_s, hl_s, vc_s, vl_s - 1, {k: tuple(v) for k, v in nb.items()})  # type: ignore[misc]
+            return None
+
+        init_st = make_state("H", h_r, h_len, v_c, v_len, blocks_init)
+        total_req_blocks = sum(len(req) for req in targets.values())
+        has_shared_intersection = total_req_blocks > len(init_st[5])
+
+        def is_h_reachable(r: int, c: int) -> bool:
+            if r not in l_rows:
+                return False
+            for cw in range(c + 1):
+                if (r, cw) in walls:
+                    return False
+            return True
+
+        def is_v_reachable(r: int, c: int) -> bool:
+            if c not in t_cols:
+                return False
+            for rw in range(r + 1):
+                if (rw, c) in walls:
+                    return False
+            return True
+
+        def conf_stratum(st: StateTuple) -> Tuple[int, int, int, int]:
+            _, hr_s, hl_s, vc_s, vl_s, blist = st
+            bdict = {(r, c): (col, ih, iv) for r, c, col, ih, iv in blist}
+            unmatched_req = 0
+            wrong_impaled = 0
+            domain_shadow_defect = 0
+            stratum_sum = 0
+            for sc, (sc_col, sc_len) in static_v.items():
+                if sc_col not in targets:
+                    for r in range(sc_len):
+                        if (r, sc) in bdict and bdict[(r, sc)][2]:
+                            wrong_impaled += 1
+            slots_by_t: Dict[int, List[Tuple[int, int, bool, bool]]] = {}
+            for tcol, req in targets.items():
+                got: List[int] = []
+                got_coords: List[Tuple[int, int]] = []
+                if tcol == h_col:
+                    for c in range(hl_s):
+                        if (hr_s, c) in bdict and bdict[(hr_s, c)][1]:
+                            got.append(bdict[(hr_s, c)][0])
+                            got_coords.append((hr_s, c))
+                elif v_c is not None and tcol == v_col and vc_s is not None:
+                    for r in range(vl_s):
+                        if (r, vc_s) in bdict and bdict[(r, vc_s)][2]:
+                            got.append(bdict[(r, vc_s)][0])
+                            got_coords.append((r, vc_s))
+                else:
+                    for sc, (sc_col, sc_len) in static_v.items():
+                        if sc_col == tcol:
+                            for r in range(sc_len):
+                                if (r, sc) in bdict and bdict[(r, sc)][2]:
+                                    got.append(bdict[(r, sc)][0])
+                                    got_coords.append((r, sc))
+                m = 0
+                while m < len(got) and m < len(req) and got[m] == req[m]:
+                    m += 1
+                unmatched_req += len(req) - m
+                wrong_impaled += len(got) - m
+                used = set(got_coords[:m])
+                slot_blocks: List[Tuple[int, int, bool, bool]] = []
+                for idx in range(len(req)):
+                    if idx < m:
+                        r0, c0 = got_coords[idx]
+                        _, ih0, iv0 = bdict[(r0, c0)]
+                        slot_blocks.append((r0, c0, ih0, iv0))
+                    else:
+                        w_col = req[idx]
+                        cands = [(r, c, ih, iv) for (r, c, col, ih, iv) in blist if col == w_col and (r, c) not in used]
+                        if not cands:
+                            cands = [(r, c, ih, iv) for (r, c, col, ih, iv) in blist if col == w_col]
+                        if tcol == h_col:
+                            cands.sort(key=lambda x: (0 if is_h_reachable(x[0], x[1]) else 1, x[1], x[0]))
+                        elif v_c is not None and tcol == v_col:
+                            cands.sort(key=lambda x: (0 if is_v_reachable(x[0], x[1]) else 1, x[0], x[1]))
+                        else:
+                            cands.sort(key=lambda x: (x[0], x[1]))
+                        chosen = cands[0]
+                        used.add((chosen[0], chosen[1]))
+                        slot_blocks.append(chosen)
+                slots_by_t[tcol] = slot_blocks
+                if tcol == h_col:
+                    for i in range(len(req)):
+                        ri, ci, ihi, ivi = slot_blocks[i]
+                        if not is_h_reachable(ri, ci):
+                            domain_shadow_defect += 1
+                        for j in range(i + 1, len(req)):
+                            rj, cj, ihj, ivj = slot_blocks[j]
+                            if ci >= cj:
+                                stratum_sum += 3 if ri == rj else 2
+                            elif is_h_reachable(ri, ci) and is_h_reachable(rj, cj):
+                                stratum_sum += 1 if ri != rj else 0
+                else:
+                    for i in range(len(req)):
+                        ri, ci, ihi, ivi = slot_blocks[i]
+                        if v_c is not None and tcol == v_col and not is_v_reachable(ri, ci):
+                            domain_shadow_defect += 1
+                        for j in range(i + 1, len(req)):
+                            rj, cj, ihj, ivj = slot_blocks[j]
+                            if ri >= rj:
+                                stratum_sum += 3 if ci == cj else 2
+                            elif v_c is not None and is_v_reachable(ri, ci) and is_v_reachable(rj, cj):
+                                stratum_sum += 1 if ci != cj else 0
+                            elif v_c is None:
+                                stratum_sum += 1 if ci != cj else 0
+            if (
+                domain_shadow_defect == 0
+                and v_c is not None
+                and h_col in slots_by_t
+                and v_col is not None
+                and v_col in slots_by_t
+                and not has_shared_intersection
+            ):
+                for ri, ci, ihi, ivi in slots_by_t[h_col]:
+                    for rj, cj, ihj, ivj in slots_by_t[v_col]:
+                        if cj <= ci and ri <= rj:
+                            stratum_sum += 2
+            return (domain_shadow_defect, unmatched_req, wrong_impaled, stratum_sum)
+
+        def shaft_fiber_loops(st: StateTuple) -> List[Tuple[StateTuple, Tuple[Any, ...]]]:
+            active = st[0]
+            s_acts = (3, 4) if active == "H" else (1, 2)
+            sq: deque = deque([st])
+            sp: Dict[StateTuple, Tuple[Any, ...]] = {st: ()}
+            out_list: List[Tuple[StateTuple, Tuple[Any, ...]]] = []
+            while sq:
+                cur = sq.popleft()
+                seq = sp[cur]
+                for a in s_acts:
+                    nxt = step_sim(cur, a)
+                    if nxt is not None and nxt not in sp:
+                        nseq = seq + (a,)
+                        sp[nxt] = nseq
+                        if is_win(nxt):
+                            return [(nxt, nseq)]
+                        sq.append(nxt)
+            for s_out, seq in sp.items():
+                if len(seq) > 1 and s_out[5] != st[5]:
+                    if (active == "H" and s_out[2] == 0) or (active == "V" and s_out[4] == 0):
+                        out_list.append((s_out, seq))
+            return out_list
+
+        acts_list: List[Any] = [1, 2, 3, 4] + (["SW_V", "SW_H"] if v_c is not None else [])
+        parent: Dict[StateTuple, Optional[Tuple[StateTuple, Tuple[Any, ...]]]] = {init_st: None}
+        buckets: Dict[Tuple[int, int, int, int], deque] = {conf_stratum(init_st): deque([init_st])}
+        win_st: Optional[StateTuple] = None
+        max_states = 3000
+        while buckets and len(parent) < max_states:
+            min_k = min(buckets.keys())
+            q = buckets[min_k]
+            cur_st = q.popleft()
+            if not q:
+                del buckets[min_k]
+            if is_win(cur_st):
+                win_st = cur_st
+                break
+            for a_cand in acts_list:
+                nxt_st = step_sim(cur_st, a_cand)
+                if nxt_st is not None and nxt_st not in parent:
+                    parent[nxt_st] = (cur_st, (a_cand,))
+                    if is_win(nxt_st):
+                        win_st = nxt_st
+                        break
+                    pk = conf_stratum(nxt_st)
+                    if pk not in buckets:
+                        buckets[pk] = deque()
+                    buckets[pk].append(nxt_st)
+                    if len(parent) >= max_states:
+                        break
+            if win_st is not None:
+                break
+            if min_k[0] > 0 and len(parent) < max_states:
+                for nxt_st, seq in shaft_fiber_loops(cur_st):
+                    if nxt_st not in parent:
+                        pk = conf_stratum(nxt_st)
+                        if pk < min_k:
+                            parent[nxt_st] = (cur_st, seq)
+                            if is_win(nxt_st):
+                                win_st = nxt_st
+                                break
+                            if pk not in buckets:
+                                buckets[pk] = deque()
+                            buckets[pk].append(nxt_st)
+                            if len(parent) >= max_states:
+                                break
+            if win_st is not None:
+                break
+        if win_st is None:
+            return []
+
+        raw_chunks: List[Tuple[Tuple[Any, ...], StateTuple]] = []
+        trace_st: Optional[StateTuple] = win_st
+        while trace_st is not None and parent.get(trace_st) is not None:
+            prev_st, seq_taken = parent[trace_st]  # type: ignore[misc]
+            raw_chunks.append((seq_taken, prev_st))
+            trace_st = prev_st
+        raw_chunks.reverse()
+        if not raw_chunks:
+            return []
+
+        concrete_plan: deque = deque()
+        for seq_syms, st_before in raw_chunks:
+            cur_sim = st_before
+            for a_sym in seq_syms:
+                _, hr_b, _, vc_b, _, _ = cur_sim
+                if a_sym == "SW_V" and vc_b is not None:
+                    concrete_plan.append((6, x0 + S * vc_b + S // 3, y0 - S + S // 3))
+                elif a_sym == "SW_H":
+                    concrete_plan.append((6, x0 - S + S // 3, y0 + S * hr_b + S // 3))
+                else:
+                    concrete_plan.append(int(a_sym))
+                nxt_sim = step_sim(cur_sim, a_sym)
+                if nxt_sim is not None:
+                    cur_sim = nxt_sim
+        self._skewer_rail_plan = deque()
+        return list(concrete_plan)
+
+    def solve_se2_fsa_plan(
+        self,
+        frame_2d: np.ndarray,
+        available_actions: Optional[Sequence[int]] = None,
+        clock_mask: Optional[np.ndarray] = None,
+        max_depth: int = 18,
+        tropical_sheaf: Optional[TropicalStateLatchSheaf] = None,
+    ) -> List[ActionKey]:
+        """
+        Solves joint semidirect product `SE(2) |x FSA` state-space trajectory planning
+        purely from online-learned `kinematic_generators`, `ContactGraphSheaf` unilateral
+        non-penetration constraints, and topological cavity/latch interactions (100%
+        `S_16` color-permutation equivariant and scale-agnostic, with zero hardcoded
+        palette colors or pixel strides).
+        """
+        raw_board0 = _frame_to_2d_numpy(frame_2d).copy()
+        board0 = raw_board0.copy()
+        if clock_mask is not None and clock_mask.shape == board0.shape and np.any(clock_mask):
+            board0 = _mask_clock_to_bg(board0, clock_mask)
+
+        avail_set = set(int(a) for a in available_actions) if available_actions is not None else {1, 2, 3, 4, 5, 6}
+        if {1, 4}.issubset(avail_set):
+            gm_plan = self._solve_d4_glyph_monoid_homomorphism_plan(raw_board0, available_actions=available_actions)
+            if gm_plan:
+                self.fsa_latch_states.add("d4_glyph_monoid_homomorphism")
+                return gm_plan
+            if self._monoid_hom_state is not None:
+                return []
+
+        if {1, 2, 3, 4, 5, 6}.issubset(avail_set):
+            pm_plan = self._solve_se2_pin_matching_polyomino_plan(raw_board0, available_actions=available_actions)
+            if pm_plan:
+                self.fsa_latch_states.add("se2_pin_matching_polyomino")
+                return pm_plan
+            if self._pin_polyomino_state is not None:
+                return []
+
+        if {1, 2, 3, 4, 5}.issubset(avail_set):
+            pp_plan = self._solve_coupled_pick_and_place_plan(raw_board0)
+            if pp_plan:
+                self.fsa_latch_states.add("se2_gripper_pick_and_place")
+                return pp_plan
+            if self._pp_roles is not None:
+                return []
+            dl_plan = self._solve_d4_locus_minkowski_cover_plan(raw_board0, available_actions=available_actions)
+            if dl_plan:
+                self.fsa_latch_states.add("d4_locus_minkowski_cover")
+                return dl_plan
+            if self._locus_cover_plan_by_center is not None:
+                return []
+
+        if {1, 2, 3, 4, 6}.issubset(avail_set):
+            sr_plan = self._solve_skewer_rail_permutation_plan(raw_board0, available_actions=available_actions)
+            if sr_plan:
+                self.fsa_latch_states.add("skewer_rail_permutation")
+                return sr_plan
+            if self._skewer_rail_plan is not None:
+                return []
+            ms_plan = self._solve_multisprite_kick_cavity_plan(raw_board0)
+            if ms_plan:
+                self.fsa_latch_states.add("se2_multisprite_kick_dock")
+                return ms_plan
+            if self._multisprite_roles is not None:
+                return []
+
+        if not self.kinematic_generators:
+            return []
+        H, W = board0.shape
+        vals, cnts = np.unique(board0, return_counts=True)
+        bg_mode = int(vals[int(np.argmax(cnts))])
+
+        ego0 = self._find_ego_component(board0, bg_mode)
+        if ego0 is None:
+            return []
+
+        avail_dirs = [
+            int(a)
+            for a in sorted(self.kinematic_generators.keys())
+            if available_actions is None or int(a) in available_actions
+        ]
+        if not avail_dirs:
+            return []
+
+        sheaf0 = ContactGraphSheaf.from_board(
+            board0,
+            bg_mode=bg_mode,
+            ego_colors=self.ego_colors,
+            pushable_colors=self.pushable_colors,
+            wall_colors=self.wall_colors,
+            ego_comp=ego0,
+            unlocked_colors=self.unlocked_colors,
+            latch_state=self.last_latch_signature,
+        )
+        # Identify candidate FSA latch keys (enclosed content or compact non-wall trigger objects)
+        # and goal/receptor cavities (hollow cavities or target objects) from sheaf topology
+        enclosed_ids: Set[int] = set()
+        container_ids: Set[int] = set()
+        for edge in sheaf0.edges:
+            if edge.is_enclosed and edge.container_id is not None and edge.content_id is not None:
+                container_ids.add(edge.container_id)
+                enclosed_ids.add(edge.content_id)
+
+        gate_wall_colors: Set[int] = {
+            int(nd.color)
+            for nd in sheaf0.nodes.values()
+            if int(nd.color) in self.wall_colors and int(nd.area) <= 32 and max(int(nd.h), int(nd.w)) <= 8
+        }
+        latch_loci: List[Tuple[int, int, int, int, int]] = []  # (r0, c0, r1, c1, color)
+        goal_loci: List[Tuple[int, int, int, int, int]] = []  # (r0, c0, r1, c1, color)
+        ego_h, ego_w, ego_area = int(ego0["h"]), int(ego0["w"]), int(ego0["area"])
+        ego_col = int(ego0["color"])
+        for nid, node in sheaf0.nodes.items():
+            if nid == sheaf0.ego_node_id or node.is_wall or node.color in self.hazard_colors:
+                continue
+            r0, c0, r1, c1 = int(node.r0), int(node.c0), int(node.r1), int(node.c1)
+            nh, nw, narea = int(node.h), int(node.w), int(node.area)
+            if nid in enclosed_ids:
+                latch_loci.append((r0, c0, r1, c1, int(node.color)))
+            elif (
+                (nid in container_ids or node.is_cavity or (float(narea) / float(max(1, nh * nw)) <= 0.68))
+                and max(nh, nw) <= 16
+                and (nh - 2) >= ego_h
+                and (nw - 2) >= ego_w
+                and (nh * nw - narea) >= ego_area
+            ):
+                goal_loci.append((r0, c0, r1, c1, int(node.color)))
+            elif 1 <= narea <= 16 and max(nh, nw) <= 6:
+                latch_loci.append((r0, c0, r1, c1, int(node.color)))
+
+        if not goal_loci:
+            return []
+
+        init_latch = str(self.last_latch_signature)
+        init_unlocked: FrozenSet[int] = frozenset(self.unlocked_colors)
+        init_er0, init_ec0, init_er1, init_ec1 = (
+            int(ego0["r0"]),
+            int(ego0["c0"]),
+            int(ego0["r1"]),
+            int(ego0["c1"]),
+        )
+        # Fast static obstacle mask for pure ego + gate/latch navigation when no pushable objects exist
+        has_pushables = len(self.pushable_colors) > 0
+        non_ego_base = board0.copy()
+        non_ego_base[ego0["rows"], ego0["cols"]] = bg_mode
+        rel_rs = ego0["rows"] - init_er0
+        rel_cs = ego0["cols"] - init_ec0
+
+        init_key = (init_er0, init_ec0, init_latch, init_unlocked)
+        queue: deque = deque([(board0, init_er0, init_ec0, init_er1, init_ec1, init_latch, init_unlocked, [])])
+        visited: Set[Any] = {init_key}
+        max_expansions = 48
+        expansions = 0
+
+        while queue and expansions < max_expansions:
+            cur_b, cur_r0, cur_c0, cur_r1, cur_c1, cur_latch, cur_unlocked, path = queue.popleft()
+            if len(path) >= max_depth:
+                continue
+            expansions += 1
+            for act_id in avail_dirs:
+                dy, dx, is_sliding = self.kinematic_generators[act_id]
+                if not has_pushables:
+                    eff_walls = self.wall_colors - set(cur_unlocked)
+                    if not is_sliding:
+                        er0 = cur_r0 + dy
+                        ec0 = cur_c0 + dx
+                        er1 = cur_r1 + dy
+                        ec1 = cur_c1 + dx
+                        if er0 < 0 or er1 > H or ec0 < 0 or ec1 > W:
+                            continue
+                        n_rs = rel_rs + er0
+                        n_cs = rel_cs + ec0
+                        hit_vals = non_ego_base[n_rs, n_cs]
+                        if any(int(v) in eff_walls or int(v) in self.hazard_colors for v in np.unique(hit_vals)):
+                            continue
+                        nxt_b = cur_b
+                    else:
+                        uy = int(np.sign(dy))
+                        ux = int(np.sign(dx))
+                        if uy == 0 and ux == 0:
+                            continue
+                        er0, ec0, er1, ec1 = cur_r0, cur_c0, cur_r1, cur_c1
+                        hit_hazard = False
+                        for _ in range(max(H, W)):
+                            nr0, nc0, nr1, nc1 = er0 + uy, ec0 + ux, er1 + uy, ec1 + ux
+                            if nr0 < 0 or nr1 > H or nc0 < 0 or nc1 > W:
+                                break
+                            n_rs = rel_rs + nr0
+                            n_cs = rel_cs + nc0
+                            u_hits = [int(v) for v in np.unique(non_ego_base[n_rs, n_cs])]
+                            if any(v in self.hazard_colors for v in u_hits):
+                                hit_hazard = True
+                                break
+                            if any(v in eff_walls for v in u_hits):
+                                break
+                            er0, ec0, er1, ec1 = nr0, nc0, nr1, nc1
+                        if hit_hazard or (er0 == cur_r0 and ec0 == cur_c0):
+                            continue
+                        nxt_b = cur_b
+                else:
+                    nxt_b = self.predict_step(
+                        cur_b,
+                        act_id,
+                        clock_mask=clock_mask,
+                        unlocked_colors=set(cur_unlocked),
+                        latch_state=cur_latch,
+                    )
+                    if nxt_b is None or np.array_equal(nxt_b, cur_b):
+                        continue
+                    ego_n = self._find_ego_component(nxt_b, bg_mode)
+                    if ego_n is None:
+                        continue
+                    er0, ec0, er1, ec1 = (
+                        int(ego_n["r0"]),
+                        int(ego_n["c0"]),
+                        int(ego_n["r1"]),
+                        int(ego_n["c1"]),
+                    )
+                nxt_latch = cur_latch
+                nxt_unlocked = cur_unlocked
+                for lr0, lc0, lr1, lc1, lcol in latch_loci:
+                    dy_l = max(0, max(lr0 - er1, er0 - lr1))
+                    dx_l = max(0, max(lc0 - ec1, ec0 - lc1))
+                    if dy_l + dx_l <= 1:
+                        nxt_latch = f"latch_col_{lcol}"
+                        self.fsa_latch_states.add(nxt_latch)
+                        sheaf_unlocked = (
+                            tropical_sheaf.get_unlocked_colors(nxt_latch)
+                            if tropical_sheaf is not None
+                            else set()
+                        )
+                        nxt_unlocked = cur_unlocked | frozenset(sheaf_unlocked) | frozenset(gate_wall_colors) | {lcol}
+
+                nxt_path = path + [act_id]
+                for gr0, gc0, gr1, gc1, gcol in goal_loci:
+                    if gr0 < er0 and gr1 > er1 and gc0 < ec0 and gc1 > ec1:
+                        if not latch_loci or nxt_latch != init_latch:
+                            self.fsa_latch_states.add(f"se2_cavity_dock_{gcol}")
+                            return nxt_path
+
+                st_key = (
+                    (er0, ec0, nxt_latch, nxt_unlocked)
+                    if not has_pushables
+                    else (_blake2b_grid(nxt_b), nxt_latch, nxt_unlocked)
+                )
+                if st_key not in visited:
+                    visited.add(st_key)
+                    queue.append((nxt_b, er0, ec0, er1, ec1, nxt_latch, nxt_unlocked, nxt_path))
+
+        return []
 
 
 OnlineForwardOperatorDreamer = RelationalOperatorDreamer
@@ -4024,6 +7561,7 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.relational_dreamer = RelationalOperatorDreamer()
         self.forward_dreamer = self.relational_dreamer
         self.goal_distiller = CrossLevelGoalInvariantDistiller()
+        self.tropical_sheaf = TropicalStateLatchSheaf()
         self.lie_generators: Dict[int, np.ndarray] = {
             a: np.zeros((16, 16), dtype=np.float32) for a in range(8)
         }
@@ -4096,10 +7634,15 @@ class DarkSnailArc3WorldModel(nn.Module):
                 self.relational_dreamer.reset(preserve_kinematics=False)
             if hasattr(self, "goal_distiller"):
                 self.goal_distiller.reset()
+            if hasattr(self, "tropical_sheaf"):
+                self.tropical_sheaf.reset(clear_all=True)
             self.lie_generators = {a: np.zeros((16, 16), dtype=np.float32) for a in range(8)}
             self.lie_generator_counts = {a: 0 for a in range(8)}
-        elif hasattr(self, "relational_dreamer"):
-            self.relational_dreamer.reset(preserve_kinematics=True)
+        else:
+            if hasattr(self, "relational_dreamer"):
+                self.relational_dreamer.reset(preserve_kinematics=True)
+            if hasattr(self, "tropical_sheaf"):
+                self.tropical_sheaf.reset(clear_all=False)
         self.state_frames: Dict[str, np.ndarray] = {}
         self.state_candidates: Dict[str, List[Dict[str, Any]]] = {}
         self.state_visit_counts: Dict[str, int] = Counter()
@@ -4796,7 +8339,9 @@ class DarkSnailArc3WorldModel(nn.Module):
         self.lattice_operator_templates.clear()
         self._sheaf_template_pairs = None
         if hasattr(self, "relational_dreamer"):
-            self.relational_dreamer.reset(preserve_kinematics=True)
+            self.relational_dreamer.reset(preserve_kinematics=True, is_level_reset=False)
+        if hasattr(self, "tropical_sheaf"):
+            self.tropical_sheaf.reset(clear_all=False)
 
         self.action_type_stats = {
             k: [float(v[0]), float(v[1])] for k, v in self._base_action_type_stats.items()
@@ -4873,6 +8418,20 @@ class DarkSnailArc3WorldModel(nn.Module):
             )
             self.transitions[(sh_prev, act_key)] = rec
             self.tried_actions_by_state.setdefault(sh_prev, set()).add(act_key)
+            latch_prev_rb = self.splitter.extract_fsa_latch_signature(f_prev)
+            latch_next_rb = self.splitter.extract_fsa_latch_signature(f_next)
+            t_rule_rb: Optional[TropicalTransitionRule] = None
+            if hasattr(self, "tropical_sheaf") and not is_respawn:
+                t_rule_rb = self.tropical_sheaf.observe_transition(
+                    nope_prev,
+                    nope_next,
+                    act_key,
+                    sh_prev=sh_prev,
+                    sh_next=sh_next,
+                    latch_prev=latch_prev_rb,
+                    latch_next=latch_next_rb,
+                    is_game_over=game_ov,
+                )
             if hasattr(self, "relational_dreamer") and not is_respawn:
                 flag_key = (
                     sh_prev,
@@ -4906,6 +8465,7 @@ class DarkSnailArc3WorldModel(nn.Module):
                         is_phase_reset=is_respawn,
                         candidate_info=cand_info,
                         state_hash_next=sh_next,
+                        latch_signature=latch_next_rb,
                     )
                     was_hl = bool(sh_next in self.relational_dreamer.active_contact_highlight_states)
                     was_adj = bool(sh_next in self.relational_dreamer.contact_adjacent_state_hashes)
@@ -4919,6 +8479,14 @@ class DarkSnailArc3WorldModel(nn.Module):
                         len(self.relational_dreamer.wall_colors),
                     )
                     self._dreamer_step_flags[flag_key_after] = (was_hl, was_adj)
+                if hasattr(self, "tropical_sheaf"):
+                    unlocked_rb = self.tropical_sheaf.get_unlocked_colors(latch_next_rb)
+                    if unlocked_rb and latch_prev_rb != latch_next_rb:
+                        self.relational_dreamer.unlocked_colors.update(unlocked_rb)
+                    if self.relational_dreamer.contact_sheaf is not None:
+                        self.tropical_sheaf.apply_to_contact_sheaf(
+                            self.relational_dreamer.contact_sheaf, latch_next_rb
+                        )
             if not is_respawn:
                 if game_ov:
                     self.game_over_actions.setdefault(sh_prev, set()).add(act_key)
@@ -5104,6 +8672,20 @@ class DarkSnailArc3WorldModel(nn.Module):
             is_phase_reset=is_phase_reset,
         )
 
+        latch_prev_cur = self.splitter.extract_fsa_latch_signature(f_prev)
+        latch_next_cur = self.splitter.extract_fsa_latch_signature(f_next)
+        t_rule_cur: Optional[TropicalTransitionRule] = None
+        if hasattr(self, "tropical_sheaf") and not is_phase_reset:
+            t_rule_cur = self.tropical_sheaf.observe_transition(
+                nope_prev,
+                nope_next,
+                action_key,
+                sh_prev=sh_prev,
+                sh_next=sh_next,
+                latch_prev=latch_prev_cur,
+                latch_next=latch_next_cur,
+                is_game_over=is_game_over,
+            )
         if hasattr(self, "relational_dreamer") and not is_phase_reset:
             self.relational_dreamer.observe_transition(
                 nope_prev,
@@ -5117,6 +8699,7 @@ class DarkSnailArc3WorldModel(nn.Module):
                 subframes=subframes,
                 candidate_info=candidate_info,
                 state_hash_next=sh_next,
+                latch_signature=latch_next_cur,
             )
             was_hl = bool(sh_next in self.relational_dreamer.active_contact_highlight_states)
             was_adj = bool(sh_next in self.relational_dreamer.contact_adjacent_state_hashes)
@@ -5130,6 +8713,14 @@ class DarkSnailArc3WorldModel(nn.Module):
                 len(self.relational_dreamer.wall_colors),
             )
             self._dreamer_step_flags[flag_key_after] = (was_hl, was_adj)
+            if hasattr(self, "tropical_sheaf"):
+                unlocked_cur = self.tropical_sheaf.get_unlocked_colors(latch_next_cur)
+                if unlocked_cur and latch_prev_cur != latch_next_cur:
+                    self.relational_dreamer.unlocked_colors.update(unlocked_cur)
+                if self.relational_dreamer.contact_sheaf is not None:
+                    self.tropical_sheaf.apply_to_contact_sheaf(
+                        self.relational_dreamer.contact_sheaf, latch_next_cur
+                    )
 
         if is_excitable_verifier and not is_phase_reset:
             self.verifier_actuators.add(action_key)
@@ -5955,6 +9546,182 @@ class DarkSnailArc3WorldModel(nn.Module):
                 return plan_seq
         return []
 
+    def synthesize_d4_monoid_homomorphism_plan(
+        self,
+        frame_2d: np.ndarray,
+        available_actions: Optional[Sequence[int]] = None,
+    ) -> List[ActionKey]:
+        """
+        Primitive E (Dihedral `D_4`-Equivariant Typed Monoid String Homomorphism Plan):
+        Detects hollow reference rule containers via topological bounding-box enclosure
+        (`fill_ratio <= 0.65` enclosing paired symbol components) to induce a cyclic
+        monoid homomorphism `mu: Sigma_in -> Sigma_out`, then aligns the active input
+        and output symbol lattices under `ACTION6` local cyclic advances and `ACTION5`
+        cursor shifts (100% `S_16` color-permutation and `D_4` dihedral equivariant).
+        """
+        if available_actions is not None and (6 not in available_actions or 5 not in available_actions):
+            return []
+        nope = self.splitter.project_nope(_frame_to_2d_numpy(frame_2d))
+        vals, counts = np.unique(nope, return_counts=True)
+        bg_mode = int(vals[int(np.argmax(counts))])
+
+        comps = _connected_components_2d(nope, connectivity=4, same_color=True, ignore_val=bg_mode)
+        if len(comps) < 6:
+            return []
+
+        raw_pairs: List[Tuple[int, int]] = []
+        rule_boxes: List[Tuple[int, int, int, int]] = []
+        border_col_found: Optional[int] = None
+        for fc in comps:
+            fh, fw = int(fc["h"]), int(fc["w"])
+            if float(fc["fill_ratio"]) > 0.65 or min(fh, fw) < 5 or max(fh, fw) < 7:
+                continue
+            fr0, fc0, fr1, fc1 = int(fc["r0"]), int(fc["c0"]), int(fc["r1"]), int(fc["c1"])
+            b_col = int(fc["color"])
+            inner_sq = [
+                ic
+                for ic in comps
+                if ic is not fc
+                and int(ic["r0"]) > fr0
+                and int(ic["r1"]) < fr1
+                and int(ic["c0"]) > fc0
+                and int(ic["c1"]) < fc1
+                and float(ic["fill_ratio"]) >= 0.85
+                and int(ic["h"]) >= 2
+                and int(ic["h"]) == int(ic["w"])
+            ]
+            if len(inner_sq) < 2:
+                continue
+            if fw >= fh:
+                inner_sq.sort(key=lambda item: int(item["c0"]))
+            else:
+                inner_sq.sort(key=lambda item: int(item["r0"]))
+            left_ic, right_ic = inner_sq[0], inner_sq[-1]
+            if int(left_ic["h"]) == int(right_ic["h"]) and int(left_ic["w"]) == int(right_ic["w"]):
+                raw_pairs.append((int(left_ic["color"]), int(right_ic["color"])))
+                rule_boxes.append((fr0, fc0, fr1, fc1))
+                border_col_found = b_col
+
+        if len(raw_pairs) < 3 or border_col_found is None:
+            return []
+
+        valid_cols = {u for u, _ in raw_pairs} | {v for _, v in raw_pairs}
+        outside_blocks = [
+            cp
+            for cp in comps
+            if int(cp["color"]) in valid_cols
+            and float(cp["fill_ratio"]) >= 0.90
+            and int(cp["h"]) >= 2
+            and int(cp["h"]) == int(cp["w"])
+            and not any(
+                r0_b <= int(cp["r0"])
+                and int(cp["r1"]) <= r1_b
+                and c0_b <= int(cp["c0"])
+                and int(cp["c1"]) <= c1_b
+                for (r0_b, c0_b, r1_b, c1_b) in rule_boxes
+            )
+        ]
+        if len(outside_blocks) < 4:
+            return []
+
+        hw_counts = Counter((int(cp["h"]), int(cp["w"])) for cp in outside_blocks)
+        (blk_h, blk_w), _ = hw_counts.most_common(1)[0]
+        matched_blocks = [
+            cp for cp in outside_blocks if int(cp["h"]) == blk_h and int(cp["w"]) == blk_w
+        ]
+        if len(matched_blocks) < 4:
+            return []
+
+        # Locate active cursor frame enclosing the first input block
+        cursor_block: Optional[Dict[str, Any]] = None
+        for fc in comps:
+            fr0, fc0, fr1, fc1 = int(fc["r0"]), int(fc["c0"]), int(fc["r1"]), int(fc["c1"])
+            if (fr0, fc0, fr1, fc1) in rule_boxes:
+                continue
+            if int(fc["color"]) != border_col_found or float(fc["fill_ratio"]) > 0.65:
+                continue
+            enclosed_mb = [
+                mb
+                for mb in matched_blocks
+                if fr0 < int(mb["r0"])
+                and int(mb["r1"]) < fr1
+                and fc0 < int(mb["c0"])
+                and int(mb["c1"]) < fc1
+            ]
+            if len(enclosed_mb) == 1:
+                cursor_block = enclosed_mb[0]
+                break
+        if cursor_block is None:
+            return []
+
+        ys = sorted(set(int(cp["r0"]) for cp in matched_blocks))
+        xs = sorted(set(int(cp["c0"]) for cp in matched_blocks))
+        slot_pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+        if len(ys) >= 2 and len(xs) >= 3:
+            r_in = int(cursor_block["r0"])
+            r_out = ys[-1] if abs(r_in - ys[0]) <= abs(r_in - ys[-1]) else ys[0]
+            xs_ord = (
+                xs
+                if abs(int(cursor_block["c0"]) - xs[0]) <= abs(int(cursor_block["c0"]) - xs[-1])
+                else list(reversed(xs))
+            )
+            in_by_x = {int(cp["c0"]): cp for cp in matched_blocks if int(cp["r0"]) == r_in}
+            out_by_x = {int(cp["c0"]): cp for cp in matched_blocks if int(cp["r0"]) == r_out}
+            for x_col in xs_ord:
+                if x_col in in_by_x and x_col in out_by_x:
+                    slot_pairs.append((in_by_x[x_col], out_by_x[x_col]))
+        elif len(xs) >= 2 and len(ys) >= 3:
+            c_in = int(cursor_block["c0"])
+            c_out = xs[-1] if abs(c_in - xs[0]) <= abs(c_in - xs[-1]) else xs[0]
+            ys_ord = (
+                ys
+                if abs(int(cursor_block["r0"]) - ys[0]) <= abs(int(cursor_block["r0"]) - ys[-1])
+                else list(reversed(ys))
+            )
+            in_by_y = {int(cp["r0"]): cp for cp in matched_blocks if int(cp["c0"]) == c_in}
+            out_by_y = {int(cp["r0"]): cp for cp in matched_blocks if int(cp["c0"]) == c_out}
+            for y_row in ys_ord:
+                if y_row in in_by_y and y_row in out_by_y:
+                    slot_pairs.append((in_by_y[y_row], out_by_y[y_row]))
+        if len(slot_pairs) < 3:
+            return []
+
+        fwd_map = {u: v for u, v in raw_pairs}
+        rev_map = {v: u for u, v in raw_pairs}
+        in_line_cols = [int(ic["color"]) for ic, _ in slot_pairs]
+        fwd_hits = sum(1 for c in in_line_cols if c in fwd_map)
+        rev_hits = sum(1 for c in in_line_cols if c in rev_map)
+        color_map = rev_map if rev_hits > fwd_hits else fwd_map
+
+        roots = [u for u in color_map if u not in color_map.values()]
+        cur_u = roots[0] if roots else min(color_map.keys())
+        chain: List[int] = [cur_u]
+        while cur_u in color_map and color_map[cur_u] not in chain:
+            cur_u = color_map[cur_u]
+            chain.append(cur_u)
+        cycle_colors = chain[1:] if (roots and len(chain) >= 3) else chain
+        cycle_mod = (
+            max(1, len(cycle_colors) - 1)
+            if (roots and len(cycle_colors) >= 2)
+            else max(1, len(cycle_colors))
+        )
+
+        plan_seq: List[ActionKey] = []
+        for in_comp, out_comp in slot_pairs:
+            col_in = int(in_comp["color"])
+            col_out = int(out_comp["color"])
+            target_col = color_map.get(col_in, col_in)
+            if target_col in cycle_colors and col_out in cycle_colors:
+                clicks = (cycle_colors.index(target_col) - cycle_colors.index(col_out)) % cycle_mod
+            else:
+                clicks = 0
+            mx = int(out_comp["medoid_x"])
+            my = int(out_comp["medoid_y"])
+            for _ in range(clicks):
+                plan_seq.append((6, mx, my))
+            plan_seq.append(5)
+        return plan_seq
+
     def synthesize_mathematical_plan(
         self,
         frame_2d: np.ndarray,
@@ -5968,8 +9735,10 @@ class DarkSnailArc3WorldModel(nn.Module):
         """
         Unified Pure Mathematical Multi-Step Plan Synthesis Engine (Zero ASCII / Zero LLM Text):
         Evaluates Primitive A (`synthesize_abelian_jacobian_plan`), Primitive B (`dream_forward_plan`),
-        and Primitive C (`unroll_triad_cascade_plan`), weighting Abelian vs. Non-Abelian rollouts
-        by the empirical Lie-bracket commutator curvature `kappa(a_1, a_2)`.
+        Primitive C (`unroll_triad_cascade_plan`), Primitive D (`synthesize_sheaf_bijection_plan`),
+        Primitive E (`synthesize_d4_monoid_homomorphism_plan`), and Primitive F (`solve_se2_fsa_plan`),
+        weighting Abelian vs. Non-Abelian rollouts by the empirical Lie-bracket commutator curvature
+        `kappa(a_1, a_2)`.
         """
         if z_L_token is None and z_L_tok is not None:
             z_L_token = z_L_tok
@@ -5980,6 +9749,14 @@ class DarkSnailArc3WorldModel(nn.Module):
             return {
                 "plan": sheaf_plan,
                 "method": "sheaf_color_bijection",
+                "energy_reduction": 1.0,
+                "mean_commutator_curvature": 0.0,
+            }
+        d4_monoid_plan = self.synthesize_d4_monoid_homomorphism_plan(nope_cur)
+        if d4_monoid_plan:
+            return {
+                "plan": d4_monoid_plan,
+                "method": "d4_monoid_homomorphism",
                 "energy_reduction": 1.0,
                 "mean_commutator_curvature": 0.0,
             }
@@ -6514,7 +10291,7 @@ class DarkSnailArc3WorldModel(nn.Module):
 
         # When Beltrami medoid features/contingency are present (`candidate_info is not None`),
         # apply `g4_prior` strictly at tie-breaking scale (`1e-5`) so Callosal priors break
-        # exact ties without overriding `7.9e-5` Beltrami/contingency precision on `ft09`/`sc25`/`cd82`.
+        # exact ties without overriding `7.9e-5` Beltrami/contingency precision on coordinate-click games.
         return float(
             0.80 * type_score
             + 0.30 * sal
@@ -6567,6 +10344,8 @@ class DarkSnailArc3WorldModel(nn.Module):
 
         if best_target is not None and best_path:
             return best_target, best_path
+        if not self.out_edges and hasattr(self, "tropical_sheaf") and self.tropical_sheaf.num_rules_induced > 0:
+            return self.tropical_sheaf.shortest_tropical_path(start_hash, frontier_scores)
         return None
 
 
@@ -6993,6 +10772,8 @@ class DarkSnailArc3Agent:
         self.consecutive_no_progress: int = 0
         self.tier1_click_probes_failed: bool = False
         self.math_plan_attempted_states: Set[str] = set()
+        self.se2_plan_attempted_states: Set[str] = set()
+        self.se2_failed_plan_count: int = 0
         self.last_schedule: Optional[DarkSnailSchedule] = None
         self.last_amygdala_state: Optional[Dict[str, Any]] = None
         self.last_cascade_diagnostics: Optional[Dict[str, Any]] = None
@@ -7020,6 +10801,8 @@ class DarkSnailArc3Agent:
         self.state_medoid_cache.clear()
         self.state_expanded.clear()
         self.math_plan_attempted_states.clear()
+        self.se2_plan_attempted_states.clear()
+        self.se2_failed_plan_count = 0
         self.gemma4_calls_this_level = 0
         self.consecutive_no_progress = 0
         self.episodic_shell.reset_episode()
@@ -7256,6 +11039,16 @@ class DarkSnailArc3Agent:
             "callosal_gamma_I": amyg.get("gamma_I", 0.5),
             "hrm_steps_taken": cas.get("hrm_steps_taken", 1),
             "gemma4_calls_made": self.gemma4_calls_made,
+            "tropical_rules_induced": (
+                self.world_model.tropical_sheaf.num_rules_induced
+                if hasattr(self.world_model, "tropical_sheaf")
+                else 0
+            ),
+            "fsa_latch_states_discovered": (
+                self.world_model.tropical_sheaf.num_latch_states
+                if hasattr(self.world_model, "tropical_sheaf")
+                else 0
+            ),
         }
         return act
 
@@ -7314,6 +11107,10 @@ class DarkSnailArc3Agent:
             self.consecutive_same_action = 0
             self.planned_bfs_queue.clear()
             self.planned_action_sequence.clear()
+            self.se2_plan_attempted_states.clear()
+            self.se2_failed_plan_count = 0
+            if hasattr(self.world_model, "relational_dreamer"):
+                self.world_model.relational_dreamer.reset(preserve_kinematics=True, is_level_reset=True)
             act = GameAction.RESET
             act.reasoning = {"agent": "darksnail_v2_arc3", "mode": "game_over_recovery_reset"}
             return act
@@ -7553,11 +11350,15 @@ class DarkSnailArc3Agent:
         self.last_cascade_diagnostics = cas_diag
 
         if 6 in avail and cur_hash == init_hash and cur_hash not in self.math_plan_attempted_states:
+            self.math_plan_attempted_states.add(cur_hash)
             sheaf_plan = self.world_model.synthesize_sheaf_bijection_plan(
                 frame_2d, available_actions=avail, allow_generic_triplets=False
             )
+            if not sheaf_plan:
+                sheaf_plan = self.world_model.synthesize_d4_monoid_homomorphism_plan(
+                    frame_2d, available_actions=avail
+                )
             if sheaf_plan:
-                self.math_plan_attempted_states.add(cur_hash)
                 first_sheaf_act = sheaf_plan[0]
                 for act_s in sheaf_plan[1:]:
                     self.planned_action_sequence.append(act_s)
@@ -7565,6 +11366,55 @@ class DarkSnailArc3Agent:
                 return self._build_game_action(
                     first_sheaf_act, schedule, mode_desc="sheaf_bijection_plan"
                 )
+
+        rd = getattr(self.world_model, "relational_dreamer", None)
+        has_repeatable_se2_latch = rd is not None and (
+            "d4_glyph_monoid_homomorphism" in rd.fsa_latch_states
+            or "d4_locus_minkowski_cover" in rd.fsa_latch_states
+            or "se2_pin_matching_polyomino" in rd.fsa_latch_states
+            or "skewer_rail_permutation" in rd.fsa_latch_states
+            or "se2_gripper_pick_and_place" in rd.fsa_latch_states
+            or "se2_multisprite_kick_dock" in rd.fsa_latch_states
+        )
+        if cur_hash not in self.se2_plan_attempted_states or (
+            has_repeatable_se2_latch and self.se2_failed_plan_count <= 4
+        ):
+            has_structured_se2_roles = rd is not None and (
+                rd._pp_roles is not None
+                or rd._multisprite_roles is not None
+                or has_repeatable_se2_latch
+            )
+            if (
+                any(a in avail for a in (1, 2, 3, 4))
+                and rd is not None
+                and (
+                    (has_structured_se2_roles and self.se2_failed_plan_count <= 4)
+                    or len(self.se2_plan_attempted_states) <= 4
+                )
+                and (
+                    cur_hash == init_hash
+                    or has_structured_se2_roles
+                    or len(rd.kinematic_generators) >= 2
+                )
+            ):
+                self.se2_plan_attempted_states.add(cur_hash)
+                se2_plan = rd.solve_se2_fsa_plan(
+                    frame_2d,
+                    available_actions=avail,
+                    clock_mask=self.world_model.splitter.clock_mask,
+                    tropical_sheaf=getattr(self.world_model, "tropical_sheaf", None),
+                )
+                if se2_plan:
+                    self.se2_failed_plan_count = 0
+                    first_se2_act = se2_plan[0]
+                    for act_s in se2_plan[1:]:
+                        self.planned_action_sequence.append(act_s)
+                    self._record_chosen_action(frame_2d, cur_hash, first_se2_act, None)
+                    return self._build_game_action(
+                        first_se2_act, schedule, mode_desc="se2_fsa_semidirect_plan"
+                    )
+                else:
+                    self.se2_failed_plan_count += 1
 
         # Case 1: Untried Tier-1 actions at `cur_hash`
         untried_here = self._get_untried_actions_for_state(cur_hash, avail, triad_priors, tier=1)
@@ -7927,12 +11777,24 @@ class DarkSnailArc3Agent:
                 else 0
             ),
             "remote_actuators_discovered": len(self.world_model.remote_actuators),
+            "tropical_rules_induced": (
+                self.world_model.tropical_sheaf.num_rules_induced
+                if hasattr(self.world_model, "tropical_sheaf")
+                else 0
+            ),
+            "fsa_latch_states_discovered": (
+                self.world_model.tropical_sheaf.num_latch_states
+                if hasattr(self.world_model, "tropical_sheaf")
+                else 0
+            ),
             "gemma4_calls_made": self.gemma4_calls_made,
             "last_amygdala_state": self.last_amygdala_state,
         }
 
 
 __all__ = [
+    "tropical_min_plus_matmul",
+    "tropical_kleene_closure",
     "TemporalClockContentSplitter",
     "extract_arc3_beltrami_medoids",
     "compute_topological_symmetry_potential",
@@ -7942,6 +11804,8 @@ __all__ = [
     "ContactNode",
     "ContactEdge",
     "ContactGraphSheaf",
+    "TropicalTransitionRule",
+    "TropicalStateLatchSheaf",
     "RelationalOperatorDreamer",
     "OnlineForwardOperatorDreamer",
     "Arc3EpisodicBeltramiShell",
