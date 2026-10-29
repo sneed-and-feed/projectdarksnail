@@ -306,7 +306,7 @@ All stepping loops operate exclusively on pointers to pre-allocated static arena
 
 | Spoke | Baseline Reference | DarkSnail Empirical Result | Performance Delta / Metric | Benchmark Artifact |
 | :--- | :--- | :--- | :--- | :--- |
-| `darksnail` ARC-3 | 29/183 levels (prior ceiling) | 30/183 levels (offline CPU & live `gemma-4-31B-it` Colab GPU) | +1 level advancement (18/25 games with >= 1 level) | `darksnail_arc3_evaluation_summary.json` |
+| `darksnail` ARC-3 | 30/183 levels (prior ceiling) | 63/183 levels (34.43%, offline CPU & live `gemma-4-31B-it` Colab GPU) | +33 levels advancement (25/25 games = 100.0%, 4/25 full wins, 19.9237% RHAE) | `darksnail_arc3_evaluation_summary.json` |
 | `darksnail` Gemma 4 | `v4_triad@5`: 29.85 F1 (0.0% unshielded needle) | `darksnail@5`: 49.27 F1 (98.70% dense, 100.0% needle) | +19.43 F1 at r = 5 (p = 0.0001, 118W/22L/60T, < 35% routed budget) | `darksnail_bridge_aware_r5_summary.json` |
 | `robosnail` | Floor glare failure | 1.0000 spike recovery | 100% recovery for 2mm thin cable under glare | `robosnail_evaluation_summary.json` |
 | `robosnail` TTT | Standard drift under wear | 0.000e+00 rotor drift | Exact SO(16) isometry maintained | `robosnail_evaluation_summary.json` |

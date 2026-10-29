@@ -259,13 +259,13 @@
   "empirical_benchmarks": {
     "darksnail_arc3": {
       "benchmark": "ARC-AGI-3 Public Offline Suite (25 Games, 183 Levels)",
-      "total_levels_completed": 30,
-      "baseline_levels_completed": 29,
-      "levels_completion_rate_pct": 16.39,
-      "games_with_at_least_1_level_completed": 18,
-      "games_with_at_least_1_level_pct": 72.0,
-      "full_games_won": 1,
-      "official_rhae_scorecard_score_pct": 0.0515,
+      "total_levels_completed": 63,
+      "baseline_levels_completed": 30,
+      "levels_completion_rate_pct": 34.43,
+      "games_with_at_least_1_level_completed": 25,
+      "games_with_at_least_1_level_pct": 100.0,
+      "full_games_won": 4,
+      "official_rhae_scorecard_score_pct": 19.9237,
       "advancement_verified": true
     },
     "darksnail_gemma4": {
