@@ -3,7 +3,7 @@ import sys
 
 
 def audit_file(filepath: str) -> int:
-    print(f"Auditing GFM KaTeX compliance (all 21 rules) for: {filepath}")
+    print(f"Auditing GFM KaTeX compliance (all 22 rules) for: {filepath}")
     with open(filepath, "r", encoding="utf-8") as f:
         lines = [raw.rstrip("\r\n") for raw in f.readlines()]
 
@@ -123,6 +123,10 @@ def audit_file(filepath: str) -> int:
         if re.search(r"\\(text|mathrm)\{[^}]*?(_|\\textunderscore).*?\}", line):
             issues.append((line_num, "Rule 21: '_' or '\\textunderscore' inside \\text{...} or \\mathrm{...} (use code span outside math or hyphens)"))
 
+        # Rule 22: Unsupported stmaryrd double-bracket macros (\llbracket / \rrbracket)
+        if r"\llbracket" in line or r"\rrbracket" in line:
+            issues.append((line_num, r"Rule 22: \llbracket / \rrbracket is unsupported in GitHub KaTeX (use \lbrack\!\lbrack ... \rbrack\!\rbrack)"))
+
         if in_math_block:
             if re.search(r"<[a-zA-Z]", line):
                 issues.append((line_num, "Raw '<' followed by letter in display math (use \\lt)"))
@@ -145,7 +149,7 @@ def audit_file(filepath: str) -> int:
 
     print(f"Total math expressions: {math_expr_count} (Target < 800, GitHub limit ~1,000)")
     if not issues:
-        print("PASS: 0 KaTeX/GFM compliance issues detected across all 21 rules!")
+        print("PASS: 0 KaTeX/GFM compliance issues detected across all 22 rules!")
         return 0
     else:
         print(f"FAILED: {len(issues)} compliance issues detected:")
