@@ -1341,4 +1341,60 @@ def test_gate_2i_tropical_kleene_and_se2_fsa_latch_sheaf() -> None:
     sk_dreamer_2x = RelationalOperatorDreamer()
     assert sk_dreamer_2x.solve_se2_fsa_plan(sk_board_2x, available_actions=[1, 2, 3, 4, 6]) == sk_plan
 
+    # 13. Order-2 Tropical Conjunctions (Pairwise Latch Tensor T_{a,b->e}) & Cross-Level D_4 Homomorphism Seeding
+    ts = TropicalStateLatchSheaf()
+    # Initially observe single latch "s_A" unlocking barrier color 12 (when s_B happened to be open)
+    ts.observe_single_latch_conductance("s_A", 12, 1.0)
+    assert 12 in ts.get_unlocked_colors("s_A")
+    assert ts.single_latch_variance("s_A", 12) == pytest.approx(0.0, abs=1e-9)
+    # Next observe "s_A" blocked (0.0) on barrier color 12 when s_B is closed -> non-zero single-latch variance!
+    var_a = ts.observe_single_latch_conductance("s_A", 12, 0.0)
+    assert var_a == pytest.approx(0.25, abs=1e-6)
+    assert 12 not in ts.get_unlocked_colors("s_A")  # Demoted due to single-latch ambiguity!
+    assert ts.query_order2_conductance(["s_A"], 12) == pytest.approx(0.0, abs=1e-9)
+    # Record order-2 pairwise conjunction witness (s_A, s_B) -> 12
+    ts.observe_order2_conjunction("s_A", "s_B", 12, 1.0)
+    assert ts.query_order2_conductance(["s_A", "s_B"], 12) == pytest.approx(1.0, abs=1e-9)
+    assert 12 in ts.get_unlocked_colors("s_A&s_B")
+    assert 12 in ts.get_unlocked_colors(["s_A", "s_B"])
+
+    # Verify Cross-Level D_4-Invariant Sprite/Color Tuple Homomorphism Seeding across L1 -> L2
+    f_l1_prev = np.full((64, 64), 1, dtype=np.int32)
+    # L-shaped switch sprite of color 11 (with inner pixel 14) at (8..11, 8..11) on L1
+    l_glyph = np.array([[1, 0, 0], [1, 1, 0], [1, 1, 1]], dtype=np.int32)
+    f_l1_prev[8:11, 8:11] = np.where(l_glyph > 0, 11, 1)
+    f_l1_prev[9, 9] = 14
+    # Remote barrier of color 12 at (40..44, 40..44)
+    f_l1_prev[40:44, 40:44] = 12
+    f_l1_next = f_l1_prev.copy()
+    f_l1_next[9, 9] = 8  # local switch state change
+    f_l1_next[40:44, 40:44] = 1  # remote barrier opened!
+    rule_l1 = ts.observe_transition(
+        f_l1_prev,
+        f_l1_next,
+        action_key=(6, 9, 9),
+        latch_prev="latch_0",
+        latch_next="latch_open",
+    )
+    assert rule_l1 is not None
+    assert rule_l1.d4_sprite_tuple is not None
+    assert rule_l1.d4_sprite_tuple in ts.d4_latch_homomorphism_table
+
+    # Advance to Level 2: reset(clear_all=False) and place the 90-degree rotated switch at (46..49, 50..53)
+    ts.reset(clear_all=False)
+    f_l2_init = np.full((64, 64), 1, dtype=np.int32)
+    l_glyph_rot = np.rot90(l_glyph, 1)
+    f_l2_init[46:49, 50:53] = np.where(l_glyph_rot > 0, 11, 1)
+    f_l2_init[47, 51] = 14
+    seeded_l2 = ts.seed_level_from_d4_homomorphism(f_l2_init)
+    assert len(seeded_l2) >= 1
+    assert any(
+        item["d4_sprite_tuple"] == rule_l1.d4_sprite_tuple
+        and 12 in item["toggled_colors"]
+        and 46 <= item["y"] <= 49
+        and 50 <= item["x"] <= 53
+        for item in seeded_l2
+    )
+
+
 

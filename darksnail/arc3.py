@@ -3160,17 +3160,26 @@ class TropicalTransitionRule:
     eta_nonlocal: float = 0.0
     trigger_colors: Tuple[int, ...] = ()
     toggled_colors: Tuple[int, ...] = ()
+    d4_sprite_tuple: Optional[Tuple[Tuple[int, ...], int, int, int]] = None
 
 
 class TropicalStateLatchSheaf:
     """
     Tropical Min-Plus State-Latch Sheaf over the joint state space `V = H_nope x S_FSA`.
 
-    Maintains a directed tropical cost matrix `W in T^{|V| x |V|}` over the tropical semiring
-    `T = (R u {+inf}, oplus = min, otimes = +)` and computes exact multi-hop geodesic
-    shortest paths `D^* = bigoplus_{k=0}^{|V|-1} W^{otimes k}` and first-hop witness routing
-    via `tropical_kleene_closure` from `oatse.engine`, while recording non-local contact
-    conductance toggles (`eta_nonlocal >= 0.50` or discrete latch transitions `q_u -> q_v`).
+    Maintains:
+      1. A directed tropical cost matrix `W in T^{|V| x |V|}` over the tropical semiring
+         `T = (R u {+inf}, oplus = min, otimes = +)` and exact multi-hop geodesic
+         shortest paths `D^* = bigoplus_{k=0}^{|V|-1} W^{otimes k}` via `tropical_kleene_closure`.
+      2. Order-2 Tropical Conjunctions (`pairwise_latch_tensor` `T_{a, b -> e}`):
+         Tracks empirical single-latch conductance variance `Var(c(e) | s_a)` and promotes
+         any coboundary edge `e` with conflicting single-latch observations (`{0.0, 1.0}`)
+         to pairwise minimal witnesses `(s_a, s_b) in FSA^2` in `O(|FSA|^2)` integer ops.
+      3. Cross-Level Latch-Homomorphism Seeding (`d4_latch_homomorphism_table`):
+         Indexes proven causal latches (`eta_nonlocal >= 0.50` or discrete latch transitions)
+         by canonical `D_4`-invariant sprite/color tuple `(glyph_D4, c_outer, c_inner, area_bucket)`
+         rather than raw `(y, x)` coordinates, enabling `L1..Lk` Frame-0 transfer when switch
+         coordinates shift across level layouts.
     """
 
     def __init__(self, inf_val: float = 1e12) -> None:
@@ -3187,9 +3196,177 @@ class TropicalStateLatchSheaf:
             self.trigger_colors: Set[int] = set()
             self.unlocked_colors_by_latch: Dict[str, Set[int]] = {}
             self.edge_conductance_table: Dict[Tuple[str, int], float] = {}
+            self.single_latch_observations: Dict[Tuple[str, int], Set[float]] = {}
+            self.pairwise_latch_tensor: Dict[Tuple[str, str, int], float] = {}
+            self.d4_latch_homomorphism_table: Dict[
+                Tuple[Tuple[int, ...], int, int, int], Dict[str, Any]
+            ] = {}
         self._dirty: bool = True
         self._closure_dist: Optional[np.ndarray] = None
         self._closure_routing: Optional[np.ndarray] = None
+
+    @staticmethod
+    def _d4_canonical_glyph(mask: np.ndarray) -> Tuple[int, ...]:
+        """Returns the lexicographically minimal tuple across all 8 Dihedral D_4 symmetries of a binary mask."""
+        m = (mask > 0).astype(np.uint8)
+        if not np.any(m):
+            return tuple(m.ravel().tolist())
+        if m.shape[0] != m.shape[1]:
+            s = max(int(m.shape[0]), int(m.shape[1]))
+            pad = np.zeros((s, s), dtype=np.uint8)
+            pad[: m.shape[0], : m.shape[1]] = m
+            m = pad
+        cands: List[Tuple[int, ...]] = []
+        for k in range(4):
+            rk = np.rot90(m, k)
+            cands.append(tuple(rk.ravel().tolist()))
+            cands.append(tuple(np.fliplr(rk).ravel().tolist()))
+        return min(cands)
+
+    @classmethod
+    def canonical_d4_sprite_tuple(
+        cls,
+        board: np.ndarray,
+        r0: int,
+        r1: int,
+        c0: int,
+        c1: int,
+        bg_val: Optional[int] = None,
+    ) -> Tuple[Tuple[int, ...], int, int, int]:
+        """
+        Computes the translation-free canonical `D_4`-invariant sprite/color tuple
+        `(glyph_D4, c_outer, c_inner, area_bucket)` for the bounding box `[r0:r1, c0:c1]`.
+        """
+        H, W = board.shape
+        rr0, rr1 = max(0, int(r0)), min(H, int(r1))
+        cc0, cc1 = max(0, int(c0)), min(W, int(c1))
+        if rr1 <= rr0 or cc1 <= cc0:
+            return ((), 0, 0, 0)
+        if bg_val is None:
+            vals_b, cnts_b = np.unique(board, return_counts=True)
+            bg_val = int(vals_b[int(np.argmax(cnts_b))])
+        sub = board[rr0:rr1, cc0:cc1]
+        fg_mask = sub != int(bg_val)
+        glyph_d4 = cls._d4_canonical_glyph(fg_mask)
+        fg_vals = sub[fg_mask]
+        if fg_vals.size == 0:
+            return (glyph_d4, int(bg_val), int(bg_val), 0)
+        u_vals, u_cnts = np.unique(fg_vals, return_counts=True)
+        order = np.argsort(-u_cnts)
+        c_outer = int(u_vals[int(order[0])])
+        c_inner = int(u_vals[int(order[1])]) if len(order) > 1 else c_outer
+        if sub.shape[0] >= 3 and sub.shape[1] >= 3:
+            center_val = int(sub[sub.shape[0] // 2, sub.shape[1] // 2])
+            if center_val != int(bg_val):
+                c_inner = center_val
+        area_bucket = int(np.sum(fg_mask))
+        return (glyph_d4, c_outer, c_inner, area_bucket)
+
+    @staticmethod
+    def _atomic_latch_tokens(latch_state: Any) -> Tuple[str, ...]:
+        """Decomposes a latch state signature into sorted atomic FSA latch tokens."""
+        if latch_state is None:
+            return ()
+        if isinstance(latch_state, (tuple, list, set, frozenset)):
+            toks = [str(x).strip() for x in latch_state if str(x).strip()]
+            return tuple(sorted(set(toks)))
+        s = str(latch_state).strip()
+        if not s:
+            return ()
+        if "&" in s:
+            return tuple(sorted({p.strip() for p in s.split("&") if p.strip()}))
+        if "|" in s:
+            return tuple(sorted({p.strip() for p in s.split("|") if p.strip()}))
+        return (s,)
+
+    def single_latch_variance(self, latch_a: str, edge_color: int) -> float:
+        """
+        Returns the empirical single-latch conductance variance `Var(c(e) | s_a)` for
+        latch token `latch_a` and barrier color `edge_color`. Non-zero (`0.25`) iff both
+        blocked (`0.0`) and open (`1.0`) transitions have been observed under `latch_a`.
+        """
+        obs = self.single_latch_observations.get((str(latch_a), int(edge_color)))
+        if not obs or len(obs) <= 1:
+            return 0.0
+        vals = np.array(sorted(obs), dtype=np.float64)
+        return float(np.var(vals))
+
+    def observe_single_latch_conductance(
+        self,
+        latch_a: str,
+        edge_color: int,
+        conductance: float,
+    ) -> float:
+        """
+        Records a single-latch conductance observation `c(e) in {0.0, 1.0}` for `(latch_a, edge_color)`
+        and returns the updated empirical variance `Var(c(e) | s_a)`. If variance becomes
+        non-zero, removes the ambiguous single-latch entry from `unlocked_colors_by_latch`
+        so order-2 conjunction witnesses `T_{a, b -> e}` resolve the gate.
+        """
+        key = (str(latch_a), int(edge_color))
+        c_bin = 1.0 if float(conductance) > 0.5 else 0.0
+        obs = self.single_latch_observations.setdefault(key, set())
+        obs.add(c_bin)
+        var = self.single_latch_variance(latch_a, edge_color)
+        if var > 0.0:
+            # Ambiguous single-latch rule: demote single-latch unlock and require order-2 witness
+            if str(latch_a) in self.unlocked_colors_by_latch:
+                self.unlocked_colors_by_latch[str(latch_a)].discard(int(edge_color))
+            self.edge_conductance_table.pop(key, None)
+        elif c_bin > 0.5:
+            self.unlocked_colors_by_latch.setdefault(str(latch_a), set()).add(int(edge_color))
+            self.edge_conductance_table[key] = 1.0
+        return var
+
+    def observe_order2_conjunction(
+        self,
+        latch_a: str,
+        latch_b: str,
+        edge_color: int,
+        conductance: float = 1.0,
+    ) -> None:
+        """
+        Records an order-2 pairwise latch witness `(s_a, s_b) -> Delta c(e)` in the
+        symmetric pairwise latch tensor `T_{a, b -> e}` (`pairwise_latch_tensor`).
+        """
+        sa, sb = str(latch_a), str(latch_b)
+        self.latch_states.add(sa)
+        self.latch_states.add(sb)
+        ec = int(edge_color)
+        c_val = float(conductance)
+        self.pairwise_latch_tensor[(sa, sb, ec)] = c_val
+        self.pairwise_latch_tensor[(sb, sa, ec)] = c_val
+        conj_key = f"{min(sa, sb)}&{max(sa, sb)}"
+        self.latch_states.add(conj_key)
+        if c_val > 0.5:
+            self.unlocked_colors_by_latch.setdefault(conj_key, set()).add(ec)
+            self.edge_conductance_table[(conj_key, ec)] = c_val
+
+    def query_order2_conductance(
+        self,
+        active_latches: Iterable[str],
+        edge_color: int,
+    ) -> float:
+        """
+        Evaluates order-2 tropical/Boolean conjunction conductance over `active_latches` in
+        `O(|FSA|^2)` integer operations:
+          - If any pair `(s_a, s_b)` in `active_latches^2` has a positive witness in
+            `pairwise_latch_tensor`, returns `T_{a, b -> e}`.
+          - Otherwise falls back to unambiguous (`Var(c(e) | s_a) == 0`) single-latch conductance.
+        """
+        toks = sorted({t for raw in active_latches for t in self._atomic_latch_tokens(raw)})
+        ec = int(edge_color)
+        for i, sa in enumerate(toks):
+            for sb in toks[i:]:
+                if (sa, sb, ec) in self.pairwise_latch_tensor:
+                    val = float(self.pairwise_latch_tensor[(sa, sb, ec)])
+                    if val > 0.5:
+                        return val
+        for sa in toks:
+            if self.single_latch_variance(sa, ec) == 0.0:
+                if ec in self.unlocked_colors_by_latch.get(sa, set()):
+                    return float(self.edge_conductance_table.get((sa, ec), 1.0))
+        return 0.0
 
     @property
     def num_rules_induced(self) -> int:
@@ -3208,24 +3385,51 @@ class TropicalStateLatchSheaf:
             self._dirty = True
         return idx
 
-    def get_unlocked_colors(self, latch_state: Optional[str] = None) -> Set[int]:
-        """Returns the set of barrier/door colors unlocked in `latch_state`."""
+    def get_unlocked_colors(self, latch_state: Optional[Any] = None) -> Set[int]:
+        """
+        Returns the set of barrier/door colors unlocked in `latch_state`, combining
+        unambiguous (`Var(c(e) | s_a) == 0`) single-latch triggers and order-2 pairwise
+        conjunction witnesses `(s_a, s_b) in FSA^2` from `pairwise_latch_tensor`.
+        """
         if latch_state is None:
             out: Set[int] = set()
-            for cols in self.unlocked_colors_by_latch.values():
-                out.update(cols)
+            for l_key, cols in self.unlocked_colors_by_latch.items():
+                for c in cols:
+                    if self.single_latch_variance(l_key, c) == 0.0:
+                        out.add(int(c))
+            for (_sa, _sb, ec), val in self.pairwise_latch_tensor.items():
+                if val > 0.5:
+                    out.add(int(ec))
             return out
-        return set(self.unlocked_colors_by_latch.get(str(latch_state), set()))
+
+        toks = self._atomic_latch_tokens(latch_state)
+        out_set: Set[int] = set()
+        raw_str = str(latch_state)
+        for c in self.unlocked_colors_by_latch.get(raw_str, set()):
+            if self.single_latch_variance(raw_str, c) == 0.0:
+                out_set.add(int(c))
+        for t in toks:
+            for c in self.unlocked_colors_by_latch.get(t, set()):
+                if self.single_latch_variance(t, c) == 0.0:
+                    out_set.add(int(c))
+        if len(toks) >= 2:
+            for i, sa in enumerate(toks):
+                for sb in toks[i + 1 :]:
+                    for (pa, pb, ec), val in self.pairwise_latch_tensor.items():
+                        if pa == sa and pb == sb and val > 0.5:
+                            out_set.add(int(ec))
+        return out_set
 
     def apply_to_contact_sheaf(
         self,
         sheaf: ContactGraphSheaf,
-        latch_state: Optional[str] = None,
+        latch_state: Optional[Any] = None,
     ) -> None:
-        """Applies learned tropical edge-conductance toggles for `latch_state` to `sheaf`."""
+        """Applies learned order-1 and order-2 tropical edge-conductance toggles for `latch_state` to `sheaf`."""
         unlocked = self.get_unlocked_colors(latch_state)
         if not unlocked:
             return
+        req_str = str(latch_state) if latch_state is not None else None
         for edge in sheaf.edges:
             if edge.is_enclosed:
                 continue
@@ -3234,7 +3438,67 @@ class TropicalStateLatchSheaf:
             if (u_node is not None and u_node.color in unlocked) or (
                 v_node is not None and v_node.color in unlocked
             ):
-                sheaf.update_conductance(edge.u, edge.v, 1.0, required_latch=latch_state)
+                sheaf.update_conductance(edge.u, edge.v, 1.0, required_latch=req_str)
+
+    def seed_level_from_d4_homomorphism(
+        self,
+        frame_2d: np.ndarray,
+        clock_mask: Optional[np.ndarray] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Cross-Level Latch-Homomorphism Seeding (`L1..Lk` Zero-Cost Frame-0 Transfer):
+        Scans connected foreground sprites on Frame 0 of a new level, computes their
+        canonical `D_4`-invariant sprite/color tuple `(glyph_D4, c_outer, c_inner, area_bucket)`,
+        and matches them against proven causal latch rules in `d4_latch_homomorphism_table`.
+        Returns the list of matched actuator bindings with their shifted `(x, y)` coordinates
+        and inherited FSA transition/conductance metadata.
+        """
+        if not self.d4_latch_homomorphism_table:
+            return []
+        board = _frame_to_2d_numpy(frame_2d).copy()
+        if clock_mask is not None and clock_mask.shape == board.shape and np.any(clock_mask):
+            board = _mask_clock_to_bg(board, clock_mask)
+        vals_b, cnts_b = np.unique(board, return_counts=True)
+        bg_val = int(vals_b[int(np.argmax(cnts_b))])
+        comps = _connected_components_2d(board, connectivity=4, same_color=False, ignore_val=bg_val)
+        same_comps = _connected_components_2d(board, connectivity=4, same_color=True, ignore_val=bg_val)
+
+        seeded_bindings: List[Dict[str, Any]] = []
+        seen_xy: Set[Tuple[int, int]] = set()
+        for c in comps + same_comps:
+            r0, r1, c0, c1 = int(c["r0"]), int(c["r1"]), int(c["c0"]), int(c["c1"])
+            d4_sig = self.canonical_d4_sprite_tuple(board, r0, r1, c0, c1, bg_val=bg_val)
+            hom_entry = self.d4_latch_homomorphism_table.get(d4_sig)
+            if hom_entry is None:
+                continue
+            cx = int(round(float(c["centroid_x"])))
+            cy = int(round(float(c["centroid_y"])))
+            if (cx, cy) in seen_xy:
+                continue
+            seen_xy.add((cx, cy))
+            toggled_cols = tuple(hom_entry.get("toggled_colors", ()))
+            target_latch = str(hom_entry.get("target_latch", f"d4_latch_{d4_sig[1]}_{d4_sig[2]}"))
+            self.latch_states.add(target_latch)
+            for tc in toggled_cols:
+                if self.single_latch_variance(target_latch, int(tc)) == 0.0:
+                    self.unlocked_colors_by_latch.setdefault(target_latch, set()).add(int(tc))
+                    self.edge_conductance_table[(target_latch, int(tc))] = 1.0
+            seeded_bindings.append(
+                {
+                    "x": cx,
+                    "y": cy,
+                    "r0": r0,
+                    "r1": r1,
+                    "c0": c0,
+                    "c1": c1,
+                    "d4_sprite_tuple": d4_sig,
+                    "eta_nonlocal": float(hom_entry.get("eta_nonlocal", 0.55)),
+                    "target_latch": target_latch,
+                    "toggled_colors": toggled_cols,
+                    "trigger_colors": tuple(hom_entry.get("trigger_colors", ())),
+                }
+            )
+        return seeded_bindings
 
     def observe_transition(
         self,
@@ -3250,6 +3514,7 @@ class TropicalStateLatchSheaf:
         cost: float = 1.0,
         is_game_over: bool = False,
         is_self_loop: bool = False,
+        blocked_colors: Optional[Iterable[int]] = None,
     ) -> Optional[TropicalTransitionRule]:
         arr_prev = prev_hash if isinstance(prev_hash, np.ndarray) else None
         arr_next = next_hash if isinstance(next_hash, np.ndarray) else None
@@ -3268,10 +3533,21 @@ class TropicalStateLatchSheaf:
         else:
             v_hash = str(next_hash)
 
-        eff_l_prev = str(latch_prev if latch_prev is not None else prev_latch)
-        eff_l_next = str(latch_next if latch_next is not None else next_latch)
+        raw_l_prev = latch_prev if latch_prev is not None else prev_latch
+        raw_l_next = latch_next if latch_next is not None else next_latch
+        toks_prev = self._atomic_latch_tokens(raw_l_prev)
+        toks_next = self._atomic_latch_tokens(raw_l_next)
+        eff_l_prev = "&".join(toks_prev) if len(toks_prev) > 1 else str(raw_l_prev)
+        eff_l_next = "&".join(toks_next) if len(toks_next) > 1 else str(raw_l_next)
         self.latch_states.add(eff_l_prev)
         self.latch_states.add(eff_l_next)
+        for t in toks_prev + toks_next:
+            self.latch_states.add(t)
+
+        if blocked_colors is not None:
+            for bc in blocked_colors:
+                for t in toks_prev or (eff_l_prev,):
+                    self.observe_single_latch_conductance(t, int(bc), 0.0)
 
         u = (u_hash, eff_l_prev)
         v = (v_hash, eff_l_next)
@@ -3283,6 +3559,7 @@ class TropicalStateLatchSheaf:
         eta_nl = 0.0
         trig_cols: Tuple[int, ...] = ()
         toggled_cols: Tuple[int, ...] = ()
+        d4_sig_induced: Optional[Tuple[Tuple[int, ...], int, int, int]] = None
         if arr_prev is not None and arr_next is not None and arr_prev.shape == arr_next.shape:
             diff_mask = arr_prev != arr_next
             diff_rs, diff_cs = np.nonzero(diff_mask)
@@ -3299,6 +3576,28 @@ class TropicalStateLatchSheaf:
                         )
                         rem_cols.discard(bg_m)
                         toggled_cols = tuple(sorted(rem_cols))
+                    near_m = ~far_m
+                    if np.any(near_m):
+                        nr0, nr1 = int(diff_rs[near_m].min()), int(diff_rs[near_m].max()) + 1
+                        nc0, nc1 = int(diff_cs[near_m].min()), int(diff_cs[near_m].max()) + 1
+                        d4_sig_induced = self.canonical_d4_sprite_tuple(
+                            arr_prev, nr0, nr1, nc0, nc1, bg_val=bg_m
+                        )
+                    elif 0 <= cy < arr_prev.shape[0] and 0 <= cx < arr_prev.shape[1]:
+                        comps_p = _connected_components_2d(
+                            arr_prev, connectivity=4, same_color=True, ignore_val=bg_m
+                        )
+                        for cp in comps_p:
+                            if int(cp["r0"]) <= cy < int(cp["r1"]) and int(cp["c0"]) <= cx < int(cp["c1"]):
+                                d4_sig_induced = self.canonical_d4_sprite_tuple(
+                                    arr_prev,
+                                    int(cp["r0"]),
+                                    int(cp["r1"]),
+                                    int(cp["c0"]),
+                                    int(cp["c1"]),
+                                    bg_val=bg_m,
+                                )
+                                break
                 else:
                     if eff_l_prev != eff_l_next:
                         clusters = _connected_components_2d(
@@ -3320,6 +3619,14 @@ class TropicalStateLatchSheaf:
                                     rem_c_set.update(int(x) for x in np.unique(arr_next[c_r["rows"], c_r["cols"]]))
                                 rem_c_set.discard(bg_m)
                                 toggled_cols = tuple(sorted(rem_c_set))
+                                d4_sig_induced = self.canonical_d4_sprite_tuple(
+                                    arr_prev,
+                                    int(c_main["r0"]),
+                                    int(c_main["r1"]),
+                                    int(c_main["c0"]),
+                                    int(c_main["c1"]),
+                                    bg_val=bg_m,
+                                )
                         else:
                             eta_nl = 0.50
                     all_ch_cols = set(int(x) for x in np.unique(arr_prev[diff_mask]))
@@ -3328,10 +3635,32 @@ class TropicalStateLatchSheaf:
 
                 if eff_l_prev != eff_l_next and toggled_cols:
                     self.trigger_colors.update(trig_cols)
-                    unl = self.unlocked_colors_by_latch.setdefault(eff_l_next, set())
                     for tc in toggled_cols:
-                        unl.add(int(tc))
-                        self.edge_conductance_table[(eff_l_next, int(tc))] = 1.0
+                        self.observe_single_latch_conductance(eff_l_next, int(tc), 1.0)
+                        for t in toks_next:
+                            self.observe_single_latch_conductance(t, int(tc), 1.0)
+                        if len(toks_next) >= 2:
+                            for i, sa in enumerate(toks_next):
+                                for sb in toks_next[i + 1 :]:
+                                    self.observe_order2_conjunction(sa, sb, int(tc), 1.0)
+                        elif eff_l_prev not in ("latch_default", eff_l_next):
+                            if self.single_latch_variance(eff_l_prev, int(tc)) > 0.0 or self.single_latch_variance(
+                                eff_l_next, int(tc)
+                            ) > 0.0:
+                                self.observe_order2_conjunction(eff_l_prev, eff_l_next, int(tc), 1.0)
+                if (eff_l_prev != eff_l_next or eta_nl >= 0.50) and toggled_cols:
+                    if d4_sig_induced is not None and d4_sig_induced[0]:
+                        hom_latch = (
+                            eff_l_next
+                            if eff_l_prev != eff_l_next
+                            else f"d4_latch_{d4_sig_induced[1]}_{d4_sig_induced[2]}"
+                        )
+                        self.d4_latch_homomorphism_table[d4_sig_induced] = {
+                            "target_latch": hom_latch,
+                            "eta_nonlocal": max(float(eta_nl), 0.50),
+                            "trigger_colors": trig_cols,
+                            "toggled_colors": toggled_cols,
+                        }
 
         eff_cost = max(0.01, float(cost))
         self.action_edges[(u, action_key)] = v
@@ -3346,6 +3675,7 @@ class TropicalStateLatchSheaf:
                 eta_nonlocal=eta_nl,
                 trigger_colors=trig_cols,
                 toggled_colors=toggled_cols,
+                d4_sprite_tuple=d4_sig_induced,
             )
             self._dirty = True
         else:
@@ -8296,6 +8626,12 @@ class DarkSnailArc3WorldModel(nn.Module):
         sh = self.splitter.hash_nope(arr)
         if self.initial_state_hash is None:
             self.initial_state_hash = sh
+            if hasattr(self, "tropical_sheaf"):
+                self.seeded_d4_latch_bindings: List[Dict[str, Any]] = (
+                    self.tropical_sheaf.seed_level_from_d4_homomorphism(
+                        arr, clock_mask=self.splitter.clock_mask
+                    )
+                )
         if sh not in self.state_frames:
             self.state_frames[sh] = arr.copy()
             self.state_first_step[sh] = int(step_idx)

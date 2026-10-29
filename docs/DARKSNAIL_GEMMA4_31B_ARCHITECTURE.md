@@ -173,7 +173,14 @@ S_{\mathrm{tok}} = \sqrt{S_{\mathrm{ref}}^2 - A_{\mathrm{ref}}}, \qquad 2 \le S_
   from container-enclosed solid constants, call rings, and receptor slots ($S_{\mathrm{slot}} < S_{\mathrm{tok}}$), solving the recursive sheaf tree expansion `_expand_box` to win all `8 / 8` levels of `sb26` in `124` actions (`100.0%` RHAE).
 * **Primitive E (`TropicalStateLatchSheaf` & Six First-Principles** $\mathrm{SE}(2) \times \mathrm{FSA}$ **Algebraic Solvers `solve_se2_fsa_plan`)**:
   Computes the Tropical Min-Plus Kleene Closure $\mathbf C^\ast = \bigoplus_{m=0}^{N-1} \mathbf C^{\otimes m}$ over the tropical semiring
-  $\mathcal S_{\mathrm{trop}} = (\mathbb R \cup \lbrace +\infty \rbrace, \min, +)$ (`tropical_min_plus_matmul`, `tropical_kleene_closure`, `7,420` tropical rules, `57` FSA latch states) and dispatches over six universal algebraic/geometric group solvers in `RelationalOperatorDreamer.solve_se2_fsa_plan`:
+  $\mathcal S_{\mathrm{trop}} = (\mathbb R \cup \lbrace +\infty \rbrace, \min, +)$ (`tropical_min_plus_matmul`, `tropical_kleene_closure`, `7,420` tropical rules, `57` FSA latch states), augmented with:
+  - **Order-2 Tropical Conjunctions (`pairwise_latch_tensor`)**: tracks single-latch empirical conductance variance
+    $\mathrm{Var}(c(e) \mid s_a)$ (`single_latch_variance`, `observe_single_latch_conductance`) and promotes any coboundary edge $e$ with conflicting single-latch observations ($\lbrace 0.0, 1.0 \rbrace$) to pairwise minimal witnesses
+    $(s_a, s_b) \in \mathrm{FSA}^2 \to \Delta c(e)$ (`observe_order2_conjunction`, `query_order2_conductance`) in $\mathcal O(\lvert \mathrm{FSA} \rvert^2)$ integer operations, and
+  - **Cross-Level Latch-Homomorphism Seeding (`d4_latch_homomorphism_table`)**: indexes proven non-local causal latches
+    ($\eta_{\mathrm{nonlocal}} \ge 0.50$ or discrete latch transitions) by their translation-free canonical
+    $D_4$ sprite/color tuple `canonical_d4_sprite_tuple` rather than raw $(y, x)$ coordinates (`seed_level_from_d4_homomorphism`), enabling `L1..Lk` Frame-0 transfer when switch coordinates shift across level layouts.
+  Dispatches over six universal algebraic/geometric group solvers in `RelationalOperatorDreamer.solve_se2_fsa_plan`:
   1. `_solve_coupled_pick_and_place_plan` (`wa30` `5/9`),
   2. `_solve_multisprite_kick_cavity_plan` (`ka59` `2/7`),
   3. `_solve_d4_glyph_monoid_homomorphism_plan` (`tr87` `6/6 WIN` in `216` actions),

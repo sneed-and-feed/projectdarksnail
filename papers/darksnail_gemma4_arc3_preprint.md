@@ -602,7 +602,15 @@ tropical matrix multiplication $\mathbf A \otimes \mathbf B$ and the exact all-p
 ```
 
 [`TropicalStateLatchSheaf`](../darksnail/arc3.py) (`7,420` tropical rules and `57` FSA latch states induced across the 25-game benchmark) extracts non-local latch signatures $q_t \in \mathcal Q_{\mathrm{FSA}}$
-from the invariant submanifold $\mathcal H_{\mathrm{nope}}$ (`extract_latch_signature`), updates tropical transition precondition rules `(act_sig, pre_latch) -> (post_latch, effect_mag)` online from every observed transition (`observe_transition`), and evaluates tropical shortest-path reachability via `tropical_kleene_closure` to unlock downstream actuators (`get_tropical_actuator_bonus`) and synthesize multi-step latch-unlocking sequences (`plan_tropical_latch_sequence`).
+from the invariant submanifold $\mathcal H_{\mathrm{nope}}$ (`extract_fsa_latch_signature`), updates tropical transition precondition rules `(act_sig, pre_latch) -> (post_latch, effect_mag)` online from every observed transition (`observe_transition`), and evaluates tropical shortest-path reachability via `tropical_kleene_closure` (`compute_all_pairs_shortest_paths`, `shortest_tropical_path`). In addition, [`TropicalStateLatchSheaf`](../darksnail/arc3.py) includes two higher-order sheaf mechanisms:
+* **Order-2 Tropical Conjunctions (`pairwise_latch_tensor`)**: tracks empirical single-latch conductance variance
+  $\mathrm{Var}(c(e) \mid s_a)$ (`single_latch_variance`, `observe_single_latch_conductance`) across observed barrier transitions and promotes any coboundary edge $e$ with positive single-latch variance
+  to a symmetric pairwise latch witness tensor
+  $\mathcal T_{a, b \to e}$ over
+  $(s_a, s_b) \in \mathrm{FSA}^2$ (`observe_order2_conjunction`, `query_order2_conductance`), resolving order-2 Boolean/tropical conjunction gates in $\mathcal O(\lvert \mathrm{FSA} \rvert^2)$ integer operations.
+* **Cross-Level Latch-Homomorphism Seeding (`d4_latch_homomorphism_table`)**: indexes proven non-local causal latches
+  with $\eta_{\mathrm{nonlocal}} \ge 0.50$ or discrete latch transitions by their translation-free
+  canonical $D_4$ sprite/color tuple (`canonical_d4_sprite_tuple`) rather than raw $(y, x)$ grid coordinates, allowing [`seed_level_from_d4_homomorphism`](../darksnail/arc3.py) to transfer the induced FSA conductance table onto shifted switch coordinates on Frame 0 of levels `L1..Lk`.
 
 #### 2. Six First-Principles $\mathrm{SE}(2) \times \mathrm{FSA}$ Algebraic Solvers (`solve_se2_fsa_plan`)
 When `RelationalOperatorDreamer.solve_se2_fsa_plan` inspects the topological decomposition of a frame $F_t$, it dispatches over six universal algebraic/geometric group solvers:
