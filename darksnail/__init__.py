@@ -9,7 +9,7 @@ Exports the core modules of Project DarkSnail V2:
 - `antenna`: `ZenoAmygdalaController`, `DarkSnailSchedule`, `DarkSnailSystem2Adaptor`
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .antenna import (
     DarkSnailSchedule,
